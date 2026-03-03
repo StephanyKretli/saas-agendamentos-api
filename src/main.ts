@@ -1,13 +1,20 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common'; // 👈 adicionar
 
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // (Opcional, mas recomendado) prefixo global:
-  // app.setGlobalPrefix('api');
+  // 👇 ADICIONE AQUI
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,      // remove campos extras
+      transform: true,      // transforma tipos automaticamente
+      forbidNonWhitelisted: true, // opcional (mais rígido)
+    }),
+  );
 
   const config = new DocumentBuilder()
     .setTitle('SaaS Agendamentos API')
@@ -21,7 +28,7 @@ async function bootstrap() {
         name: 'Authorization',
         in: 'header',
       },
-      'jwt', // nome do security scheme
+      'jwt',
     )
     .build();
 

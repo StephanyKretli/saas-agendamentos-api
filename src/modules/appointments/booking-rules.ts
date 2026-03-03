@@ -1,0 +1,1 @@
+export const MIN_LEAD_MINUTES = 30; // antecedência mínima

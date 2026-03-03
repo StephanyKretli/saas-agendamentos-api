@@ -3,6 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
 import { isWithinBusinessHours } from "./business-hours";
 import { parseLocalISO } from '../../common/date/parse-local-iso';
+import { MIN_LEAD_MINUTES } from './booking-rules';
 
 @Injectable()
 export class AppointmentsService {
@@ -12,6 +13,20 @@ export class AppointmentsService {
   const start = parseLocalISO(dto.date);
   if (Number.isNaN(start.getTime())) {
     throw new BadRequestException('Data inválida.');
+  }
+
+  const now = new Date();
+  // bloqueia passado (qualquer horário anterior ao momento atual)
+  if (start.getTime() <= now.getTime()) {
+    throw new BadRequestException('Não é possível agendar no passado.');
+  }
+
+  // antecedência mínima
+  const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
+  if (start.getTime() < minStart.getTime()) {
+    throw new BadRequestException(
+      `Agende com pelo menos ${MIN_LEAD_MINUTES} minutos de antecedência.`,
+    );
   }
 
   // 1) valida serviço + ownership e pega duração

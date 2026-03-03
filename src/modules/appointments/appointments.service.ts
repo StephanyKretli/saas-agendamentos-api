@@ -7,34 +7,59 @@ export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateAppointmentDto) {
-    const date = new Date(dto.date);
+    const start = new Date(dto.date);
 
-    // 1) valida se o serviço existe e pertence ao usuário logado
+    // 1) valida serviço e pega duração
     const service = await this.prisma.service.findFirst({
       where: { id: dto.serviceId, userId },
-      select: { id: true },
+      select: { id: true, duration: true },
     });
 
     if (!service) {
       throw new BadRequestException('Serviço inválido.');
     }
 
-    // 2) regra simples: não permitir 2 agendamentos no mesmo instante
-    const conflict = await this.prisma.appointment.findFirst({
-      where: { date },
-      select: { id: true },
+    const end = new Date(start.getTime() + service.duration * 60_000);
+
+    // 2) busca possíveis conflitos (janela de tempo)
+    // pega agendamentos do usuário que começam no mesmo dia (ou perto)
+    // (simples e eficiente para MVP)
+    const windowStart = new Date(start.getTime() - 24 * 60 * 60_000);
+    const windowEnd = new Date(end.getTime() + 24 * 60 * 60_000);
+
+    const existing = await this.prisma.appointment.findMany({
+      where: {
+        userId,
+        date: {
+          gte: windowStart,
+          lte: windowEnd,
+        },
+      },
+      select: {
+        id: true,
+        date: true,
+        service: { select: { duration: true } },
+      },
     });
 
-    if (conflict) {
-      throw new BadRequestException('Já existe um agendamento nesse horário.');
+    // 3) verifica sobreposição
+    const hasConflict = existing.some((a) => {
+      const aStart = new Date(a.date);
+      const aEnd = new Date(aStart.getTime() + a.service.duration * 60_000);
+
+      return aStart < end && aEnd > start;
+    });
+
+    if (hasConflict) {
+      throw new BadRequestException('Conflito de horário: já existe um agendamento nesse intervalo.');
     }
 
-    // 3) cria o agendamento vinculado ao serviço
+    // 4) cria
     return this.prisma.appointment.create({
       data: {
         userId,
         serviceId: dto.serviceId,
-        date,
+        date: start,
         notes: dto.notes,
       },
       select: {
@@ -42,9 +67,7 @@ export class AppointmentsService {
         date: true,
         notes: true,
         createdAt: true,
-        service: {
-          select: { id: true, name: true, duration: true, priceCents: true },
-        },
+        service: { select: { id: true, name: true, duration: true, priceCents: true } },
       },
     });
   }
@@ -58,9 +81,7 @@ export class AppointmentsService {
         date: true,
         notes: true,
         createdAt: true,
-        service: {
-          select: { id: true, name: true, duration: true, priceCents: true },
-        },
+        service: { select: { id: true, name: true, duration: true, priceCents: true } },
       },
     });
   }

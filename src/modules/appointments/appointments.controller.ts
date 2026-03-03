@@ -2,7 +2,10 @@ import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('Appointments')
+@ApiBearerAuth('jwt')   // 👈 isso aqui é o que faz o Swagger anexar o token
 @Controller('appointments')
 @UseGuards(JwtAuthGuard)
 export class AppointmentsController {

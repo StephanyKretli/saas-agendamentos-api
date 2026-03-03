@@ -6,7 +6,10 @@ const prisma = new PrismaClient();
 async function main() {
   const email = 'admin@local.test';
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await prisma.user.findUnique({
+    where: { email },
+  });
+
   if (existing) {
     console.log('✅ Admin já existe:', email);
     return;
@@ -21,7 +24,12 @@ async function main() {
       password: passwordHash,
       role: 'ADMIN',
     },
-    select: { id: true, name: true, email: true, role: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
   });
 
   console.log('✅ Admin criado:', admin);

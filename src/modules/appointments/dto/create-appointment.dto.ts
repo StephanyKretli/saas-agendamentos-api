@@ -1,11 +1,11 @@
-import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsISO8601, IsOptional, IsString, IsUUID } from "class-validator";
 
 export class CreateAppointmentDto {
   @IsUUID()
-  serviceId!: string;
+  serviceId: string;
 
-  @IsDateString()
-  date!: string;
+  @IsISO8601()
+  date: string;
 
   @IsOptional()
   @IsString()

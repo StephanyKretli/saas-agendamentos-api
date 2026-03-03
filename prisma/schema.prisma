@@ -8,27 +8,45 @@ datasource db {
 }
 
 model User {
-  id        String        @id @default(uuid())
-  name      String
-  email     String        @unique
-  password  String
-  role      Role          @default(USER)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  password     String
+  role         Role          @default(USER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   appointments Appointment[]
+  services     Service[]
+}
+
+model Service {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  duration  Int      // minutos (ex: 30, 60)
+  priceCents Int     // evita float (ex: 4900 = R$ 49,00)
+  createdAt DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id])
+  appointments Appointment[]
+
+  @@index([userId])
 }
 
 model Appointment {
   id        String   @id @default(uuid())
   userId    String
+  serviceId String
   date      DateTime
   notes     String?
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
 
   @@index([userId])
+  @@index([serviceId])
   @@index([date])
 }
 

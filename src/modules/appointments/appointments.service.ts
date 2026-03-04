@@ -201,6 +201,14 @@ export class AppointmentsService {
     if (!service) throw new BadRequestException('Serviço inválido.');
 
     const dayStart = startOfDayLocal(date);
+    const blocked = await this.prisma.blockedDate.findFirst({
+    where: { userId, date: dayStart },
+    select: { id: true, reason: true },
+  });
+
+if (blocked) {
+  return { date, step: stepMinutes, slots: [] as string[] };
+}
     const dayEnd = new Date(dayStart);
     dayEnd.setHours(23, 59, 59, 999);
 

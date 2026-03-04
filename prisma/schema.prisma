@@ -15,6 +15,7 @@ model User {
   role         Role          @default(USER)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  blockedDates BlockedDate[]
 
   appointments Appointment[]
   services     Service[]
@@ -48,6 +49,20 @@ model Appointment {
 
   @@index([userId])
   @@index([serviceId])
+  @@index([date])
+}
+
+model BlockedDate {
+  id        String   @id @default(uuid())
+  userId    String
+  date      DateTime // guardaremos como "início do dia" local
+  reason    String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([userId])
   @@index([date])
 }
 

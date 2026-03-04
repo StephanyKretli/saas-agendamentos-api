@@ -10,6 +10,7 @@ import { AppointmentsService } from './appointments.service';
 export class AvailabilityController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
+  // /availability?serviceId=...&date=YYYY-MM-DD&step=30
   @Get()
   getAvailability(
     @Req() req: any,
@@ -18,22 +19,17 @@ export class AvailabilityController {
     @Query('step') step?: string,
   ) {
     const stepMinutes = step ? Number(step) : 30;
-    return this.appointmentsService.getAvailability(
-      req.user.id,
-      serviceId,
-      date,
-      stepMinutes,
-    );
+    return this.appointmentsService.getAvailability(req.user.id, serviceId, date, stepMinutes);
   }
 
-  // 🆕 disponibilidade de 7 dias
+  // /availability/week?serviceId=...&startDate=YYYY-MM-DD&days=7&step=30
   @Get('week')
   getWeekAvailability(
     @Req() req: any,
     @Query('serviceId') serviceId: string,
-    @Query('startDate') startDate?: string, // YYYY-MM-DD (opcional)
-    @Query('days') days?: string, // padrão 7
-    @Query('step') step?: string, // padrão 30
+    @Query('startDate') startDate?: string,
+    @Query('days') days?: string,
+    @Query('step') step?: string,
   ) {
     const stepMinutes = step ? Number(step) : 30;
     const totalDays = days ? Number(days) : 7;

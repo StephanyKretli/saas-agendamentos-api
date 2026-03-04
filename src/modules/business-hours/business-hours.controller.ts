@@ -5,6 +5,7 @@ import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
 import { CreateBusinessHourDto } from './dto/create-business-hour.dto';
 import { Patch } from '@nestjs/common';
 import { CreateBusinessHoursBulkDto } from './dto/create-business-hours-bulk.dto';
+import { ApplyBusinessHoursTemplateDto } from './dto/apply-business-hours-template.dto';
 
 @ApiTags('BusinessHours')
 @ApiBearerAuth('jwt')
@@ -49,4 +50,15 @@ export class BusinessHoursController {
   delete(@Req() req: any, @Param('id') id: string) {
     return this.service.delete(req.user.id, id);
   }
+
+  @Post('apply-template')
+  applyTemplate(@Req() req: any, @Body() dto: ApplyBusinessHoursTemplateDto) {
+    return this.service.applyTemplate(
+      req.user.id,
+      dto.sourceWeekday,
+      dto.targetWeekdays,
+      dto.replace ?? false,
+    );
+  }
+
 }

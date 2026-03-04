@@ -144,6 +144,97 @@ export class BusinessHoursService {
     });
   }
 
+  async applyTemplate(
+  userId: string,
+  sourceWeekday: number,
+  targetWeekdays: number[],
+  replace = false,
+) {
+  // validações básicas
+  if (!Number.isInteger(sourceWeekday) || sourceWeekday < 0 || sourceWeekday > 6) {
+    throw new BadRequestException('sourceWeekday inválido (0=Dom, 6=Sáb).');
+  }
+  if (!Array.isArray(targetWeekdays) || targetWeekdays.length === 0) {
+    throw new BadRequestException('targetWeekdays é obrigatório.');
+  }
+
+  const uniqueTargets = Array.from(new Set(targetWeekdays)).filter((d) => d !== sourceWeekday);
+
+  uniqueTargets.forEach((d) => {
+    if (!Number.isInteger(d) || d < 0 || d > 6) {
+      throw new BadRequestException('targetWeekdays contém weekday inválido.');
+    }
+  });
+
+  // pega os ranges do dia origem
+  const sourceRanges = await this.prisma.businessHour.findMany({
+    where: { userId, weekday: sourceWeekday },
+    select: { start: true, end: true },
+    orderBy: { start: 'asc' },
+  });
+
+  if (sourceRanges.length === 0) {
+    throw new BadRequestException('Dia de origem não possui horários cadastrados.');
+  }
+
+  // se replace=true, apaga horários dos dias-alvo antes
+  if (replace) {
+    await this.prisma.businessHour.deleteMany({
+      where: {
+        userId,
+        weekday: { in: uniqueTargets },
+      },
+    });
+  }
+
+  // valida sobreposição em cada dia-alvo (se replace=false)
+  if (!replace) {
+    for (const weekday of uniqueTargets) {
+      const existing = await this.prisma.businessHour.findMany({
+        where: { userId, weekday },
+        select: { start: true, end: true },
+      });
+
+      // checa se algum range do source cruza com algum range existente do target
+      const hasOverlap = sourceRanges.some((src) => {
+        const srcStart = hhmmToMinutes(src.start);
+        const srcEnd = hhmmToMinutes(src.end);
+
+        return existing.some((ex) => {
+          const exStart = hhmmToMinutes(ex.start);
+          const exEnd = hhmmToMinutes(ex.end);
+          return rangesOverlap(srcStart, srcEnd, exStart, exEnd);
+        });
+      });
+
+      if (hasOverlap) {
+        throw new BadRequestException(
+          `Conflito: os horários do dia origem sobrepõem horários já existentes no weekday ${weekday}. Use replace=true para sobrescrever.`,
+        );
+      }
+    }
+  }
+
+  // monta payload para inserir em massa
+  const data = uniqueTargets.flatMap((weekday) =>
+    sourceRanges.map((r) => ({
+      userId,
+      weekday,
+      start: r.start,
+      end: r.end,
+    })),
+  );
+
+  const result = await this.prisma.businessHour.createMany({ data });
+
+  return {
+    sourceWeekday,
+    targetWeekdays: uniqueTargets,
+    replace,
+    created: result.count,
+  };
+}
+
   async delete(userId: string, id: string) {
     const exists = await this.prisma.businessHour.findFirst({
       where: { id, userId },

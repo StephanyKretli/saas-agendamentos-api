@@ -1,0 +1,1 @@
+export const MIN_CANCEL_LEAD_MINUTES = 120; // 2h antes (ajuste se quiser)

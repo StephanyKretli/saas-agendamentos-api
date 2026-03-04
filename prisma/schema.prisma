@@ -41,6 +41,7 @@ model Appointment {
   date      DateTime
   notes     String?
   createdAt DateTime @default(now())
+  status AppointmentStatus @default(SCHEDULED)
 
   user    User    @relation(fields: [userId], references: [id])
   service Service @relation(fields: [serviceId], references: [id])
@@ -48,6 +49,12 @@ model Appointment {
   @@index([userId])
   @@index([serviceId])
   @@index([date])
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CANCELED
+  COMPLETED
 }
 
 enum Role {

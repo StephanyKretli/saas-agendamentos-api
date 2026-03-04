@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Appointments')
-@ApiBearerAuth('jwt')   // 👈 isso aqui é o que faz o Swagger anexar o token
+@ApiBearerAuth('jwt')
 @Controller('appointments')
 @UseGuards(JwtAuthGuard)
 export class AppointmentsController {
@@ -19,5 +19,10 @@ export class AppointmentsController {
   @Get('me')
   findMine(@Req() req: any) {
     return this.appointmentsService.findMine(req.user.id);
+  }
+
+  @Patch(':id/cancel')
+  cancel(@Req() req: any, @Param('id') id: string) {
+    return this.appointmentsService.cancel(req.user.id, id);
   }
 }

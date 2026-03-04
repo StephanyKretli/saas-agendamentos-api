@@ -4,6 +4,7 @@ import { CreateAppointmentDto } from "./dto/create-appointment.dto";
 import { isWithinBusinessHours } from "./business-hours";
 import { parseLocalISO } from '../../common/date/parse-local-iso';
 import { MIN_LEAD_MINUTES } from './booking-rules';
+import { MIN_CANCEL_LEAD_MINUTES } from './cancel-rules';
 
 @Injectable()
 export class AppointmentsService {
@@ -120,6 +121,50 @@ export class AppointmentsService {
       },
     });
   }
+
+  async cancel(userId: string, appointmentId: string) {
+  const appt = await this.prisma.appointment.findFirst({
+    where: { id: appointmentId, userId },
+    select: { id: true, date: true, status: true },
+  });
+
+  if (!appt) {
+    throw new BadRequestException('Agendamento não encontrado.');
+  }
+
+  if (appt.status !== 'SCHEDULED') {
+    throw new BadRequestException('Só é possível cancelar agendamentos ativos.');
+  }
+
+  const now = new Date();
+  const start = new Date(appt.date);
+
+  // não pode cancelar se já começou (ou passou)
+  if (start.getTime() <= now.getTime()) {
+    throw new BadRequestException('Não é possível cancelar após o início do agendamento.');
+  }
+
+  // antecedência mínima pra cancelar
+  const minCancelTime = new Date(now.getTime() + MIN_CANCEL_LEAD_MINUTES * 60_000);
+  if (start.getTime() < minCancelTime.getTime()) {
+    throw new BadRequestException(
+      `Cancelamento permitido somente com ${MIN_CANCEL_LEAD_MINUTES} minutos de antecedência.`,
+    );
+  }
+
+  return this.prisma.appointment.update({
+    where: { id: appt.id },
+    data: { status: 'CANCELED' },
+    select: {
+      id: true,
+      date: true,
+      status: true,
+      notes: true,
+      createdAt: true,
+      service: { select: { id: true, name: true, duration: true, priceCents: true } },
+    },
+  });
+}
 
   async findMine(userId: string) {
     return this.prisma.appointment.findMany({

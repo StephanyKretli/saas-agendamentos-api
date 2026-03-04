@@ -3,6 +3,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BusinessHoursService } from './business-hours.service';
 import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
 import { CreateBusinessHourDto } from './dto/create-business-hour.dto';
+import { Patch } from '@nestjs/common';
+import { CreateBusinessHoursBulkDto } from './dto/create-business-hours-bulk.dto';
 
 @ApiTags('BusinessHours')
 @ApiBearerAuth('jwt')
@@ -17,9 +19,30 @@ export class BusinessHoursController {
     return this.service.create(req.user.id, dto.weekday, dto.start, dto.end);
   }
 
+  @Patch(':id')
+  update(@Req() req: any, @Param('id') id: string, @Body() dto: CreateBusinessHourDto) {
+    return this.service.update(
+      req.user.id,
+      id,
+      dto.weekday,
+      dto.start,
+      dto.end,
+    );
+  }
+
   @Get()
   findAll(@Req() req: any) {
     return this.service.findAll(req.user.id);
+  }
+
+  @Post('bulk')
+  createBulk(@Req() req: any, @Body() dto: CreateBusinessHoursBulkDto) {
+    return this.service.createBulk(
+      req.user.id,
+      dto.weekdays,
+      dto.start,
+      dto.end,
+    );
   }
 
   @Delete(':id')

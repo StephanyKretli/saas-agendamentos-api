@@ -16,6 +16,7 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   blockedDates BlockedDate[]
+  businessHours BusinessHour[]
 
   appointments Appointment[]
   services     Service[]
@@ -64,6 +65,20 @@ model BlockedDate {
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
+}
+
+model BusinessHour {
+  id        String   @id @default(uuid())
+  userId    String
+  weekday   Int      // 0 = domingo ... 6 = sábado
+  start     String   // "09:00"
+  end       String   // "18:00"
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([weekday])
 }
 
 enum AppointmentStatus {

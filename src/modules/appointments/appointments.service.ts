@@ -214,7 +214,16 @@ if (blocked) {
 
     // janelas do dia (com almoço, sábado, etc.)
     const weekday = dayStart.getDay() as Weekday;
-    const ranges = BUSINESS_HOURS[weekday];
+    const ranges = await this.prisma.businessHour.findMany({
+    where: {
+      userId,
+      weekday,
+    },
+    select: {
+      start: true,
+      end: true,
+    },
+  });
     if (!ranges || ranges.length === 0) {
       return { date, step: stepMinutes, slots: [] as string[] };
     }

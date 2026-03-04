@@ -1,175 +1,272 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { PrismaService } from "../../prisma/prisma.service";
-import { CreateAppointmentDto } from "./dto/create-appointment.dto";
-import { isWithinBusinessHours } from "./business-hours";
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { BUSINESS_HOURS, isWithinBusinessHours, Weekday } from './business-hours';
 import { parseLocalISO } from '../../common/date/parse-local-iso';
 import { MIN_LEAD_MINUTES } from './booking-rules';
 import { MIN_CANCEL_LEAD_MINUTES } from './cancel-rules';
+
+function pad(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function minutesToHHMM(total: number) {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${pad(h)}:${pad(m)}`;
+}
+
+function hhmmToMinutes(hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function startOfDayLocal(yyyyMmDd: string) {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
 
 @Injectable()
 export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateAppointmentDto) {
-  const start = parseLocalISO(dto.date);
-  if (Number.isNaN(start.getTime())) {
-    throw new BadRequestException('Data inválida.');
-  }
+    const start = parseLocalISO(dto.date);
+    if (Number.isNaN(start.getTime())) {
+      throw new BadRequestException('Data inválida.');
+    }
 
-  const now = new Date();
-  // bloqueia passado (qualquer horário anterior ao momento atual)
-  if (start.getTime() <= now.getTime()) {
-    throw new BadRequestException('Não é possível agendar no passado.');
-  }
+    const now = new Date();
 
-  // antecedência mínima
-  const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
-  if (start.getTime() < minStart.getTime()) {
-    throw new BadRequestException(
-      `Agende com pelo menos ${MIN_LEAD_MINUTES} minutos de antecedência.`,
-    );
-  }
+    // bloqueia passado
+    if (start.getTime() <= now.getTime()) {
+      throw new BadRequestException('Não é possível agendar no passado.');
+    }
 
-  // 1) valida serviço + ownership e pega duração
-  const service = await this.prisma.service.findFirst({
-    where: { id: dto.serviceId, userId },
-    select: { id: true, duration: true },
-  });
+    // antecedência mínima
+    const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
+    if (start.getTime() < minStart.getTime()) {
+      throw new BadRequestException(
+        `Agende com pelo menos ${MIN_LEAD_MINUTES} minutos de antecedência.`,
+      );
+    }
 
-  if (!service) {
-    throw new BadRequestException('Serviço inválido.');
-  }
+    // valida serviço + ownership e pega duração
+    const service = await this.prisma.service.findFirst({
+      where: { id: dto.serviceId, userId },
+      select: { id: true, duration: true },
+    });
 
-  // 2) valida horário de funcionamento (start e end precisam caber)
-  const ok = isWithinBusinessHours(start, service.duration);
-  if (!ok) {
-    throw new BadRequestException(
-      'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
-    );
-  }
+    if (!service) {
+      throw new BadRequestException('Serviço inválido.');
+    }
 
-  const end = new Date(start.getTime() + service.duration * 60_000);
+    // valida horário de funcionamento (start e end precisam caber)
+    const ok = isWithinBusinessHours(start, service.duration);
+    if (!ok) {
+      throw new BadRequestException(
+        'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
+      );
+    }
 
-  // 3) busca agendamentos do usuário em uma janela curta (mesmo dia)
-  const dayStart = new Date(start);
-  dayStart.setHours(0, 0, 0, 0);
+    const end = new Date(start.getTime() + service.duration * 60_000);
 
-  const dayEnd = new Date(start);
-  dayEnd.setHours(23, 59, 59, 999);
+    // busca agendamentos do usuário no mesmo dia (ignora cancelados)
+    const dayStart = new Date(start);
+    dayStart.setHours(0, 0, 0, 0);
 
-  const existing = await this.prisma.appointment.findMany({
-    where: {
-      userId,
-      date: {
-        gte: dayStart,
-        lte: dayEnd,
+    const dayEnd = new Date(start);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const existing = await this.prisma.appointment.findMany({
+      where: {
+        userId,
+        status: 'SCHEDULED',
+        date: { gte: dayStart, lte: dayEnd },
       },
-    },
-    select: {
-      id: true,
-      date: true,
-      service: { select: { duration: true } },
-    },
-  });
+      select: {
+        date: true,
+        service: { select: { duration: true } },
+      },
+    });
 
-  // 4) conflito por sobreposição de intervalos
-  const hasConflict = existing.some((a) => {
-    const aStart = new Date(a.date);
-    const aEnd = new Date(aStart.getTime() + a.service.duration * 60_000);
-    return aStart < end && aEnd > start;
-  });
+    // conflito por sobreposição de intervalos
+    const hasConflict = existing.some((a) => {
+      const aStart = new Date(a.date);
+      const aEnd = new Date(aStart.getTime() + a.service.duration * 60_000);
+      return aStart < end && aEnd > start;
+    });
 
-  if (hasConflict) {
-    throw new BadRequestException(
-      'Conflito de horário: já existe um agendamento nesse intervalo.',
-    );
-  }
+    if (hasConflict) {
+      throw new BadRequestException(
+        'Conflito de horário: já existe um agendamento nesse intervalo.',
+      );
+    }
 
-  // 5) cria
-  return this.prisma.appointment.create({
-    data: {
-      userId,
-      serviceId: dto.serviceId,
-      date: start,
-      notes: dto.notes,
-    },
-    select: {
-      id: true,
-      date: true,
-      notes: true,
-      createdAt: true,
-      service: { select: { id: true, name: true, duration: true, priceCents: true } },
-    },
-  });
-
-    // regra: não permitir conflito no intervalo (você já ajustou)
-    // ... sua lógica de conflito aqui ...
-
+    // cria
     return this.prisma.appointment.create({
       data: {
         userId,
         serviceId: dto.serviceId,
         date: start,
         notes: dto.notes,
+        status: 'SCHEDULED',
       },
       select: {
         id: true,
         date: true,
         notes: true,
-        serviceId: true,
+        status: true,
         createdAt: true,
+        service: { select: { id: true, name: true, duration: true, priceCents: true } },
       },
     });
   }
 
   async cancel(userId: string, appointmentId: string) {
-  const appt = await this.prisma.appointment.findFirst({
-    where: { id: appointmentId, userId },
-    select: { id: true, date: true, status: true },
-  });
+    const appt = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, userId },
+      select: { id: true, date: true, status: true },
+    });
 
-  if (!appt) {
-    throw new BadRequestException('Agendamento não encontrado.');
+    if (!appt) {
+      throw new BadRequestException('Agendamento não encontrado.');
+    }
+
+    if (appt.status !== 'SCHEDULED') {
+      throw new BadRequestException('Só é possível cancelar agendamentos ativos.');
+    }
+
+    const now = new Date();
+    const start = new Date(appt.date);
+
+    // não pode cancelar se já começou (ou passou)
+    if (start.getTime() <= now.getTime()) {
+      throw new BadRequestException('Não é possível cancelar após o início do agendamento.');
+    }
+
+    // antecedência mínima pra cancelar
+    const minCancelTime = new Date(now.getTime() + MIN_CANCEL_LEAD_MINUTES * 60_000);
+    if (start.getTime() < minCancelTime.getTime()) {
+      throw new BadRequestException(
+        `Cancelamento permitido somente com ${MIN_CANCEL_LEAD_MINUTES} minutos de antecedência.`,
+      );
+    }
+
+    return this.prisma.appointment.update({
+      where: { id: appt.id },
+      data: { status: 'CANCELED' },
+      select: {
+        id: true,
+        date: true,
+        status: true,
+        notes: true,
+        createdAt: true,
+        service: { select: { id: true, name: true, duration: true, priceCents: true } },
+      },
+    });
   }
-
-  if (appt.status !== 'SCHEDULED') {
-    throw new BadRequestException('Só é possível cancelar agendamentos ativos.');
-  }
-
-  const now = new Date();
-  const start = new Date(appt.date);
-
-  // não pode cancelar se já começou (ou passou)
-  if (start.getTime() <= now.getTime()) {
-    throw new BadRequestException('Não é possível cancelar após o início do agendamento.');
-  }
-
-  // antecedência mínima pra cancelar
-  const minCancelTime = new Date(now.getTime() + MIN_CANCEL_LEAD_MINUTES * 60_000);
-  if (start.getTime() < minCancelTime.getTime()) {
-    throw new BadRequestException(
-      `Cancelamento permitido somente com ${MIN_CANCEL_LEAD_MINUTES} minutos de antecedência.`,
-    );
-  }
-
-  return this.prisma.appointment.update({
-    where: { id: appt.id },
-    data: { status: 'CANCELED' },
-    select: {
-      id: true,
-      date: true,
-      status: true,
-      notes: true,
-      createdAt: true,
-      service: { select: { id: true, name: true, duration: true, priceCents: true } },
-    },
-  });
-}
 
   async findMine(userId: string) {
     return this.prisma.appointment.findMany({
       where: { userId },
-      orderBy: { date: "asc" },
+      orderBy: { date: 'asc' },
+      select: {
+        id: true,
+        date: true,
+        notes: true,
+        status: true,
+        createdAt: true,
+        service: { select: { id: true, name: true, duration: true, priceCents: true } },
+      },
     });
+  }
+
+  async getAvailability(userId: string, serviceId: string, date: string, stepMinutes = 30) {
+    if (!serviceId) throw new BadRequestException('serviceId é obrigatório.');
+    if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date inválido. Use YYYY-MM-DD.');
+    }
+    if (!Number.isFinite(stepMinutes) || stepMinutes < 5 || stepMinutes > 120) {
+      throw new BadRequestException('step inválido (5 a 120).');
+    }
+
+    // valida serviço (ownership) e pega duração
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, userId },
+      select: { duration: true },
+    });
+    if (!service) throw new BadRequestException('Serviço inválido.');
+
+    const dayStart = startOfDayLocal(date);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // janelas do dia (com almoço, sábado, etc.)
+    const weekday = dayStart.getDay() as Weekday;
+    const ranges = BUSINESS_HOURS[weekday];
+    if (!ranges || ranges.length === 0) {
+      return { date, step: stepMinutes, slots: [] as string[] };
+    }
+
+    // agendamentos do dia (ignora cancelados)
+    const existing = await this.prisma.appointment.findMany({
+      where: {
+        userId,
+        status: 'SCHEDULED',
+        date: { gte: dayStart, lte: dayEnd },
+      },
+      select: {
+        date: true,
+        service: { select: { duration: true } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // intervalos ocupados em minutos do dia
+    const busy = existing.map((a) => {
+      const s = new Date(a.date);
+      const startMin = s.getHours() * 60 + s.getMinutes();
+      const endMin = startMin + a.service.duration;
+      return { startMin, endMin };
+    });
+
+    // se for hoje, respeita antecedência mínima
+    const now = new Date();
+    const isToday =
+      now.getFullYear() === dayStart.getFullYear() &&
+      now.getMonth() === dayStart.getMonth() &&
+      now.getDate() === dayStart.getDate();
+
+    const minStartMin = isToday ? now.getHours() * 60 + now.getMinutes() + MIN_LEAD_MINUTES : -Infinity;
+
+    const slots: string[] = [];
+
+    for (const r of ranges) {
+      const rStart = hhmmToMinutes(r.start);
+      const rEnd = hhmmToMinutes(r.end);
+
+      // alinha no step (ex: 30 em 30)
+      let t = rStart;
+      if (t % stepMinutes !== 0) t = t + (stepMinutes - (t % stepMinutes));
+
+      for (; t + service.duration <= rEnd; t += stepMinutes) {
+        if (t < minStartMin) continue;
+
+        // dupla validação com função já existente
+        const slotStartDate = new Date(dayStart);
+        slotStartDate.setHours(Math.floor(t / 60), t % 60, 0, 0);
+
+        if (!isWithinBusinessHours(slotStartDate, service.duration)) continue;
+
+        const slotEnd = t + service.duration;
+
+        const conflict = busy.some((b) => b.startMin < slotEnd && b.endMin > t);
+        if (!conflict) slots.push(minutesToHHMM(t));
+      }
+    }
+
+    return { date, step: stepMinutes, slots };
   }
 }

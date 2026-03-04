@@ -266,8 +266,64 @@ export class AppointmentsService {
         const conflict = busy.some((b) => b.startMin < slotEnd && b.endMin > t);
         if (!conflict) slots.push(minutesToHHMM(t));
       }
+
+
     }
 
     return { date, step: stepMinutes, slots };
+
   }
+
+  async getWeekAvailability(
+  userId: string,
+  serviceId: string,
+  startDate?: string,
+  days = 7,
+  stepMinutes = 30,
+) {
+  if (!serviceId) {
+    throw new BadRequestException('serviceId é obrigatório.');
+  }
+
+  if (!Number.isFinite(days) || days < 1 || days > 31) {
+    throw new BadRequestException('days inválido (1 a 31).');
+  }
+
+  const start = startDate
+    ? new Date(startDate + 'T00:00:00')
+    : new Date();
+
+  // normaliza para início do dia
+  start.setHours(0, 0, 0, 0);
+
+  const result: Record<string, string[]> = {};
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+
+    const dayAvailability = await this.getAvailability(
+      userId,
+      serviceId,
+      dateStr,
+      stepMinutes,
+    );
+
+    result[dateStr] = dayAvailability.slots;
+  }
+
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    days,
+    step: stepMinutes,
+    availability: result,
+  };
+}
+
 }

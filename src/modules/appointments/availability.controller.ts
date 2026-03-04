@@ -14,10 +14,36 @@ export class AvailabilityController {
   getAvailability(
     @Req() req: any,
     @Query('serviceId') serviceId: string,
-    @Query('date') date: string, // YYYY-MM-DD
-    @Query('step') step?: string, // minutos
+    @Query('date') date: string,
+    @Query('step') step?: string,
   ) {
     const stepMinutes = step ? Number(step) : 30;
-    return this.appointmentsService.getAvailability(req.user.id, serviceId, date, stepMinutes);
+    return this.appointmentsService.getAvailability(
+      req.user.id,
+      serviceId,
+      date,
+      stepMinutes,
+    );
+  }
+
+  // 🆕 disponibilidade de 7 dias
+  @Get('week')
+  getWeekAvailability(
+    @Req() req: any,
+    @Query('serviceId') serviceId: string,
+    @Query('startDate') startDate?: string, // YYYY-MM-DD (opcional)
+    @Query('days') days?: string, // padrão 7
+    @Query('step') step?: string, // padrão 30
+  ) {
+    const stepMinutes = step ? Number(step) : 30;
+    const totalDays = days ? Number(days) : 7;
+
+    return this.appointmentsService.getWeekAvailability(
+      req.user.id,
+      serviceId,
+      startDate,
+      totalDays,
+      stepMinutes,
+    );
   }
 }

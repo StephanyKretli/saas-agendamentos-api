@@ -5,6 +5,7 @@ import { BUSINESS_HOURS, isWithinBusinessHours, Weekday } from './business-hours
 import { parseLocalISO } from '../../common/date/parse-local-iso';
 import { MIN_LEAD_MINUTES } from './booking-rules';
 import { MIN_CANCEL_LEAD_MINUTES } from './cancel-rules';
+export const BUFFER_MINUTES = 10;
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -62,14 +63,14 @@ export class AppointmentsService {
     }
 
     // valida horário de funcionamento (start e end precisam caber)
-    const ok = isWithinBusinessHours(start, service.duration);
+    const ok = isWithinBusinessHours(start, service.duration + BUFFER_MINUTES);
     if (!ok) {
       throw new BadRequestException(
         'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
       );
     }
 
-    const end = new Date(start.getTime() + service.duration * 60_000);
+    const end = new Date(start.getTime() + (service.duration + BUFFER_MINUTES) * 60_000);
 
     // busca agendamentos do usuário no mesmo dia (ignora cancelados)
     const dayStart = new Date(start);
@@ -93,7 +94,7 @@ export class AppointmentsService {
     // conflito por sobreposição de intervalos
     const hasConflict = existing.some((a) => {
       const aStart = new Date(a.date);
-      const aEnd = new Date(aStart.getTime() + a.service.duration * 60_000);
+      const aEnd = new Date(aStart.getTime() + (a.service.duration + BUFFER_MINUTES) * 60_000);
       return aStart < end && aEnd > start;
     });
 
@@ -228,7 +229,7 @@ export class AppointmentsService {
     const busy = existing.map((a) => {
       const s = new Date(a.date);
       const startMin = s.getHours() * 60 + s.getMinutes();
-      const endMin = startMin + a.service.duration;
+      const endMin = startMin + a.service.duration + BUFFER_MINUTES;
       return { startMin, endMin };
     });
 
@@ -251,16 +252,16 @@ export class AppointmentsService {
       let t = rStart;
       if (t % stepMinutes !== 0) t = t + (stepMinutes - (t % stepMinutes));
 
-      for (; t + service.duration <= rEnd; t += stepMinutes) {
+      for (; t + service.duration + BUFFER_MINUTES <= rEnd; t += stepMinutes) {
         if (t < minStartMin) continue;
 
         // dupla validação com função já existente
         const slotStartDate = new Date(dayStart);
         slotStartDate.setHours(Math.floor(t / 60), t % 60, 0, 0);
 
-        if (!isWithinBusinessHours(slotStartDate, service.duration)) continue;
+        if (!isWithinBusinessHours(slotStartDate, service.duration + BUFFER_MINUTES)) continue;
 
-        const slotEnd = t + service.duration;
+        const slotEnd = t + service.duration + BUFFER_MINUTES;
 
         const conflict = busy.some((b) => b.startMin < slotEnd && b.endMin > t);
         if (!conflict) slots.push(minutesToHHMM(t));

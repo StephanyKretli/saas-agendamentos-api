@@ -6,8 +6,10 @@ import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { ServicesModule } from './modules/services/services.module';
 import { BlockedDatesModule } from './modules/blocked-dates/blocked-dates.module';
 import { BusinessHoursModule } from './modules/business-hours/business-hours.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule],
+  imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
+    DashboardModule],
 })
 export class AppModule {}

@@ -204,6 +204,124 @@ export class AppointmentsService {
   });
 }
 
+async reschedule(userId: string, appointmentId: string, newDateISO: string) {
+  const start = parseLocalISO(newDateISO);
+  if (Number.isNaN(start.getTime())) {
+    throw new BadRequestException('Data inválida.');
+  }
+
+  const now = new Date();
+
+  // não pode reagendar pro passado
+  if (start.getTime() <= now.getTime()) {
+    throw new BadRequestException('Não é possível reagendar para o passado.');
+  }
+
+  // antecedência mínima
+  const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
+  if (start.getTime() < minStart.getTime()) {
+    throw new BadRequestException(
+      `Reagende com pelo menos ${MIN_LEAD_MINUTES} minutos de antecedência.`,
+    );
+  }
+
+  // appointment existe, é do user e está ativo
+  const appt = await this.prisma.appointment.findFirst({
+    where: { id: appointmentId, userId },
+    select: {
+      id: true,
+      status: true,
+      serviceId: true,
+      date: true,
+      service: { select: { duration: true, name: true, priceCents: true } },
+    },
+  });
+
+  if (!appt) throw new BadRequestException('Agendamento não encontrado.');
+  if (appt.status !== 'SCHEDULED') {
+    throw new BadRequestException('Só é possível reagendar agendamentos ativos.');
+  }
+
+  // valida serviço (ownership)
+  const service = await this.prisma.service.findFirst({
+    where: { id: appt.serviceId, userId },
+    select: { id: true, duration: true },
+  });
+  if (!service) throw new BadRequestException('Serviço inválido.');
+
+  // bloqueio de dia inteiro (BlockedDate)
+  const dayStart = new Date(start);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(start);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const blockedDay = await this.prisma.blockedDate.findFirst({
+    where: { userId, date: dayStart },
+    select: { id: true },
+  });
+  if (blockedDay) throw new BadRequestException('Dia indisponível.');
+
+  // valida horário de funcionamento (considerando buffer)
+  const ok = isWithinBusinessHours(start, service.duration + BUFFER_MINUTES);
+  if (!ok) {
+    throw new BadRequestException(
+      'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
+    );
+  }
+
+  const end = new Date(start.getTime() + (service.duration + BUFFER_MINUTES) * 60_000);
+
+  // bloqueios parciais (BlockedSlot) — se você já implementou
+  const blocks = await this.prisma.blockedSlot.findMany({
+    where: {
+      userId,
+      start: { lt: end },
+      end: { gt: start },
+    },
+    select: { id: true },
+  });
+  if (blocks.length > 0) {
+    throw new BadRequestException('Horário indisponível (bloqueado).');
+  }
+
+  // conflitos com outros agendamentos do dia (ignora o próprio)
+  const existing = await this.prisma.appointment.findMany({
+    where: {
+      userId,
+      status: 'SCHEDULED',
+      id: { not: appt.id },
+      date: { gte: dayStart, lte: dayEnd },
+    },
+    select: {
+      date: true,
+      service: { select: { duration: true } },
+    },
+  });
+
+  const hasConflict = existing.some((a) => {
+    const aStart = new Date(a.date);
+    const aEnd = new Date(aStart.getTime() + (a.service.duration + BUFFER_MINUTES) * 60_000);
+    return aStart < end && aEnd > start;
+  });
+
+  if (hasConflict) {
+    throw new BadRequestException('Conflito de horário: já existe agendamento nesse intervalo.');
+  }
+
+  return this.prisma.appointment.update({
+    where: { id: appt.id },
+    data: { date: start },
+    select: {
+      id: true,
+      date: true,
+      status: true,
+      notes: true,
+      createdAt: true,
+      service: { select: { id: true, name: true, duration: true, priceCents: true } },
+    },
+  });
+}
+
   async getAvailability(userId: string, serviceId: string, date: string, stepMinutes = 30) {
     if (!serviceId) throw new BadRequestException('serviceId é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');

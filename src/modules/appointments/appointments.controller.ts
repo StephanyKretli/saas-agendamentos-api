@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
 
 
 @ApiTags('Appointments')
@@ -30,5 +31,14 @@ export class AppointmentsController {
   @Patch(':id/cancel')
   cancel(@Req() req: any, @Param('id') id: string) {
     return this.appointmentsService.cancel(req.user.id, id);
+  }
+
+  @Patch(':id/reschedule')
+  reschedule(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: RescheduleAppointmentDto,
+  ) {
+    return this.appointmentsService.reschedule(req.user.id, id, dto.date);
   }
 }

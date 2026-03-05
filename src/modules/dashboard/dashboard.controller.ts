@@ -14,4 +14,10 @@ export class DashboardController {
   today(@Req() req: any) {
     return this.service.today(req.user.id);
   }
+
+  @Get('metrics')
+  metrics(@Req() req: any) {
+    return this.service.metrics(req.user.id)
+  }
+
 }

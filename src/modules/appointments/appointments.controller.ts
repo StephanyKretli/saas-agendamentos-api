@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+
 
 @ApiTags('Appointments')
 @ApiBearerAuth('jwt')
@@ -17,8 +18,13 @@ export class AppointmentsController {
   }
 
   @Get('me')
-  findMine(@Req() req: any) {
-    return this.appointmentsService.findMine(req.user.id);
+  findMine(
+    @Req() req: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('status') status?: 'SCHEDULED' | 'CANCELED',
+  ) {
+    return this.appointmentsService.findMine(req.user.id, { from, to, status });
   }
 
   @Patch(':id/cancel')

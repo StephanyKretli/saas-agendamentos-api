@@ -17,6 +17,7 @@ model User {
   updatedAt    DateTime      @updatedAt
   blockedDates BlockedDate[]
   businessHours BusinessHour[]
+  blockedSlots BlockedSlot[]
 
   appointments Appointment[]
   services     Service[]
@@ -65,6 +66,21 @@ model BlockedDate {
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
+}
+
+model BlockedSlot {
+  id        String   @id @default(uuid())
+  userId    String
+  start     DateTime
+  end       DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([start])
+  @@index([end])
 }
 
 model BusinessHour {

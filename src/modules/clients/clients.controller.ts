@@ -1,8 +1,9 @@
-import { Controller, Post, Get, Delete, Param, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Patch, Param, Body, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
+import { UpdateClientDto } from './dto/update-client.dto';
 
 @ApiTags('Clients')
 @ApiBearerAuth('jwt')
@@ -41,4 +42,10 @@ export class ClientsController {
   history(@Req() req: any, @Param('id') id: string) {
     return this.service.history(req.user.id, id);
   }
+
+  @Patch(':id')
+  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateClientDto) {
+    return this.service.update(req.user.id, id, dto);
+  }
+
 }

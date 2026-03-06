@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { UpdateClientDto } from './dto/update-client.dto';
 
 @Injectable()
 export class ClientsService {
@@ -126,5 +127,66 @@ export class ClientsService {
       nextAppointments: upcoming,
     },
   };
+  }
+
+  async update(userId: string, id: string, dto: UpdateClientDto) {
+  const client = await this.prisma.client.findFirst({
+    where: { id, userId },
+  });
+
+  if (!client) {
+    throw new BadRequestException('Cliente não encontrado');
+  }
+
+  const data: {
+    name?: string;
+    phone?: string | null;
+    email?: string | null;
+    notes?: string | null;
+  } = {};
+
+  if (dto.name !== undefined) {
+    const name = dto.name.trim();
+    if (!name) {
+      throw new BadRequestException('Nome não pode ficar vazio');
+    }
+    data.name = name;
+  }
+
+  if (dto.phone !== undefined) {
+    const normalizedPhone = dto.phone.replace(/\D/g, '');
+
+    if (normalizedPhone) {
+      const phoneInUse = await this.prisma.client.findFirst({
+        where: {
+          userId,
+          phone: normalizedPhone,
+          id: { not: id },
+        },
+      });
+
+      if (phoneInUse) {
+        throw new BadRequestException('Já existe um cliente com esse telefone');
+      }
+
+      data.phone = normalizedPhone;
+    } else {
+      data.phone = null;
+    }
+  }
+
+  if (dto.email !== undefined) {
+    const email = dto.email.trim();
+    data.email = email || null;
+  }
+
+  if (dto.notes !== undefined) {
+    data.notes = dto.notes?.trim() || null;
+  }
+
+  return this.prisma.client.update({
+    where: { id },
+    data,
+  });
   }
 }

@@ -41,4 +41,9 @@ export class AppointmentsController {
   ) {
     return this.appointmentsService.reschedule(req.user.id, id, dto.date);
   }
+
+  @Patch(':id/complete')
+  complete(@Req() req: any, @Param('id') id: string) {
+    return this.appointmentsService.complete(req.user.id, id);
+  }
 }

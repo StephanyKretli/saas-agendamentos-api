@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BUSINESS_HOURS, Weekday } from '../appointments/business-hours'; // se você ainda usa constantes
-// Se você já está usando businessHour no banco, vamos buscar do banco e NÃO depender de BUSINESS_HOURS.
+
 
 function pad(n: number) {
   return String(n).padStart(2, '0');

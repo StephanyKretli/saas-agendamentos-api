@@ -36,4 +36,9 @@ export class ClientsController {
   delete(@Req() req: any, @Param('id') id: string) {
     return this.service.delete(req.user.id, id);
   }
+
+  @Get(':id/history')
+  history(@Req() req: any, @Param('id') id: string) {
+    return this.service.history(req.user.id, id);
+  }
 }

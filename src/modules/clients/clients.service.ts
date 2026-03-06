@@ -67,4 +67,64 @@ export class ClientsService {
 
     return { ok: true };
   }
+
+  async history(userId: string, id: string) {
+  const client = await this.prisma.client.findFirst({
+    where: {
+      id,
+      userId,
+    },
+    include: {
+      appointments: {
+        include: {
+          service: true,
+        },
+        orderBy: {
+          date: 'desc',
+        },
+      },
+    },
+  });
+
+  if (!client) {
+    throw new BadRequestException('Cliente não encontrado.');
+  }
+
+  const now = new Date();
+
+  const completed = client.appointments.filter(
+    (a) => a.status === 'COMPLETED',
+  );
+
+  const upcoming = client.appointments
+    .filter(
+      (a) => a.status === 'SCHEDULED' && new Date(a.date).getTime() > now.getTime(),
+    )
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const totalSpentCents = completed.reduce((sum, a) => {
+    return sum + (a.service?.priceCents ?? 0);
+  }, 0);
+
+  const lastAppointment = completed.length > 0 ? completed[0] : null;
+
+  return {
+    client: {
+      id: client.id,
+      name: client.name,
+      phone: client.phone,
+      email: client.email,
+      notes: client.notes,
+    },
+    summary: {
+      totalAppointments: client.appointments.length,
+      completedAppointments: completed.length,
+      upcomingAppointments: upcoming.length,
+      totalSpentCents,
+      totalSpentFormatted: (totalSpentCents / 100).toFixed(2),
+      lastAppointment,
+      nextAppointments: upcoming,
+    },
+  };
+  }
 }

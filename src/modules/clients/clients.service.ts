@@ -5,7 +5,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class ClientsService {
   constructor(private prisma: PrismaService) {}
 
-  async create(userId: string, name: string, phone?: string, email?: string) {
+  async create(
+  userId: string,
+  name: string,
+  phone?: string,
+  email?: string,
+  notes?: string,
+  ) {
     if (!name) {
       throw new BadRequestException('Nome é obrigatório');
     }
@@ -16,6 +22,7 @@ export class ClientsService {
         name,
         phone,
         email,
+        notes,
       },
     });
   }

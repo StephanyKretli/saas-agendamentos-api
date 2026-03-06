@@ -1,13 +1,42 @@
-import { IsISO8601, IsOptional, IsString, IsUUID } from "class-validator";
+import {
+  IsDateString,
+  IsEmail,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+class CreateAppointmentClientDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  phone!: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+}
 
 export class CreateAppointmentDto {
   @IsUUID()
-  serviceId: string;
+  serviceId!: string;
 
-  @IsISO8601()
-  date: string;
+  @IsDateString()
+  date!: string;
 
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateAppointmentClientDto)
+  client?: CreateAppointmentClientDto;
 }

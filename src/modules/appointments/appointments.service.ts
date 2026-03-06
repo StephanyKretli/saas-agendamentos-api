@@ -105,10 +105,18 @@ export class AppointmentsService {
     }
 
     // cria
+    let resolvedClientId: string | undefined = dto.clientId;
+
+    if (!resolvedClientId && dto.client) {
+      const client = await this.findOrCreateClientByPhone(userId, dto.client);
+      resolvedClientId = client.id;
+    }
+
     return this.prisma.appointment.create({
       data: {
         userId,
         serviceId: dto.serviceId,
+        clientId: resolvedClientId,
         date: start,
         notes: dto.notes,
         status: 'SCHEDULED',
@@ -119,7 +127,12 @@ export class AppointmentsService {
         notes: true,
         status: true,
         createdAt: true,
-        service: { select: { id: true, name: true, duration: true, priceCents: true } },
+        service: {
+          select: { id: true, name: true, duration: true, priceCents: true },
+        },
+        client: {
+          select: { id: true, name: true, phone: true, email: true },
+        },
       },
     });
   }
@@ -480,6 +493,33 @@ if (blocked) {
     step: stepMinutes,
     availability: result,
   };
+}
+
+private async findOrCreateClientByPhone(
+  userId: string,
+  client: { name: string; phone: string; email?: string },
+) {
+  const normalizedPhone = client.phone.replace(/\D/g, '');
+
+  const existing = await this.prisma.client.findFirst({
+    where: {
+      userId,
+      phone: normalizedPhone,
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  return this.prisma.client.create({
+    data: {
+      userId,
+      name: client.name,
+      phone: normalizedPhone,
+      email: client.email,
+    },
+  });
 }
 
 }

@@ -1,19 +1,24 @@
 import { Controller, Post, Get, Delete, Param, Body, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientsService } from './clients.service';
+import { CreateClientDto } from './dto/create-client.dto';
 
+@ApiTags('Clients')
+@ApiBearerAuth('jwt')
 @Controller('clients')
 @UseGuards(JwtAuthGuard)
 export class ClientsController {
   constructor(private service: ClientsService) {}
 
   @Post()
-  create(@Req() req: any, @Body() body: any) {
+  create(@Req() req: any, @Body() dto: CreateClientDto) {
     return this.service.create(
       req.user.id,
-      body.name,
-      body.phone,
-      body.email,
+      dto.name,
+      dto.phone,
+      dto.email,
+      dto.notes,
     );
   }
 

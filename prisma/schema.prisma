@@ -109,6 +109,7 @@ model Client {
   appointments Appointment[]
 
   @@index([userId])
+  @@unique([userId, phone])
 }
 
 enum AppointmentStatus {

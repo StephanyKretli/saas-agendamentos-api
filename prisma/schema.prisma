@@ -8,56 +8,55 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  name         String
-  email        String        @unique
-  password     String
-  role         Role          @default(USER)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  blockedDates BlockedDate[]
-  businessHours BusinessHour[]
-  blockedSlots BlockedSlot[]
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  appointments Appointment[]
-  services     Service[]
+  blockedDates  BlockedDate[]
+  businessHours BusinessHour[]
+  blockedSlots  BlockedSlot[]
+  appointments  Appointment[]
+  services      Service[]
+  clients       Client[]
 }
 
 model Service {
-  id        String   @id @default(uuid())
-  userId    String
-  name      String
-  duration  Int      // minutos (ex: 30, 60)
-  priceCents Int     // evita float (ex: 4900 = R$ 49,00)
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  name       String
+  duration   Int
+  priceCents Int
+  createdAt  DateTime @default(now())
 
-  user        User         @relation(fields: [userId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
   appointments Appointment[]
 
   @@index([userId])
 }
 
 model Appointment {
-  id        String   @id @default(uuid())
+  id        String            @id @default(uuid())
   userId    String
   serviceId String
+  clientId  String?
   date      DateTime
+  status    AppointmentStatus
   notes     String?
-  createdAt DateTime @default(now())
-  status AppointmentStatus @default(SCHEDULED)
+  createdAt DateTime          @default(now())
 
   user    User    @relation(fields: [userId], references: [id])
   service Service @relation(fields: [serviceId], references: [id])
-
-  @@index([userId])
-  @@index([serviceId])
-  @@index([date])
+  client  Client? @relation(fields: [clientId], references: [id])
 }
 
 model BlockedDate {
   id        String   @id @default(uuid())
   userId    String
-  date      DateTime // guardaremos como "início do dia" local
+  date      DateTime
   reason    String?
   createdAt DateTime @default(now())
 
@@ -86,15 +85,30 @@ model BlockedSlot {
 model BusinessHour {
   id        String   @id @default(uuid())
   userId    String
-  weekday   Int      // 0 = domingo ... 6 = sábado
-  start     String   // "09:00"
-  end       String   // "18:00"
+  weekday   Int
+  start     String
+  end       String
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([weekday])
+}
+
+model Client {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id])
+  appointments Appointment[]
+
+  @@index([userId])
 }
 
 enum AppointmentStatus {

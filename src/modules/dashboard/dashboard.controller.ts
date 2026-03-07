@@ -17,7 +17,11 @@ export class DashboardController {
 
   @Get('metrics')
   metrics(@Req() req: any) {
-    return this.service.metrics(req.user.id)
+    return this.service.metrics(req.user.id);
   }
 
+  @Get('stats')
+  stats(@Req() req: any) {
+    return this.service.stats(req.user.id);
+  }
 }

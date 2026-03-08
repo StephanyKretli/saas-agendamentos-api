@@ -1,19 +1,21 @@
 import {
-  IsDateString,
   IsEmail,
+  IsISO8601,
+  IsNotEmpty,
   IsOptional,
   IsString,
-  IsUUID,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class CreateAppointmentClientDto {
   @IsString()
-  name!: string;
+  @IsNotEmpty()
+  name: string;
 
   @IsString()
-  phone!: string;
+  @IsNotEmpty()
+  phone: string;
 
   @IsOptional()
   @IsEmail()
@@ -21,19 +23,20 @@ class CreateAppointmentClientDto {
 }
 
 export class CreateAppointmentDto {
-  @IsUUID()
-  serviceId!: string;
+  @IsString()
+  @IsNotEmpty()
+  serviceId: string;
 
-  @IsDateString()
-  date!: string;
+  @IsISO8601()
+  date: string;
+
+  @IsOptional()
+  @IsString()
+  clientId?: string;
 
   @IsOptional()
   @IsString()
   notes?: string;
-
-  @IsOptional()
-  @IsUUID()
-  clientId?: string;
 
   @IsOptional()
   @ValidateNested()

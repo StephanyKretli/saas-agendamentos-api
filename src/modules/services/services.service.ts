@@ -14,15 +14,25 @@ export class ServicesService {
         duration: dto.duration,
         priceCents: dto.priceCents,
       },
-      select: { id: true, name: true, duration: true, priceCents: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        duration: true,
+        priceCents: true,
+      },
     });
   }
 
   findMine(userId: string) {
     return this.prisma.service.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, duration: true, priceCents: true, createdAt: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        duration: true,
+        priceCents: true,
+      },
     });
   }
 }

@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,12 +17,20 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const exists = await this.prisma.user.findUnique({
+    const emailExists = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
 
-    if (exists) {
+    if (emailExists) {
       throw new ConflictException('Email já está em uso');
+    }
+
+    const usernameExists = await this.prisma.user.findUnique({
+      where: { username: dto.username },
+    });
+
+    if (usernameExists) {
+      throw new ConflictException('Username já está em uso');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -28,8 +40,16 @@ export class AuthService {
         name: dto.name,
         email: dto.email,
         password: passwordHash,
+        username: dto.username,
       },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        role: true,
+        createdAt: true,
+      },
     });
 
     return user;
@@ -40,18 +60,33 @@ export class AuthService {
       where: { email: dto.email },
     });
 
-    if (!user) throw new UnauthorizedException('Credenciais inválidas');
+    if (!user) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
 
     const ok = await bcrypt.compare(dto.password, user.password);
-    if (!ok) throw new UnauthorizedException('Credenciais inválidas');
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    if (!ok) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    };
 
     const accessToken = await this.jwt.signAsync(payload);
 
     return {
       accessToken,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+      },
     };
   }
 }

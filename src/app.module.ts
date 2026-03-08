@@ -9,9 +9,10 @@ import { BusinessHoursModule } from './modules/business-hours/business-hours.mod
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { ClientsModule } from './modules/clients/clients.module';
+import { PublicBookingModule } from './modules/public-booking/public-booking.module';
 
 @Module({
   imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
-    DashboardModule, CalendarModule, ClientsModule],
+    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule],
 })
 export class AppModule {}

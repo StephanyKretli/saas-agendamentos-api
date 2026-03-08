@@ -8,34 +8,33 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  name      String
+  id        String   @id @default(cuid())
   email     String   @unique
+  name      String
   password  String
   role      Role     @default(USER)
+  username String    @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  blockedDates  BlockedDate[]
-  businessHours BusinessHour[]
-  blockedSlots  BlockedSlot[]
-  appointments  Appointment[]
-  services      Service[]
-  clients       Client[]
+  services       Service[]
+  appointments   Appointment[]
+  clients        Client[]
+  businessHours  BusinessHour[]
+  blockedDates   BlockedDate[]
+  blockedSlots   BlockedSlot[]
 }
 
 model Service {
-  id         String   @id @default(uuid())
+  id         String   @id @default(cuid())
   userId     String
   name       String
   duration   Int
   priceCents Int
-  createdAt  DateTime @default(now())
 
-  user         User          @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
   appointments Appointment[]
-
-  @@index([userId])
 }
 
 model Appointment {

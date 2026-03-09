@@ -28,11 +28,43 @@ export class ClientsService {
     });
   }
 
-  async findAll(userId: string) {
-    return this.prisma.client.findMany({
-      where: { userId },
+  async findAll(
+  userId: string,
+  query?: { page?: number; limit?: number; search?: string },
+) {
+  const page = query?.page ?? 1;
+  const limit = query?.limit ?? 10;
+  const skip = (page - 1) * limit;
+
+  const search = query?.search?.trim();
+
+  const where: any = { userId };
+
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { phone: { contains: search } },
+      { email: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    this.prisma.client.findMany({
+      where,
       orderBy: { name: 'asc' },
-    });
+      skip,
+      take: limit,
+    }),
+    this.prisma.client.count({ where }),
+  ]);
+
+  return {
+    items,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  };
   }
 
   async findOne(userId: string, id: string) {

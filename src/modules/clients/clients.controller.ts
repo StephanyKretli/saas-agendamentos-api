@@ -1,9 +1,10 @@
-import { Controller, Post, Get, Delete, Patch, Param, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Patch, Param, Body, Req, UseGuards, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { ListClientsQueryDto } from './dto/list-clients-query.dto';
 
 @ApiTags('Clients')
 @ApiBearerAuth('jwt')
@@ -24,8 +25,8 @@ export class ClientsController {
   }
 
   @Get()
-  findAll(@Req() req: any) {
-    return this.service.findAll(req.user.id);
+  findAll(@Req() req: any, @Query() query: ListClientsQueryDto) {
+    return this.service.findAll(req.user.id, query);
   }
 
   @Get(':id')

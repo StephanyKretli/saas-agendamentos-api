@@ -232,30 +232,45 @@ export class AppointmentsService {
   }
 
   async findMine(
-    userId: string,
-    filters?: { from?: string; to?: string; status?: 'SCHEDULED' | 'CANCELED' },
-  ) {
-    const where: any = { userId };
+  userId: string,
+  filters?: {
+    page?: number;
+    limit?: number;
+    from?: string;
+    to?: string;
+    status?: 'SCHEDULED' | 'CANCELED' | 'COMPLETED';
+    clientId?: string;
+    serviceId?: string;
+  },
+) {
+  const page = filters?.page ?? 1;
+  const limit = filters?.limit ?? 10;
+  const skip = (page - 1) * limit;
 
-    if (filters?.status) where.status = filters.status;
+  const where: any = { userId };
 
-    if (filters?.from || filters?.to) {
-      where.date = {};
+  if (filters?.status) where.status = filters.status;
+  if (filters?.clientId) where.clientId = filters.clientId;
+  if (filters?.serviceId) where.serviceId = filters.serviceId;
 
-      if (filters.from) {
-        const [y, m, d] = filters.from.split('-').map(Number);
-        where.date.gte = new Date(y, m - 1, d, 0, 0, 0, 0);
-      }
-
-      if (filters.to) {
-        const [y, m, d] = filters.to.split('-').map(Number);
-        where.date.lte = new Date(y, m - 1, d, 23, 59, 59, 999);
-      }
+  if (filters?.from || filters?.to) {
+    where.date = {};
+    if (filters.from) {
+      const [y, m, d] = filters.from.split('-').map(Number);
+      where.date.gte = new Date(y, m - 1, d, 0, 0, 0, 0);
     }
+    if (filters.to) {
+      const [y, m, d] = filters.to.split('-').map(Number);
+      where.date.lte = new Date(y, m - 1, d, 23, 59, 59, 999);
+    }
+  }
 
-    return this.prisma.appointment.findMany({
+  const [items, total] = await Promise.all([
+    this.prisma.appointment.findMany({
       where,
       orderBy: { date: 'asc' },
+      skip,
+      take: limit,
       select: {
         id: true,
         date: true,
@@ -263,10 +278,33 @@ export class AppointmentsService {
         status: true,
         createdAt: true,
         service: {
-          select: { id: true, name: true, duration: true, priceCents: true },
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            priceCents: true,
+          },
+        },
+        client: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
         },
       },
-    });
+    }),
+    this.prisma.appointment.count({ where }),
+  ]);
+
+  return {
+    items,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  };
   }
 
   async reschedule(userId: string, appointmentId: string, newDateISO: string) {

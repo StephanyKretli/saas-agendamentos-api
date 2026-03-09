@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
+import { ListAppointmentsQueryDto } from './dto/list-appointments-query.dto';
 
 
 @ApiTags('Appointments')
@@ -21,11 +22,9 @@ export class AppointmentsController {
   @Get('me')
   findMine(
     @Req() req: any,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('status') status?: 'SCHEDULED' | 'CANCELED',
+    @Query() query: ListAppointmentsQueryDto,
   ) {
-    return this.appointmentsService.findMine(req.user.id, { from, to, status });
+    return this.appointmentsService.findMine(req.user.id, query);
   }
 
   @Patch(':id/cancel')

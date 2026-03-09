@@ -10,9 +10,17 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { PublicBookingModule } from './modules/public-booking/public-booking.module';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
   imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
-    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule],
+    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule,
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 20,
+      },
+    ]),
+  ],
 })
 export class AppModule {}

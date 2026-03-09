@@ -46,114 +46,137 @@ export class AppointmentsService {
       );
     }
 
-    const service = await this.prisma.service.findFirst({
-      where: { id: dto.serviceId, userId },
-      select: { id: true, duration: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const service = await tx.service.findFirst({
+        where: { id: dto.serviceId, userId },
+        select: { id: true, duration: true },
+      });
 
-    if (!service) {
-      throw new BadRequestException('Serviço inválido.');
-    }
+      if (!service) {
+        throw new BadRequestException('Serviço inválido.');
+      }
 
-    const ok = await this.isWithinBusinessHours(
-      userId,
-      start,
-      service.duration + BUFFER_MINUTES,
-    );
-
-    if (!ok) {
-      throw new BadRequestException(
-        'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
-      );
-    }
-
-    const end = new Date(
-      start.getTime() + (service.duration + BUFFER_MINUTES) * 60_000,
-    );
-
-    const dayStart = new Date(start);
-    dayStart.setHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(start);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const blockedDay = await this.prisma.blockedDate.findFirst({
-      where: { userId, date: dayStart },
-      select: { id: true },
-    });
-
-    if (blockedDay) {
-      throw new BadRequestException('Dia indisponível.');
-    }
-
-    const blocks = await this.prisma.blockedSlot.findMany({
-      where: {
+      const ok = await this.isWithinBusinessHours(
         userId,
-        start: { lt: end },
-        end: { gt: start },
-      },
-      select: { id: true },
-    });
-
-    if (blocks.length > 0) {
-      throw new BadRequestException('Horário indisponível (bloqueado).');
-    }
-
-    const existing = await this.prisma.appointment.findMany({
-      where: {
-        userId,
-        status: 'SCHEDULED',
-        date: { gte: dayStart, lte: dayEnd },
-      },
-      select: {
-        date: true,
-        service: { select: { duration: true } },
-      },
-    });
-
-    const hasConflict = existing.some((a) => {
-      const aStart = new Date(a.date);
-      const aEnd = new Date(
-        aStart.getTime() + (a.service.duration + BUFFER_MINUTES) * 60_000,
+        start,
+        service.duration + BUFFER_MINUTES,
       );
-      return aStart < end && aEnd > start;
-    });
 
-    if (hasConflict) {
-      throw new BadRequestException(
-        'Conflito de horário: já existe um agendamento nesse intervalo.',
+      if (!ok) {
+        throw new BadRequestException(
+          'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
+        );
+      }
+
+      const end = new Date(
+        start.getTime() + (service.duration + BUFFER_MINUTES) * 60_000,
       );
-    }
 
-    let resolvedClientId: string | undefined = dto.clientId;
+      const dayStart = new Date(start);
+      dayStart.setHours(0, 0, 0, 0);
 
-    if (!resolvedClientId && dto.client) {
-      const client = await this.findOrCreateClientByPhone(userId, dto.client);
-      resolvedClientId = client.id;
-    }
+      const dayEnd = new Date(start);
+      dayEnd.setHours(23, 59, 59, 999);
 
-    return this.prisma.appointment.create({
-      data: {
-        userId,
-        serviceId: dto.serviceId,
-        clientId: resolvedClientId,
-        date: start,
-        notes: dto.notes,
-        status: 'SCHEDULED',
-      },
-      select: {
-        id: true,
-        date: true,
-        notes: true,
-        status: true,
-        createdAt: true,
-        service: {
-          select: { id: true, name: true, duration: true, priceCents: true },
+      const blockedDay = await tx.blockedDate.findFirst({
+        where: { userId, date: dayStart },
+        select: { id: true },
+      });
+
+      if (blockedDay) {
+        throw new BadRequestException('Dia indisponível.');
+      }
+
+      const blocks = await tx.blockedSlot.findMany({
+        where: {
+          userId,
+          start: { lt: end },
+          end: { gt: start },
         },
-        client: {
-          select: { id: true, name: true, phone: true, email: true },
+        select: { id: true },
+      });
+
+      if (blocks.length > 0) {
+        throw new BadRequestException('Horário indisponível (bloqueado).');
+      }
+
+      const existing = await tx.appointment.findMany({
+        where: {
+          userId,
+          status: 'SCHEDULED',
+          date: { gte: dayStart, lte: dayEnd },
         },
-      },
+        select: {
+          date: true,
+          service: { select: { duration: true } },
+        },
+      });
+
+      const hasConflict = existing.some((a) => {
+        const aStart = new Date(a.date);
+        const aEnd = new Date(
+          aStart.getTime() + (a.service.duration + BUFFER_MINUTES) * 60_000,
+        );
+        return aStart < end && aEnd > start;
+      });
+
+      if (hasConflict) {
+        throw new BadRequestException(
+          'Conflito de horário: já existe um agendamento nesse intervalo.',
+        );
+      }
+
+      let resolvedClientId: string | undefined = dto.clientId;
+
+      if (!resolvedClientId && dto.client) {
+        const normalizedPhone = dto.client.phone.replace(/\D/g, '');
+
+        const existingClient = await tx.client.findFirst({
+          where: {
+            userId,
+            phone: normalizedPhone,
+          },
+        });
+
+        if (existingClient) {
+          resolvedClientId = existingClient.id;
+        } else {
+          const createdClient = await tx.client.create({
+            data: {
+              userId,
+              name: dto.client.name,
+              phone: normalizedPhone,
+              email: dto.client.email,
+            },
+          });
+
+          resolvedClientId = createdClient.id;
+        }
+      }
+
+      return tx.appointment.create({
+        data: {
+          userId,
+          serviceId: dto.serviceId,
+          clientId: resolvedClientId,
+          date: start,
+          notes: dto.notes,
+          status: 'SCHEDULED',
+        },
+        select: {
+          id: true,
+          date: true,
+          notes: true,
+          status: true,
+          createdAt: true,
+          service: {
+            select: { id: true, name: true, duration: true, priceCents: true },
+          },
+          client: {
+            select: { id: true, name: true, phone: true, email: true },
+          },
+        },
+      });
     });
   }
 
@@ -673,71 +696,73 @@ export class AppointmentsService {
   }
 
   async complete(userId: string, appointmentId: string) {
-  const appt = await this.prisma.appointment.findFirst({
-    where: { id: appointmentId, userId },
-    select: {
-      id: true,
-      status: true,
-      date: true,
-      notes: true,
-      createdAt: true,
-      service: {
-        select: {
-          id: true,
-          name: true,
-          duration: true,
-          priceCents: true,
+    const appt = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, userId },
+      select: {
+        id: true,
+        status: true,
+        date: true,
+        notes: true,
+        createdAt: true,
+        service: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            priceCents: true,
+          },
+        },
+        client: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
         },
       },
-      client: {
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
+    });
+
+    if (!appt) {
+      throw new BadRequestException('Agendamento não encontrado.');
+    }
+
+    if (appt.status === 'CANCELED') {
+      throw new BadRequestException(
+        'Agendamento cancelado não pode ser concluído.',
+      );
+    }
+
+    if (appt.status === 'COMPLETED') {
+      throw new BadRequestException('Agendamento já foi concluído.');
+    }
+
+    return this.prisma.appointment.update({
+      where: { id: appt.id },
+      data: { status: 'COMPLETED' },
+      select: {
+        id: true,
+        date: true,
+        notes: true,
+        status: true,
+        createdAt: true,
+        service: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            priceCents: true,
+          },
+        },
+        client: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
         },
       },
-    },
-  });
-
-  if (!appt) {
-    throw new BadRequestException('Agendamento não encontrado.');
-  }
-
-  if (appt.status === 'CANCELED') {
-    throw new BadRequestException('Agendamento cancelado não pode ser concluído.');
-  }
-
-  if (appt.status === 'COMPLETED') {
-    throw new BadRequestException('Agendamento já foi concluído.');
-  }
-
-  return this.prisma.appointment.update({
-    where: { id: appt.id },
-    data: { status: 'COMPLETED' },
-    select: {
-      id: true,
-      date: true,
-      notes: true,
-      status: true,
-      createdAt: true,
-      service: {
-        select: {
-          id: true,
-          name: true,
-          duration: true,
-          priceCents: true,
-        },
-      },
-      client: {
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-        },
-      },
-    },
-  });
+    });
   }
 }

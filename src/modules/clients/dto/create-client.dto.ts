@@ -1,34 +1,23 @@
-import { IsOptional, IsString, IsEmail } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateClientDto {
-
-  @ApiProperty({
-    example: 'João Silva',
-  })
+  @ApiProperty({ example: 'João Silva' })
   @IsString()
+  @IsNotEmpty()
   name: string;
 
-  @ApiProperty({
-    example: '31999999999',
-    required: false,
-  })
-  @IsOptional()
+  @ApiProperty({ example: '31999999999' })
   @IsString()
-  phone?: string;
+  @IsNotEmpty()
+  phone: string;
 
-  @ApiProperty({
-    example: 'joao@email.com',
-    required: false,
-  })
+  @ApiPropertyOptional({ example: 'joao@email.com' })
   @IsOptional()
   @IsEmail()
   email?: string;
 
-  @ApiProperty({
-    example: 'Cliente prefere horário da manhã',
-    required: false,
-  })
+  @ApiPropertyOptional({ example: 'Prefere atendimento pela manhã' })
   @IsOptional()
   @IsString()
   notes?: string;

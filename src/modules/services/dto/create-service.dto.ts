@@ -1,15 +1,19 @@
-import { IsInt, IsString, Min, MinLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsInt, IsNotEmpty, IsString, Min } from 'class-validator';
 
 export class CreateServiceDto {
+  @ApiProperty({ example: 'Corte feminino' })
   @IsString()
-  @MinLength(2)
-  name!: string;
+  @IsNotEmpty()
+  name: string;
 
+  @ApiProperty({ example: 60, description: 'Duration in minutes' })
   @IsInt()
-  @Min(5)
-  duration!: number; // minutos
+  @Min(1)
+  duration: number;
 
+  @ApiProperty({ example: 8000, description: 'Price in cents' })
   @IsInt()
   @Min(0)
-  priceCents!: number;
+  priceCents: number;
 }

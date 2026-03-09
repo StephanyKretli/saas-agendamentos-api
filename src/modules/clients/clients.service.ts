@@ -54,6 +54,14 @@ export class ClientsService {
       orderBy: { name: 'asc' },
       skip,
       take: limit,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        notes: true,
+        createdAt: true,
+      },
     }),
     this.prisma.client.count({ where }),
   ]);

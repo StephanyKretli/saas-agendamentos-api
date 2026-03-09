@@ -10,21 +10,28 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { PublicBookingModule } from './modules/public-booking/public-booking.module';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { HealthController } from './health/health.controller';
 import { LoggerMiddleware } from './common/logger/logger.middleware';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
     DashboardModule, CalendarModule, ClientsModule, PublicBookingModule,
     ThrottlerModule.forRoot([
       {
-        ttl: 60,
+        ttl: 60000,
         limit: 100,
       },
     ]),
   ],
   controllers: [HealthController],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

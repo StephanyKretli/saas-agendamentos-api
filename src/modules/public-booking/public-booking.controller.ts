@@ -1,19 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiBody,
-  ApiOperation,
-  ApiParam,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, UseGuards, Patch } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { PublicBookingService } from './public-booking.service';
 import { CreatePublicAppointmentDto } from './dto/create-public-appointment.dto';
@@ -104,5 +90,35 @@ export class PublicBookingController {
     @Body() dto: CreatePublicAppointmentDto,
   ) {
     return this.service.createAppointment(username, dto);
+  }
+
+  @Get('cancel/:token')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Get public cancellation preview',
+    description: 'Returns public appointment data for a cancellation link.',
+  })
+  @ApiParam({
+    name: 'token',
+    example: 'abc123token',
+    description: 'Public cancellation token',
+  })
+  getCancelPreview(@Param('token') token: string) {
+    return this.service.getCancelPreview(token);
+  }
+
+  @Patch('cancel/:token')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Cancel public appointment by token',
+    description: 'Cancels an appointment through a public cancellation link.',
+  })
+  @ApiParam({
+    name: 'token',
+    example: 'abc123token',
+    description: 'Public cancellation token',
+  })
+  cancelByToken(@Param('token') token: string) {
+    return this.service.cancelByToken(token);
   }
 }

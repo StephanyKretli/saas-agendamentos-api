@@ -4,6 +4,7 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { parseLocalISO } from '../../common/date/parse-local-iso';
 import { MIN_LEAD_MINUTES } from './booking-rules';
 import { MIN_CANCEL_LEAD_MINUTES } from './cancel-rules';
+import { randomBytes } from 'crypto';
 
 export const BUFFER_MINUTES = 10;
 
@@ -26,159 +27,173 @@ function startOfDayLocal(yyyyMmDd: string) {
 export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
 
+  private generatePublicCancelToken() {
+    return randomBytes(24).toString('hex');
+  }
+
+  private getPublicCancelTokenExpiresAt() {
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    return expiresAt;
+  }
+
   async create(userId: string, dto: CreateAppointmentDto) {
-    const start = parseLocalISO(dto.date);
+  const start = parseLocalISO(dto.date);
 
-    if (Number.isNaN(start.getTime())) {
-      throw new BadRequestException('Data inválida.');
+  if (Number.isNaN(start.getTime())) {
+    throw new BadRequestException('Data inválida.');
+  }
+
+  const now = new Date();
+
+  if (start.getTime() <= now.getTime()) {
+    throw new BadRequestException('Não é possível agendar no passado.');
+  }
+
+  const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
+  if (start.getTime() < minStart.getTime()) {
+    throw new BadRequestException(
+      `Agende com pelo menos ${MIN_LEAD_MINUTES} minutos de antecedência.`,
+    );
+  }
+
+  return this.prisma.$transaction(async (tx) => {
+    const service = await tx.service.findFirst({
+      where: { id: dto.serviceId, userId },
+      select: { id: true, duration: true },
+    });
+
+    if (!service) {
+      throw new BadRequestException('Serviço inválido.');
     }
 
-    const now = new Date();
+    const ok = await this.isWithinBusinessHours(
+      userId,
+      start,
+      service.duration + BUFFER_MINUTES,
+    );
 
-    if (start.getTime() <= now.getTime()) {
-      throw new BadRequestException('Não é possível agendar no passado.');
-    }
-
-    const minStart = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
-    if (start.getTime() < minStart.getTime()) {
+    if (!ok) {
       throw new BadRequestException(
-        `Agende com pelo menos ${MIN_LEAD_MINUTES} minutos de antecedência.`,
+        'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const service = await tx.service.findFirst({
-        where: { id: dto.serviceId, userId },
-        select: { id: true, duration: true },
-      });
+    const end = new Date(
+      start.getTime() + (service.duration + BUFFER_MINUTES) * 60_000,
+    );
 
-      if (!service) {
-        throw new BadRequestException('Serviço inválido.');
-      }
+    const dayStart = new Date(start);
+    dayStart.setHours(0, 0, 0, 0);
 
-      const ok = await this.isWithinBusinessHours(
+    const dayEnd = new Date(start);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const blockedDay = await tx.blockedDate.findFirst({
+      where: { userId, date: dayStart },
+      select: { id: true },
+    });
+
+    if (blockedDay) {
+      throw new BadRequestException('Dia indisponível.');
+    }
+
+    const blocks = await tx.blockedSlot.findMany({
+      where: {
         userId,
-        start,
-        service.duration + BUFFER_MINUTES,
+        start: { lt: end },
+        end: { gt: start },
+      },
+      select: { id: true },
+    });
+
+    if (blocks.length > 0) {
+      throw new BadRequestException('Horário indisponível (bloqueado).');
+    }
+
+    const existing = await tx.appointment.findMany({
+      where: {
+        userId,
+        status: 'SCHEDULED',
+        date: { gte: dayStart, lte: dayEnd },
+      },
+      select: {
+        date: true,
+        service: { select: { duration: true } },
+      },
+    });
+
+    const hasConflict = existing.some((a) => {
+      const aStart = new Date(a.date);
+      const aEnd = new Date(
+        aStart.getTime() + (a.service.duration + BUFFER_MINUTES) * 60_000,
       );
+      return aStart < end && aEnd > start;
+    });
 
-      if (!ok) {
-        throw new BadRequestException(
-          'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
-        );
-      }
-
-      const end = new Date(
-        start.getTime() + (service.duration + BUFFER_MINUTES) * 60_000,
+    if (hasConflict) {
+      throw new BadRequestException(
+        'Conflito de horário: já existe um agendamento nesse intervalo.',
       );
+    }
 
-      const dayStart = new Date(start);
-      dayStart.setHours(0, 0, 0, 0);
+    let resolvedClientId: string | undefined = dto.clientId;
 
-      const dayEnd = new Date(start);
-      dayEnd.setHours(23, 59, 59, 999);
+    if (!resolvedClientId && dto.client) {
+      const normalizedPhone = dto.client.phone.replace(/\D/g, '');
 
-      const blockedDay = await tx.blockedDate.findFirst({
-        where: { userId, date: dayStart },
-        select: { id: true },
-      });
-
-      if (blockedDay) {
-        throw new BadRequestException('Dia indisponível.');
-      }
-
-      const blocks = await tx.blockedSlot.findMany({
+      const existingClient = await tx.client.findFirst({
         where: {
           userId,
-          start: { lt: end },
-          end: { gt: start },
-        },
-        select: { id: true },
-      });
-
-      if (blocks.length > 0) {
-        throw new BadRequestException('Horário indisponível (bloqueado).');
-      }
-
-      const existing = await tx.appointment.findMany({
-        where: {
-          userId,
-          status: 'SCHEDULED',
-          date: { gte: dayStart, lte: dayEnd },
-        },
-        select: {
-          date: true,
-          service: { select: { duration: true } },
+          phone: normalizedPhone,
         },
       });
 
-      const hasConflict = existing.some((a) => {
-        const aStart = new Date(a.date);
-        const aEnd = new Date(
-          aStart.getTime() + (a.service.duration + BUFFER_MINUTES) * 60_000,
-        );
-        return aStart < end && aEnd > start;
-      });
-
-      if (hasConflict) {
-        throw new BadRequestException(
-          'Conflito de horário: já existe um agendamento nesse intervalo.',
-        );
-      }
-
-      let resolvedClientId: string | undefined = dto.clientId;
-
-      if (!resolvedClientId && dto.client) {
-        const normalizedPhone = dto.client.phone.replace(/\D/g, '');
-
-        const existingClient = await tx.client.findFirst({
-          where: {
+      if (existingClient) {
+        resolvedClientId = existingClient.id;
+      } else {
+        const createdClient = await tx.client.create({
+          data: {
             userId,
+            name: dto.client.name,
             phone: normalizedPhone,
+            email: dto.client.email,
           },
         });
 
-        if (existingClient) {
-          resolvedClientId = existingClient.id;
-        } else {
-          const createdClient = await tx.client.create({
-            data: {
-              userId,
-              name: dto.client.name,
-              phone: normalizedPhone,
-              email: dto.client.email,
-            },
-          });
-
-          resolvedClientId = createdClient.id;
-        }
+        resolvedClientId = createdClient.id;
       }
+    }
 
-      return tx.appointment.create({
-        data: {
-          userId,
-          serviceId: dto.serviceId,
-          clientId: resolvedClientId,
-          date: start,
-          notes: dto.notes,
-          status: 'SCHEDULED',
+    return tx.appointment.create({
+      data: {
+        userId,
+        serviceId: dto.serviceId,
+        clientId: resolvedClientId,
+        date: start,
+        notes: dto.notes,
+        status: 'SCHEDULED',
+        publicCancelToken: this.generatePublicCancelToken(),
+        publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
+      },
+      select: {
+        id: true,
+        date: true,
+        notes: true,
+        status: true,
+        createdAt: true,
+        publicCancelToken: true,
+        publicCancelTokenExpiresAt: true,
+        service: {
+          select: { id: true, name: true, duration: true, priceCents: true },
         },
-        select: {
-          id: true,
-          date: true,
-          notes: true,
-          status: true,
-          createdAt: true,
-          service: {
-            select: { id: true, name: true, duration: true, priceCents: true },
-          },
-          client: {
-            select: { id: true, name: true, phone: true, email: true },
-          },
+        client: {
+          select: { id: true, name: true, phone: true, email: true },
         },
-      });
+      },
     });
-  }
+  });
+ }
 
   async cancel(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
@@ -692,18 +707,56 @@ export class AppointmentsService {
   }
 
   private async isWithinBusinessHours(
-    userId: string,
-    date: Date,
-    durationMinutes: number,
-  ) {
-    const startMinutes = date.getHours() * 60 + date.getMinutes();
-    const endMinutes = startMinutes + durationMinutes;
+  userId: string,
+  start: Date,
+  totalMinutes: number,
+) {
+  const weekday = start.getDay();
 
-    const ranges = await this.getBusinessRanges(userId, date);
+  const businessHours = await this.prisma.businessHour.findMany({
+    where: {
+      userId,
+      weekday,
+    },
+    orderBy: {
+      start: 'asc',
+    },
+  });
 
-    return ranges.some(
-      (r) => startMinutes >= r.start && endMinutes <= r.end,
-    );
+  console.log('--- isWithinBusinessHours DEBUG ---');
+  console.log('userId:', userId);
+  console.log('start:', start);
+  console.log('weekday:', weekday);
+  console.log('totalMinutes:', totalMinutes);
+  console.log('businessHours:', businessHours);
+
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = startMinutes + totalMinutes;
+
+  console.log('startMinutes:', startMinutes);
+  console.log('endMinutes:', endMinutes);
+
+  const fits = businessHours.some((item) => {
+    const [startHour, startMinute] = item.start.split(':').map(Number);
+    const [endHour, endMinute] = item.end.split(':').map(Number);
+
+    const rangeStart = startHour * 60 + startMinute;
+    const rangeEnd = endHour * 60 + endMinute;
+
+    console.log('checking range:', {
+      item,
+      rangeStart,
+      rangeEnd,
+      fits: startMinutes >= rangeStart && endMinutes <= rangeEnd,
+    });
+
+    return startMinutes >= rangeStart && endMinutes <= rangeEnd;
+  });
+
+  console.log('fits:', fits);
+  console.log('----------------------------------');
+
+  return fits;
   }
 
   private async findOrCreateClientByPhone(

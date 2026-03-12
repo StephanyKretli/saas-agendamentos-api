@@ -12,16 +12,16 @@ export class BookingReminderService {
     private readonly emailService: EmailService,
   ) {}
 
-  @Cron(CronExpression.EVERY_MINUTE)
-  async handleReminders() {
-    const now = new Date();
+  @Cron(CronExpression.EVERY_10_MINUTES)
+    async handleReminders() {
+      const now = new Date();
 
-    const from = new Date(now.getTime());
-    const to = new Date(now.getTime() + 60 * 60 * 1000);
+      const from = new Date(now.getTime() + 60 * 60 * 1000);
+      const to = new Date(now.getTime() + 70 * 60 * 1000);
 
-    this.logger.log(
-      `Checking reminders between ${from.toISOString()} and ${to.toISOString()}`,
-    );
+      console.log(
+        `Checking reminders between ${from.toISOString()} and ${to.toISOString()}`
+      );
 
     const appointments = await this.prisma.appointment.findMany({
       where: {

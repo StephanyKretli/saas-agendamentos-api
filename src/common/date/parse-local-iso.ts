@@ -1,13 +1,22 @@
-export function parseLocalISO(input: string): Date {
-  // remove timezone se vier (Z ou +hh:mm)
-  const clean = input.replace(/Z|[+-]\d{2}:\d{2}$/, "");
+export function parseLocalISO(value: string): Date {
+  const normalized = value.trim().replace(/(Z|[+-]\d{2}:\d{2})$/, "");
 
-  // clean: "YYYY-MM-DDTHH:mm:ss(.sss)" ou "YYYY-MM-DDTHH:mm"
-  const [datePart, timePart = "00:00:00"] = clean.split("T");
-  const [y, m, d] = datePart.split("-").map(Number);
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(normalized);
 
-  const [hh = 0, mm = 0, ss = 0] = timePart.split(":").map(Number);
+  if (!match) {
+    return new Date(NaN);
+  }
 
-  // cria Date no horário local do servidor
-  return new Date(y, (m - 1), d, hh, mm, ss, 0);
+  const [, year, month, day, hour, minute, second = "00"] = match;
+
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    0,
+  );
 }

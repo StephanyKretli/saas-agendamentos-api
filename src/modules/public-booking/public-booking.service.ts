@@ -2,12 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { CreatePublicAppointmentDto } from './dto/create-public-appointment.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class PublicBookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly appointmentsService: AppointmentsService,
+    private readonly emailService: EmailService,
   ) {}
 
   async getProfile(username: string) {
@@ -95,10 +97,28 @@ export class PublicBookingService {
     },
   });
 
+  const publicCancelPath = `/cancel/${appointment.publicCancelToken}`;
+  const appWebUrl = process.env.APP_WEB_URL ?? 'http://localhost:3000';
+  const cancelUrl = `${appWebUrl}${publicCancelPath}`;
+
+  if (appointment.client?.email) {
+    try {
+      await this.emailService.sendBookingConfirmation({
+        to: appointment.client.email,
+        clientName: appointment.client.name,
+        serviceName: appointment.service.name,
+        appointmentDate: new Date(appointment.date),
+        cancelUrl,
+      });
+    } catch (error) {
+      // Não derruba o agendamento por falha de email
+      console.error('Falha ao enviar email de confirmação:', error);
+    }
+  }
+
   return {
     ...appointment,
-    publicCancelToken: appointment.publicCancelToken,
-    publicCancelPath: `/cancel/${appointment.publicCancelToken}`,
+    publicCancelPath,
   };
   }
 

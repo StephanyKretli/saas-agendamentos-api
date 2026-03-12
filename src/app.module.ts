@@ -15,10 +15,11 @@ import { HealthController } from './health/health.controller';
 import { LoggerMiddleware } from './common/logger/logger.middleware';
 import { APP_GUARD } from '@nestjs/core';
 import { BlockedSlotsModule } from './modules/blocked-slots/blocked-slots.module';
+import { EmailModule } from './modules/email/email.module';
 
 @Module({
   imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
-    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule, BlockedSlotsModule,
+    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule, BlockedSlotsModule, EmailModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

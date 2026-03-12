@@ -48,6 +48,7 @@ model Appointment {
   publicCancelToken         String?           @unique
   publicCancelTokenExpiresAt DateTime?
   createdAt                 DateTime          @default(now())
+  reminderSentAt            DateTime?
 
   user    User    @relation(fields: [userId], references: [id])
   service Service @relation(fields: [serviceId], references: [id])

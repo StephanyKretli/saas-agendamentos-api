@@ -16,10 +16,11 @@ import { LoggerMiddleware } from './common/logger/logger.middleware';
 import { APP_GUARD } from '@nestjs/core';
 import { BlockedSlotsModule } from './modules/blocked-slots/blocked-slots.module';
 import { EmailModule } from './modules/email/email.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
-    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule, BlockedSlotsModule, EmailModule,
+    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule, BlockedSlotsModule, EmailModule, ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

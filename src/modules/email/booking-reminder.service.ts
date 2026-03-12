@@ -13,20 +13,21 @@ export class BookingReminderService {
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
-    async handleReminders() {
-      const now = new Date();
+  async handleReminders() {
+    const now = new Date();
 
-      const from = new Date(now.getTime() + 60 * 60 * 1000);
-      const to = new Date(now.getTime() + 70 * 60 * 1000);
+    const from = new Date(now.getTime() + 60 * 60 * 1000);
+    const to = new Date(now.getTime() + 70 * 60 * 1000);
 
-      console.log(
-        `Checking reminders between ${from.toISOString()} and ${to.toISOString()}`
-      );
+    this.logger.log(
+      `Checking reminders between ${from.toISOString()} and ${to.toISOString()}`,
+    );
 
     const appointments = await this.prisma.appointment.findMany({
       where: {
         status: 'SCHEDULED',
         reminderSentAt: null,
+        reminderProcessingAt: null,
         date: {
           gte: from,
           lte: to,
@@ -59,10 +60,37 @@ export class BookingReminderService {
     this.logger.log(`Found ${appointments.length} appointment(s) to remind.`);
 
     for (const appointment of appointments) {
+      const reserved = await this.prisma.appointment.updateMany({
+        where: {
+          id: appointment.id,
+          reminderSentAt: null,
+          reminderProcessingAt: null,
+        },
+        data: {
+          reminderProcessingAt: new Date(),
+        },
+      });
+
+      if (reserved.count === 0) {
+        this.logger.warn(
+          `Skipping appointment ${appointment.id} because it is already being processed.`,
+        );
+        continue;
+      }
+
       const email = appointment.client?.email;
       const clientName = appointment.client?.name;
 
-      if (!email || !clientName) continue;
+      if (!email || !clientName) {
+        await this.prisma.appointment.update({
+          where: { id: appointment.id },
+          data: {
+            reminderProcessingAt: null,
+          },
+        });
+
+        continue;
+      }
 
       try {
         await this.emailService.sendBookingReminder({
@@ -76,11 +104,19 @@ export class BookingReminderService {
           where: { id: appointment.id },
           data: {
             reminderSentAt: new Date(),
+            reminderProcessingAt: null,
           },
         });
 
         this.logger.log(`Reminder sent for appointment ${appointment.id}`);
       } catch (error) {
+        await this.prisma.appointment.update({
+          where: { id: appointment.id },
+          data: {
+            reminderProcessingAt: null,
+          },
+        });
+
         this.logger.error(
           `Failed to send reminder for appointment ${appointment.id}: ${
             error instanceof Error ? error.message : String(error)

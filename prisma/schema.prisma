@@ -94,8 +94,7 @@ model BusinessHour {
 
   user User @relation(fields: [userId], references: [id])
 
-  @@index([userId])
-  @@index([weekday])
+  @@unique([userId, weekday, start, end])
 }
 
 model Client {

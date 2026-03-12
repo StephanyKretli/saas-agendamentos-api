@@ -12,12 +12,12 @@ export class BookingReminderService {
     private readonly emailService: EmailService,
   ) {}
 
-  @Cron(CronExpression.EVERY_10_MINUTES)
+  @Cron(CronExpression.EVERY_MINUTE)
   async handleReminders() {
     const now = new Date();
 
-    const from = new Date(now.getTime() + 1 * 60 * 1000);
-    const to = new Date(now.getTime() + 15 * 60 * 1000);
+    const from = new Date(now.getTime());
+    const to = new Date(now.getTime() + 60 * 60 * 1000);
 
     this.logger.log(
       `Checking reminders between ${from.toISOString()} and ${to.toISOString()}`,

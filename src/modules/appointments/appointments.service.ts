@@ -75,7 +75,7 @@ export class AppointmentsService {
 
     if (!ok) {
       throw new BadRequestException(
-        'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
+        'O horário escolhido não cabe dentro do expediente considerando a duração do serviço e o intervalo de segurança.',
       );
     }
 
@@ -139,6 +139,26 @@ export class AppointmentsService {
 
     let resolvedClientId: string | undefined = dto.clientId;
 
+    if (dto.clientId && dto.client) {
+      throw new BadRequestException(
+        'Informe apenas clientId ou client, não os dois.',
+      );
+    }
+
+    if (resolvedClientId) {
+      const existingClientById = await tx.client.findFirst({
+        where: {
+          id: resolvedClientId,
+          userId,
+        },
+        select: { id: true },
+      });
+
+      if (!existingClientById) {
+        throw new BadRequestException('Cliente inválido.');
+      }
+    }
+
     if (!resolvedClientId && dto.client) {
       const normalizedPhone = dto.client.phone.replace(/\D/g, '');
 
@@ -151,6 +171,14 @@ export class AppointmentsService {
 
       if (existingClient) {
         resolvedClientId = existingClient.id;
+
+        await tx.client.update({
+          where: { id: existingClient.id },
+          data: {
+            name: dto.client.name,
+            email: dto.client.email,
+          },
+        });
       } else {
         const createdClient = await tx.client.create({
           data: {
@@ -193,7 +221,7 @@ export class AppointmentsService {
       },
     });
   });
- }
+  }
 
   async cancel(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
@@ -397,7 +425,7 @@ export class AppointmentsService {
 
     if (!ok) {
       throw new BadRequestException(
-        'Fora do horário de funcionamento ou não há tempo suficiente para o serviço.',
+        'O horário escolhido não cabe dentro do expediente considerando a duração do serviço e o intervalo de segurança.',
       );
     }
 
@@ -723,40 +751,18 @@ export class AppointmentsService {
     },
   });
 
-  console.log('--- isWithinBusinessHours DEBUG ---');
-  console.log('userId:', userId);
-  console.log('start:', start);
-  console.log('weekday:', weekday);
-  console.log('totalMinutes:', totalMinutes);
-  console.log('businessHours:', businessHours);
-
   const startMinutes = start.getHours() * 60 + start.getMinutes();
   const endMinutes = startMinutes + totalMinutes;
 
-  console.log('startMinutes:', startMinutes);
-  console.log('endMinutes:', endMinutes);
-
-  const fits = businessHours.some((item) => {
+  return businessHours.some((item) => {
     const [startHour, startMinute] = item.start.split(':').map(Number);
     const [endHour, endMinute] = item.end.split(':').map(Number);
 
     const rangeStart = startHour * 60 + startMinute;
     const rangeEnd = endHour * 60 + endMinute;
 
-    console.log('checking range:', {
-      item,
-      rangeStart,
-      rangeEnd,
-      fits: startMinutes >= rangeStart && endMinutes <= rangeEnd,
-    });
-
     return startMinutes >= rangeStart && endMinutes <= rangeEnd;
   });
-
-  console.log('fits:', fits);
-  console.log('----------------------------------');
-
-  return fits;
   }
 
   private async findOrCreateClientByPhone(

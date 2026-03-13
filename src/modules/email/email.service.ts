@@ -9,6 +9,13 @@ type SendBookingConfirmationInput = {
   cancelUrl: string;
 };
 
+type SendReminderInput = {
+  to: string;
+  clientName: string;
+  serviceName: string;
+  appointmentDate: Date;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -24,7 +31,9 @@ export class EmailService {
     cancelUrl,
   }: SendBookingConfirmationInput) {
     this.logger.log('--- EMAIL DEBUG START ---');
-    this.logger.log(`RESEND_API_KEY exists: ${Boolean(process.env.RESEND_API_KEY)}`);
+    this.logger.log(
+      `RESEND_API_KEY exists: ${Boolean(process.env.RESEND_API_KEY)}`,
+    );
     this.logger.log(`EMAIL_FROM: ${this.from}`);
     this.logger.log(`TO: ${to}`);
     this.logger.log(`CANCEL_URL: ${cancelUrl}`);
@@ -92,70 +101,135 @@ export class EmailService {
     }
   }
 
-  async sendBookingReminder({
-  to,
-  clientName,
-  serviceName,
-  appointmentDate,
-}: {
-  to: string;
-  clientName: string;
-  serviceName: string;
-  appointmentDate: Date;
-}) {
-  this.logger.log('--- REMINDER EMAIL DEBUG START ---');
-  this.logger.log(`TO: ${to}`);
+  async sendDayBeforeReminder({
+    to,
+    clientName,
+    serviceName,
+    appointmentDate,
+  }: SendReminderInput) {
+    this.logger.log('--- DAY REMINDER EMAIL DEBUG START ---');
+    this.logger.log(`TO: ${to}`);
 
-  if (!process.env.RESEND_API_KEY) {
-    this.logger.warn('RESEND_API_KEY não configurada. Lembrete não enviado.');
-    this.logger.log('--- REMINDER EMAIL DEBUG END ---');
-    return;
-  }
-
-  const formattedDate = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    dateStyle: 'full',
-    timeStyle: 'short',
-  }).format(appointmentDate);
-
-  const subject = 'Lembrete do seu agendamento';
-
-  const html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
-      <h2>Lembrete do seu agendamento ⏰</h2>
-      <p>Olá, ${clientName}!</p>
-      <p>Este é um lembrete do seu agendamento.</p>
-
-      <p><strong>Serviço:</strong> ${serviceName}</p>
-      <p><strong>Data e horário:</strong> ${formattedDate}</p>
-    </div>
-  `;
-
-  try {
-    const result = await this.resend.emails.send({
-      from: this.from,
-      to,
-      subject,
-      html,
-    });
-
-    this.logger.log(`RESEND REMINDER RESULT: ${JSON.stringify(result)}`);
-
-    if (result.error) {
-      this.logger.error(`Erro ao enviar lembrete: ${result.error.message}`);
-      throw new Error(result.error.message);
+    if (!process.env.RESEND_API_KEY) {
+      this.logger.warn(
+        'RESEND_API_KEY não configurada. Lembrete de 1 dia não enviado.',
+      );
+      this.logger.log('--- DAY REMINDER EMAIL DEBUG END ---');
+      return;
     }
 
-    this.logger.log('Lembrete enviado com sucesso.');
-  } catch (error) {
-    this.logger.error(
-      `Falha ao enviar lembrete: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    throw error;
-  } finally {
-    this.logger.log('--- REMINDER EMAIL DEBUG END ---');
+    const formattedDate = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      dateStyle: 'full',
+      timeStyle: 'short',
+    }).format(appointmentDate);
+
+    const subject = 'Lembrete: seu agendamento é amanhã';
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
+        <h2>Lembrete do seu agendamento 📅</h2>
+        <p>Olá, ${clientName}!</p>
+        <p>Passando para lembrar que seu agendamento está chegando.</p>
+
+        <p><strong>Serviço:</strong> ${serviceName}</p>
+        <p><strong>Data e horário:</strong> ${formattedDate}</p>
+      </div>
+    `;
+
+    try {
+      const result = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+      });
+
+      this.logger.log(`RESEND DAY REMINDER RESULT: ${JSON.stringify(result)}`);
+
+      if (result.error) {
+        this.logger.error(
+          `Erro ao enviar lembrete de 1 dia: ${result.error.message}`,
+        );
+        throw new Error(result.error.message);
+      }
+
+      this.logger.log('Lembrete de 1 dia enviado com sucesso.');
+    } catch (error) {
+      this.logger.error(
+        `Falha ao enviar lembrete de 1 dia: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      throw error;
+    } finally {
+      this.logger.log('--- DAY REMINDER EMAIL DEBUG END ---');
+    }
   }
+
+  async sendHourBeforeReminder({
+    to,
+    clientName,
+    serviceName,
+    appointmentDate,
+  }: SendReminderInput) {
+    this.logger.log('--- HOUR REMINDER EMAIL DEBUG START ---');
+    this.logger.log(`TO: ${to}`);
+
+    if (!process.env.RESEND_API_KEY) {
+      this.logger.warn(
+        'RESEND_API_KEY não configurada. Lembrete de 1 hora não enviado.',
+      );
+      this.logger.log('--- HOUR REMINDER EMAIL DEBUG END ---');
+      return;
+    }
+
+    const formattedDate = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      dateStyle: 'full',
+      timeStyle: 'short',
+    }).format(appointmentDate);
+
+    const subject = 'Lembrete: seu agendamento é em breve';
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
+        <h2>Lembrete do seu agendamento ⏰</h2>
+        <p>Olá, ${clientName}!</p>
+        <p>Seu agendamento está se aproximando.</p>
+
+        <p><strong>Serviço:</strong> ${serviceName}</p>
+        <p><strong>Data e horário:</strong> ${formattedDate}</p>
+      </div>
+    `;
+
+    try {
+      const result = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+      });
+
+      this.logger.log(`RESEND HOUR REMINDER RESULT: ${JSON.stringify(result)}`);
+
+      if (result.error) {
+        this.logger.error(
+          `Erro ao enviar lembrete de 1 hora: ${result.error.message}`,
+        );
+        throw new Error(result.error.message);
+      }
+
+      this.logger.log('Lembrete de 1 hora enviado com sucesso.');
+    } catch (error) {
+      this.logger.error(
+        `Falha ao enviar lembrete de 1 hora: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      throw error;
+    } finally {
+      this.logger.log('--- HOUR REMINDER EMAIL DEBUG END ---');
+    }
   }
 }

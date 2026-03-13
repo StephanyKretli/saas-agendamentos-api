@@ -38,18 +38,20 @@ model Service {
 }
 
 model Appointment {
-  id                         String             @id @default(uuid())
-  userId                     String
-  serviceId                  String
-  clientId                   String?
-  date                       DateTime
-  status                     AppointmentStatus
-  notes                      String?
-  publicCancelToken          String?            @unique
-  publicCancelTokenExpiresAt DateTime?
-  reminderSentAt             DateTime?
-  reminderProcessingAt       DateTime?
-  createdAt                  DateTime           @default(now())
+  id                          String             @id @default(uuid())
+  userId                      String
+  serviceId                   String
+  clientId                    String?
+  date                        DateTime
+  status                      AppointmentStatus
+  notes                       String?
+  publicCancelToken           String?            @unique
+  publicCancelTokenExpiresAt  DateTime?
+  dayReminderSentAt           DateTime?
+  dayReminderProcessingAt     DateTime?
+  hourReminderSentAt          DateTime?
+  hourReminderProcessingAt    DateTime?
+  createdAt                   DateTime           @default(now())
 
   user    User    @relation(fields: [userId], references: [id])
   service Service @relation(fields: [serviceId], references: [id])

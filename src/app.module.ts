@@ -17,10 +17,12 @@ import { APP_GUARD } from '@nestjs/core';
 import { BlockedSlotsModule } from './modules/blocked-slots/blocked-slots.module';
 import { EmailModule } from './modules/email/email.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
     DashboardModule, CalendarModule, ClientsModule, PublicBookingModule, BlockedSlotsModule, EmailModule, ScheduleModule.forRoot(),
+    SettingsModule, 
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

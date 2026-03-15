@@ -13,7 +13,13 @@ model User {
   name      String
   password  String
   role      Role     @default(USER)
-  username String    @unique
+  username  String   @unique
+
+  timezone                 String   @default("America/Sao_Paulo")
+  bufferMinutes            Int      @default(0)
+  minBookingNoticeMinutes  Int      @default(0)
+  maxBookingDays           Int      @default(30)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

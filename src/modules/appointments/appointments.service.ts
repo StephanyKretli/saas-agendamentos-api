@@ -44,241 +44,242 @@ export class AppointmentsService {
   }
 
   private async getUserBookingSettings(userId: string) {
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      bufferMinutes: true,
-      minBookingNoticeMinutes: true,
-      maxBookingDays: true,
-      timezone: true,
-    },
-  });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        bufferMinutes: true,
+        minBookingNoticeMinutes: true,
+        maxBookingDays: true,
+        timezone: true,
+      },
+    });
 
-  if (!user) {
-    throw new BadRequestException('Usuário não encontrado.');
-  }
+    if (!user) {
+      throw new BadRequestException('Usuário não encontrado.');
+    }
 
-  return {
-    bufferMinutes: resolveBufferMinutes(user.bufferMinutes),
-    minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
-    maxBookingDays: user.maxBookingDays ?? 30,
-    timezone: user.timezone,
-  };
+    return {
+      bufferMinutes: user.bufferMinutes ?? 0,
+      minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
+      maxBookingDays: user.maxBookingDays ?? 30,
+      timezone: user.timezone,
+    };
   }
 
   async create(userId: string, dto: CreateAppointmentDto) {
-  const start = parseLocalISO(dto.date);
+    const start = parseLocalISO(dto.date);
 
-  if (Number.isNaN(start.getTime())) {
-    throw new BadRequestException('Data inválida.');
-  }
-
-  const now = new Date();
-  if (start.getTime() <= now.getTime()) {
-    throw new BadRequestException('Não é possível agendar no passado.');
-  }
-
-  const settings = await this.getUserBookingSettings(userId);
-
-  const minLeadMinutes =
-    settings.minBookingNoticeMinutes > 0
-      ? settings.minBookingNoticeMinutes
-      : MIN_LEAD_MINUTES;
-
-  const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
-
-  if (start.getTime() < minStart.getTime()) {
-    throw new BadRequestException(
-      `Agende com pelo menos ${minLeadMinutes} minutos de antecedência.`,
-    );
-  }
-
-  const maxBookingDays = settings.maxBookingDays ?? 30;
-  const maxDate = new Date();
-  maxDate.setHours(23, 59, 59, 999);
-  maxDate.setDate(maxDate.getDate() + maxBookingDays);
-
-  if (start.getTime() > maxDate.getTime()) {
-    throw new BadRequestException(
-      `O agendamento só pode ser feito com até ${maxBookingDays} dias de antecedência.`,
-    );
-  }
-
-  return this.prisma.$transaction(async (tx) => {
-    const service = await tx.service.findFirst({
-      where: { id: dto.serviceId, userId },
-      select: { id: true, duration: true },
-    });
-
-    if (!service) {
-      throw new BadRequestException('Serviço inválido.');
+    if (Number.isNaN(start.getTime())) {
+      throw new BadRequestException('Data inválida.');
     }
 
-    const totalMinutes = getAppointmentTotalMinutes(
-      service.duration,
-      settings.bufferMinutes,
-    );
+    const now = new Date();
 
-    const ok = await this.isWithinBusinessHours(userId, start, totalMinutes);
+    if (start.getTime() <= now.getTime()) {
+      throw new BadRequestException('Não é possível agendar no passado.');
+    }
 
-    if (!ok) {
+    const settings = await this.getUserBookingSettings(userId);
+
+    const minLeadMinutes =
+      settings.minBookingNoticeMinutes > 0
+        ? settings.minBookingNoticeMinutes
+        : MIN_LEAD_MINUTES;
+
+    const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
+
+    if (start.getTime() < minStart.getTime()) {
       throw new BadRequestException(
-        'O horário escolhido não cabe dentro do expediente considerando a duração do serviço e o intervalo de segurança.',
+        `Agende com pelo menos ${minLeadMinutes} minutos de antecedência.`,
       );
     }
 
-    const end = addMinutes(start, totalMinutes);
+    const maxBookingDays = settings.maxBookingDays ?? 30;
+    const maxDate = new Date();
+    maxDate.setHours(23, 59, 59, 999);
+    maxDate.setDate(maxDate.getDate() + maxBookingDays);
 
-    const dayStart = new Date(start);
-    dayStart.setHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(start);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const blockedDay = await tx.blockedDate.findFirst({
-      where: { userId, date: dayStart },
-      select: { id: true },
-    });
-
-    if (blockedDay) {
-      throw new BadRequestException('Dia indisponível.');
+    if (start.getTime() > maxDate.getTime()) {
+      throw new BadRequestException(
+        `O agendamento só pode ser feito com até ${maxBookingDays} dias de antecedência.`,
+      );
     }
 
-    const blocks = await tx.blockedSlot.findMany({
-      where: {
-        userId,
-        start: { lt: end },
-        end: { gt: start },
-      },
-      select: { id: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const service = await tx.service.findFirst({
+        where: { id: dto.serviceId, userId },
+        select: { id: true, duration: true },
+      });
 
-    if (blocks.length > 0) {
-      throw new BadRequestException('Horário indisponível (bloqueado).');
-    }
+      if (!service) {
+        throw new BadRequestException('Serviço inválido.');
+      }
 
-    const existing = await tx.appointment.findMany({
-      where: {
-        userId,
-        status: 'SCHEDULED',
-        date: { gte: dayStart, lte: dayEnd },
-      },
-      select: {
-        date: true,
-        service: {
-          select: { duration: true },
-        },
-      },
-    });
-
-    const hasConflict = existing.some((a) => {
-      const aStart = new Date(a.date);
-      const aTotalMinutes = getAppointmentTotalMinutes(
-        a.service.duration,
+      const totalMinutes = getAppointmentTotalMinutes(
+        service.duration,
         settings.bufferMinutes,
       );
-      const aEnd = addMinutes(aStart, aTotalMinutes);
 
-      return rangesOverlap(aStart, aEnd, start, end);
-    });
+      const ok = await this.isWithinBusinessHours(userId, start, totalMinutes);
 
-    if (hasConflict) {
-      throw new BadRequestException(
-        'Conflito de horário: já existe um agendamento nesse intervalo.',
-      );
-    }
+      if (!ok) {
+        throw new BadRequestException(
+          'O horário escolhido não cabe dentro do expediente considerando a duração do serviço e o intervalo de segurança.',
+        );
+      }
 
-    let resolvedClientId: string | undefined = dto.clientId;
+      const end = addMinutes(start, totalMinutes);
 
-    if (dto.clientId && dto.client) {
-      throw new BadRequestException(
-        'Informe apenas clientId ou client, não os dois.',
-      );
-    }
+      const dayStart = new Date(start);
+      dayStart.setHours(0, 0, 0, 0);
 
-    if (resolvedClientId) {
-      const existingClientById = await tx.client.findFirst({
-        where: { id: resolvedClientId, userId },
+      const dayEnd = new Date(start);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const blockedDay = await tx.blockedDate.findFirst({
+        where: { userId, date: dayStart },
         select: { id: true },
       });
 
-      if (!existingClientById) {
-        throw new BadRequestException('Cliente inválido.');
+      if (blockedDay) {
+        throw new BadRequestException('Dia indisponível.');
       }
-    }
 
-    if (!resolvedClientId && dto.client) {
-      const normalizedPhone = dto.client.phone.replace(/\D/g, '');
-
-      const existingClient = await tx.client.findFirst({
+      const blocks = await tx.blockedSlot.findMany({
         where: {
           userId,
-          phone: normalizedPhone,
+          start: { lt: end },
+          end: { gt: start },
+        },
+        select: { id: true },
+      });
+
+      if (blocks.length > 0) {
+        throw new BadRequestException('Horário indisponível (bloqueado).');
+      }
+
+      const existing = await tx.appointment.findMany({
+        where: {
+          userId,
+          status: 'SCHEDULED',
+          date: { gte: dayStart, lte: dayEnd },
+        },
+        select: {
+          date: true,
+          service: {
+            select: { duration: true },
+          },
         },
       });
 
-      if (existingClient) {
-        resolvedClientId = existingClient.id;
+      const hasConflict = existing.some((a) => {
+        const aStart = new Date(a.date);
+        const aTotalMinutes = getAppointmentTotalMinutes(
+          a.service.duration,
+          settings.bufferMinutes,
+        );
+        const aEnd = addMinutes(aStart, aTotalMinutes);
 
-        await tx.client.update({
-          where: { id: existingClient.id },
-          data: {
-            name: dto.client.name,
-            email: dto.client.email,
-          },
-        });
-      } else {
-        const createdClient = await tx.client.create({
-          data: {
-            userId,
-            name: dto.client.name,
-            phone: normalizedPhone,
-            email: dto.client.email,
-          },
-        });
+        return rangesOverlap(aStart, aEnd, start, end);
+      });
 
-        resolvedClientId = createdClient.id;
+      if (hasConflict) {
+        throw new BadRequestException(
+          'Conflito de horário: já existe um agendamento nesse intervalo.',
+        );
       }
-    }
 
-    return tx.appointment.create({
-      data: {
-        userId,
-        serviceId: dto.serviceId,
-        clientId: resolvedClientId,
-        date: start,
-        notes: dto.notes,
-        status: 'SCHEDULED',
-        publicCancelToken: this.generatePublicCancelToken(),
-        publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
-      },
-      select: {
-        id: true,
-        date: true,
-        notes: true,
-        status: true,
-        createdAt: true,
-        publicCancelToken: true,
-        publicCancelTokenExpiresAt: true,
-        service: {
-          select: {
-            id: true,
-            name: true,
-            duration: true,
-            priceCents: true,
+      let resolvedClientId: string | undefined = dto.clientId;
+
+      if (dto.clientId && dto.client) {
+        throw new BadRequestException(
+          'Informe apenas clientId ou client, não os dois.',
+        );
+      }
+
+      if (resolvedClientId) {
+        const existingClientById = await tx.client.findFirst({
+          where: { id: resolvedClientId, userId },
+          select: { id: true },
+        });
+
+        if (!existingClientById) {
+          throw new BadRequestException('Cliente inválido.');
+        }
+      }
+
+      if (!resolvedClientId && dto.client) {
+        const normalizedPhone = dto.client.phone.replace(/\D/g, '');
+
+        const existingClient = await tx.client.findFirst({
+          where: {
+            userId,
+            phone: normalizedPhone,
+          },
+        });
+
+        if (existingClient) {
+          resolvedClientId = existingClient.id;
+
+          await tx.client.update({
+            where: { id: existingClient.id },
+            data: {
+              name: dto.client.name,
+              email: dto.client.email,
+            },
+          });
+        } else {
+          const createdClient = await tx.client.create({
+            data: {
+              userId,
+              name: dto.client.name,
+              phone: normalizedPhone,
+              email: dto.client.email,
+            },
+          });
+
+          resolvedClientId = createdClient.id;
+        }
+      }
+
+      return tx.appointment.create({
+        data: {
+          userId,
+          serviceId: dto.serviceId,
+          clientId: resolvedClientId,
+          date: start,
+          notes: dto.notes,
+          status: 'SCHEDULED',
+          publicCancelToken: this.generatePublicCancelToken(),
+          publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
+        },
+        select: {
+          id: true,
+          date: true,
+          notes: true,
+          status: true,
+          createdAt: true,
+          publicCancelToken: true,
+          publicCancelTokenExpiresAt: true,
+          service: {
+            select: {
+              id: true,
+              name: true,
+              duration: true,
+              priceCents: true,
+            },
+          },
+          client: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true,
+            },
           },
         },
-        client: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            email: true,
-          },
-        },
-      },
+      });
     });
-  });
   }
 
   async cancel(userId: string, appointmentId: string) {
@@ -416,6 +417,7 @@ export class AppointmentsService {
   }
 
   const now = new Date();
+
   if (start.getTime() <= now.getTime()) {
     throw new BadRequestException('Não é possível reagendar para o passado.');
   }
@@ -482,21 +484,6 @@ export class AppointmentsService {
     throw new BadRequestException('Serviço inválido.');
   }
 
-  const dayStart = new Date(start);
-  dayStart.setHours(0, 0, 0, 0);
-
-  const dayEnd = new Date(start);
-  dayEnd.setHours(23, 59, 59, 999);
-
-  const blockedDay = await this.prisma.blockedDate.findFirst({
-    where: { userId, date: dayStart },
-    select: { id: true },
-  });
-
-  if (blockedDay) {
-    throw new BadRequestException('Dia indisponível.');
-  }
-
   const totalMinutes = getAppointmentTotalMinutes(
     service.duration,
     settings.bufferMinutes,
@@ -511,6 +498,21 @@ export class AppointmentsService {
   }
 
   const end = addMinutes(start, totalMinutes);
+
+  const dayStart = new Date(start);
+  dayStart.setHours(0, 0, 0, 0);
+
+  const dayEnd = new Date(start);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const blockedDay = await this.prisma.blockedDate.findFirst({
+    where: { userId, date: dayStart },
+    select: { id: true },
+  });
+
+  if (blockedDay) {
+    throw new BadRequestException('Dia indisponível.');
+  }
 
   const blocks = await this.prisma.blockedSlot.findMany({
     where: {
@@ -574,198 +576,216 @@ export class AppointmentsService {
           priceCents: true,
         },
       },
+      client: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+        },
+      },
     },
   });
   }
 
   async getAvailability(
-  userId: string,
-  serviceId: string,
-  date: string,
-  stepMinutes = 15,
-) {
-  if (!serviceId) {
-    throw new BadRequestException('serviceId é obrigatório.');
-  }
+    userId: string,
+    serviceId: string,
+    date: string,
+    stepMinutes = 15,
+  ) {
+    if (!serviceId) {
+      throw new BadRequestException('serviceId é obrigatório.');
+    }
 
-  if (!date) {
-    throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
-  }
+    if (!date) {
+      throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
+    }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new BadRequestException('date inválido.');
-  }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date inválido.');
+    }
 
-  const settings = await this.getUserBookingSettings(userId);
+    const settings = await this.getUserBookingSettings(userId);
 
-  const requestedDay = startOfDayLocal(date);
+    const requestedDay = startOfDayLocal(date);
 
-  const maxDate = new Date();
-  maxDate.setHours(23, 59, 59, 999);
-  maxDate.setDate(maxDate.getDate() + (settings.maxBookingDays ?? 30));
+    const maxBookingDays = settings.maxBookingDays ?? 30;
+    const maxDate = new Date();
+    maxDate.setHours(23, 59, 59, 999);
+    maxDate.setDate(maxDate.getDate() + maxBookingDays);
 
-  if (requestedDay.getTime() > maxDate.getTime()) {
-    return {
-      date,
-      slots: [],
-    };
-  }
+    if (requestedDay.getTime() > maxDate.getTime()) {
+      return {
+        date,
+        slots: [],
+      };
+    }
 
-  const service = await this.prisma.service.findFirst({
-    where: { id: serviceId, userId },
-    select: { id: true, duration: true },
-  });
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, userId },
+      select: { id: true, duration: true },
+    });
 
-  if (!service) {
-    throw new BadRequestException('Serviço inválido.');
-  }
+    if (!service) {
+      throw new BadRequestException('Serviço inválido.');
+    }
 
-  const bufferMinutes = settings.bufferMinutes;
-  const totalMinutes = getAppointmentTotalMinutes(
-    service.duration,
-    bufferMinutes,
-  );
+    const bufferMinutes = settings.bufferMinutes ?? 0;
+    const totalMinutes = getAppointmentTotalMinutes(
+      service.duration,
+      bufferMinutes,
+    );
 
-  const minLeadMinutes =
-    settings.minBookingNoticeMinutes > 0
-      ? settings.minBookingNoticeMinutes
-      : MIN_LEAD_MINUTES;
+    const minLeadMinutes =
+      settings.minBookingNoticeMinutes > 0
+        ? settings.minBookingNoticeMinutes
+        : MIN_LEAD_MINUTES;
 
-  const weekday = requestedDay.getDay();
+    const weekday = requestedDay.getDay();
 
-  const businessHours = await this.prisma.businessHour.findMany({
-    where: { userId, weekday },
-    orderBy: { start: 'asc' },
-    select: {
-      id: true,
-      start: true,
-      end: true,
-    },
-  });
+    const businessHours = await this.prisma.businessHour.findMany({
+      where: { userId, weekday },
+      orderBy: { start: 'asc' },
+      select: {
+        id: true,
+        start: true,
+        end: true,
+      },
+    });
 
-  if (!businessHours.length) {
-    return {
-      date,
-      slots: [],
-    };
-  }
+    if (!businessHours.length) {
+      return {
+        date,
+        slots: [],
+      };
+    }
 
-  const dayStart = new Date(requestedDay);
-  dayStart.setHours(0, 0, 0, 0);
+    const dayStart = new Date(requestedDay);
+    dayStart.setHours(0, 0, 0, 0);
 
-  const dayEnd = new Date(requestedDay);
-  dayEnd.setHours(23, 59, 59, 999);
+    const dayEnd = new Date(requestedDay);
+    dayEnd.setHours(23, 59, 59, 999);
 
-  const blockedDay = await this.prisma.blockedDate.findFirst({
-    where: {
-      userId,
-      date: dayStart,
-    },
-    select: { id: true },
-  });
-
-  if (blockedDay) {
-    return {
-      date,
-      slots: [],
-    };
-  }
-
-  const blockedSlots = await this.prisma.blockedSlot.findMany({
-    where: {
-      userId,
-      start: { lt: dayEnd },
-      end: { gt: dayStart },
-    },
-    select: {
-      start: true,
-      end: true,
-    },
-  });
-
-  const existingAppointments = await this.prisma.appointment.findMany({
-    where: {
-      userId,
-      status: 'SCHEDULED',
-      date: { gte: dayStart, lte: dayEnd },
-    },
-    select: {
-      date: true,
-      service: {
-        select: {
-          duration: true,
+    const blockedDay = await this.prisma.blockedDate.findFirst({
+      where: {
+        userId,
+        date: {
+          gte: dayStart,
+          lte: dayEnd,
         },
       },
-    },
-  });
+      select: { id: true },
+    });
 
-  const minAllowedStart = new Date(Date.now() + minLeadMinutes * 60_000);
-
-  const slots: string[] = [];
-
-  for (const period of businessHours) {
-    let cursor = parseLocalISO(`${date}T${period.start}:00`);
-    const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
-
-    while (true) {
-      const slotStart = new Date(cursor);
-      const slotEnd = addMinutes(slotStart, totalMinutes);
-
-      if (slotEnd > periodEnd) {
-        break;
-      }
-
-      if (slotStart < minAllowedStart) {
-        cursor = addMinutes(cursor, stepMinutes);
-        continue;
-      }
-
-      const hasBlockedSlot = blockedSlots.some((block) =>
-        rangesOverlap(slotStart, slotEnd, new Date(block.start), new Date(block.end)),
-      );
-
-      if (hasBlockedSlot) {
-        cursor = addMinutes(cursor, stepMinutes);
-        continue;
-      }
-
-      const hasConflict = existingAppointments.some((a) => {
-        const aStart = new Date(a.date);
-        const aTotalMinutes = getAppointmentTotalMinutes(
-          a.service.duration,
-          bufferMinutes,
-        );
-        const aEnd = addMinutes(aStart, aTotalMinutes);
-
-        return rangesOverlap(aStart, aEnd, slotStart, slotEnd);
-      });
-
-      if (hasConflict) {
-        cursor = addMinutes(cursor, stepMinutes);
-        continue;
-      }
-
-      const fitsBusinessHours = await this.isWithinBusinessHours(
-        userId,
-        slotStart,
-        totalMinutes,
-      );
-
-      if (!fitsBusinessHours) {
-        cursor = addMinutes(cursor, stepMinutes);
-        continue;
-      }
-
-      slots.push(formatTime(slotStart));
-
-      cursor = addMinutes(cursor, stepMinutes);
+    if (blockedDay) {
+      return {
+        date,
+        slots: [],
+      };
     }
-  }
 
-  return {
-    date,
-    slots,
-  };
+    const blockedSlots = await this.prisma.blockedSlot.findMany({
+      where: {
+        userId,
+        start: { lt: dayEnd },
+        end: { gt: dayStart },
+      },
+      select: {
+        start: true,
+        end: true,
+      },
+    });
+
+    const existingAppointments = await this.prisma.appointment.findMany({
+      where: {
+        userId,
+        status: 'SCHEDULED',
+        date: { gte: dayStart, lte: dayEnd },
+      },
+      select: {
+        date: true,
+        service: {
+          select: {
+            duration: true,
+          },
+        },
+      },
+    });
+
+    const minAllowedStart = new Date(Date.now() + minLeadMinutes * 60_000);
+
+    const slots: string[] = [];
+
+    for (const period of businessHours) {
+      let cursor = parseLocalISO(`${date}T${period.start}:00`);
+      const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
+
+      while (true) {
+        const slotStart = new Date(cursor);
+        const slotEnd = addMinutes(slotStart, totalMinutes);
+
+        // precisa caber totalmente dentro do período de trabalho
+        if (slotEnd > periodEnd) {
+          break;
+        }
+
+        // respeita antecedência mínima
+        if (slotStart < minAllowedStart) {
+          cursor = addMinutes(cursor, stepMinutes);
+          continue;
+        }
+
+        // respeita slots bloqueados
+        const hasBlockedSlot = blockedSlots.some((block) =>
+          rangesOverlap(
+            slotStart,
+            slotEnd,
+            new Date(block.start),
+            new Date(block.end),
+          ),
+        );
+
+        if (hasBlockedSlot) {
+          cursor = addMinutes(cursor, stepMinutes);
+          continue;
+        }
+
+        // respeita conflitos com outros agendamentos, considerando buffer
+        const hasConflict = existingAppointments.some((appointment) => {
+          const appointmentStart = new Date(appointment.date);
+          const appointmentTotalMinutes = getAppointmentTotalMinutes(
+            appointment.service.duration,
+            bufferMinutes,
+          );
+          const appointmentEnd = addMinutes(
+            appointmentStart,
+            appointmentTotalMinutes,
+          );
+
+          return rangesOverlap(
+            appointmentStart,
+            appointmentEnd,
+            slotStart,
+            slotEnd,
+          );
+        });
+
+        if (hasConflict) {
+          cursor = addMinutes(cursor, stepMinutes);
+          continue;
+        }
+
+        slots.push(formatTime(slotStart));
+
+        cursor = addMinutes(cursor, stepMinutes);
+      }
+    }
+
+    return {
+      date,
+      slots,
+    };
   }
 
   async getWeekAvailability(

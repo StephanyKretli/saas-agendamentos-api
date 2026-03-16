@@ -1021,4 +1021,232 @@ export class AppointmentsService {
       appointments
     }
   }
+
+  async getDayTimeline(userId: string, date: string) {
+    if (!date) {
+      throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date inválido.');
+    }
+
+    const settings = await this.getUserBookingSettings(userId);
+    const bufferMinutes = settings.bufferMinutes ?? 0;
+
+    const dayStart = startOfDayLocal(date);
+    const dayEnd = endOfDayLocal(date);
+    const weekday = dayStart.getDay();
+
+    const businessHours = await this.prisma.businessHour.findMany({
+      where: { userId, weekday },
+      orderBy: { start: 'asc' },
+      select: {
+        start: true,
+        end: true,
+      },
+    });
+
+    if (!businessHours.length) {
+      return {
+        date,
+        items: [],
+      };
+    }
+
+    const blockedDay = await this.prisma.blockedDate.findFirst({
+      where: {
+        userId,
+        date: {
+          gte: dayStart,
+          lte: dayEnd,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (blockedDay) {
+      return {
+        date,
+        items: [],
+      };
+    }
+
+    const blockedSlots = await this.prisma.blockedSlot.findMany({
+      where: {
+        userId,
+        start: { lt: dayEnd },
+        end: { gt: dayStart },
+      },
+      orderBy: { start: 'asc' },
+      select: {
+        start: true,
+        end: true,
+      },
+    });
+
+    const appointments = await this.prisma.appointment.findMany({
+    where: {
+      userId,
+      date: { gte: dayStart, lte: dayEnd },
+      status: 'SCHEDULED',
+    },
+    orderBy: { date: 'asc' },
+    select: {
+      id: true,
+      date: true,
+      status: true,
+      notes: true,
+      service: {
+        select: {
+          id: true,
+          name: true,
+          duration: true,
+          priceCents: true,
+        },
+      },
+      client: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+    const busyAppointments = appointments
+    .map((appointment) => {
+      const start = new Date(appointment.date);
+      const totalMinutes = getAppointmentTotalMinutes(
+        appointment.service.duration,
+        bufferMinutes,
+      );
+      const end = addMinutes(start, totalMinutes);
+
+      return {
+        ...appointment,
+        start,
+        end,
+      };
+    })
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+    const items: Array<
+      | {
+          type: 'free';
+          start: string;
+          end: string;
+        }
+      | {
+          type: 'busy';
+          start: string;
+          end: string;
+          appointmentId: string;
+          status: string;
+          notes: string | null;
+          service: {
+            id: string;
+            name: string;
+            duration: number;
+            priceCents: number;
+          };
+          client: {
+            id: string;
+            name: string;
+            phone: string | null;
+            email: string | null;
+          } | null;
+        }
+      | {
+          type: 'blocked';
+          start: string;
+          end: string;
+        }
+    > = [];
+
+    for (const period of businessHours) {
+      const periodStart = parseLocalISO(`${date}T${period.start}:00`);
+      const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
+
+      const periodAppointments = busyAppointments.filter(
+        (appointment) =>
+          appointment.start < periodEnd && appointment.end > periodStart,
+      );
+
+      const periodBlockedSlots = blockedSlots.filter(
+        (block) =>
+          new Date(block.start) < periodEnd && new Date(block.end) > periodStart,
+      );
+
+      const periodBusyItems = [
+        ...periodAppointments.map((appointment) => ({
+          kind: 'appointment' as const,
+          start: appointment.start,
+          end: appointment.end,
+          data: appointment,
+        })),
+        ...periodBlockedSlots.map((block) => ({
+          kind: 'blocked' as const,
+          start: new Date(block.start),
+          end: new Date(block.end),
+          data: block,
+        })),
+      ].sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      let cursor = new Date(periodStart);
+
+      for (const item of periodBusyItems) {
+        const itemStart =
+          item.start < periodStart ? new Date(periodStart) : new Date(item.start);
+        const itemEnd =
+          item.end > periodEnd ? new Date(periodEnd) : new Date(item.end);
+
+        if (cursor < itemStart) {
+          items.push({
+            type: 'free',
+            start: formatTime(cursor),
+            end: formatTime(itemStart),
+          });
+        }
+
+        if (item.kind === 'appointment') {
+          items.push({
+            type: 'busy',
+            start: formatTime(itemStart),
+            end: formatTime(itemEnd),
+            appointmentId: item.data.id,
+            status: item.data.status,
+            notes: item.data.notes,
+            service: item.data.service,
+            client: item.data.client,
+          });
+        } else {
+          items.push({
+            type: 'blocked',
+            start: formatTime(itemStart),
+            end: formatTime(itemEnd),
+          });
+        }
+
+        if (cursor < itemEnd) {
+          cursor = new Date(itemEnd);
+        }
+      }
+
+      if (cursor < periodEnd) {
+        items.push({
+          type: 'free',
+          start: formatTime(cursor),
+          end: formatTime(periodEnd),
+        });
+      }
+    }
+
+    return {
+      date,
+      items,
+    };
+  }
 }

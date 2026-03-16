@@ -88,7 +88,7 @@ export class AppointmentsController {
     example: 'appt_123',
     description: 'Appointment ID',
   })
-  
+
   @ApiBody({
     type: RescheduleAppointmentDto,
     description: 'New appointment date payload',
@@ -122,5 +122,10 @@ export class AppointmentsController {
     @Query('date') date: string
   ) {
     return this.appointmentsService.getDayAppointments(req.user.id, date)
+  }
+
+  @Get('day-timeline')
+  getDayTimeline(@Req() req: any, @Query('date') date: string) {
+    return this.appointmentsService.getDayTimeline(req.user.id, date);
   }
 }

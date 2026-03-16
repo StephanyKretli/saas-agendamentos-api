@@ -6,6 +6,7 @@ import { MIN_LEAD_MINUTES } from './booking-rules';
 import { MIN_CANCEL_LEAD_MINUTES } from './cancel-rules';
 import { randomBytes } from 'crypto';
 import { addMinutes, getAppointmentTotalMinutes, rangesOverlap, resolveBufferMinutes, } from './buffer-rules';
+import { endOfDayLocal } from '../../common/date/parse-local-iso'
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -992,5 +993,32 @@ export class AppointmentsService {
         },
       },
     });
+  }
+
+  async getDayAppointments(userId: string, date: string) {
+    const start = startOfDayLocal(date)
+    const end = endOfDayLocal(date)
+
+    const appointments = await this.prisma.appointment.findMany({
+      where: {
+        userId,
+        date: {
+          gte: start,
+          lte: end
+        }
+      },
+      include: {
+        client: true,
+        service: true
+      },
+      orderBy: {
+        date: "asc"
+      }
+    })
+
+    return {
+      date,
+      appointments
+    }
   }
 }

@@ -1,22 +1,25 @@
 export function parseLocalISO(value: string): Date {
-  const normalized = value.trim().replace(/(Z|[+-]\d{2}:\d{2})$/, "");
+  const [datePart, timePart] = value.split('T')
 
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(normalized);
-
-  if (!match) {
-    return new Date(NaN);
-  }
-
-  const [, year, month, day, hour, minute, second = "00"] = match;
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour, minute, second = '0'] = (timePart || '00:00:00').split(':')
 
   return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
+    year,
+    month - 1,
+    day,
     Number(hour),
     Number(minute),
     Number(second),
-    0,
-  );
+  )
+}
+
+export function startOfDayLocal(date: string): Date {
+  return parseLocalISO(`${date}T00:00:00`)
+}
+
+export function endOfDayLocal(date: string): Date {
+  const d = parseLocalISO(`${date}T00:00:00`)
+  d.setHours(23, 59, 59, 999)
+  return d
 }

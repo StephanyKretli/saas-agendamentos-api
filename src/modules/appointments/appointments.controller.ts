@@ -88,6 +88,7 @@ export class AppointmentsController {
     example: 'appt_123',
     description: 'Appointment ID',
   })
+  
   @ApiBody({
     type: RescheduleAppointmentDto,
     description: 'New appointment date payload',
@@ -105,6 +106,7 @@ export class AppointmentsController {
     summary: 'Complete appointment',
     description: 'Marks an appointment as completed.',
   })
+
   @ApiParam({
     name: 'id',
     example: 'appt_123',
@@ -112,5 +114,13 @@ export class AppointmentsController {
   })
   complete(@Req() req: any, @Param('id') id: string) {
     return this.appointmentsService.complete(req.user.id, id);
+  }
+
+  @Get('day')
+  getDayAppointments(
+    @Req() req,
+    @Query('date') date: string
+  ) {
+    return this.appointmentsService.getDayAppointments(req.user.id, date)
   }
 }

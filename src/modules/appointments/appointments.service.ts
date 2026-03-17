@@ -162,7 +162,9 @@ export class AppointmentsService {
       const existing = await tx.appointment.findMany({
         where: {
           userId,
-          status: 'SCHEDULED',
+          status: {
+            in: ['SCHEDULED', 'COMPLETED', 'CANCELED'],
+          },
           date: { gte: dayStart, lte: dayEnd },
         },
         select: {
@@ -293,7 +295,7 @@ export class AppointmentsService {
       throw new BadRequestException('Agendamento não encontrado.');
     }
 
-    if (appt.status !== 'SCHEDULED') {
+    if (appt.status !== 'SCHEDULED', 'CANCELED', 'COMPLETED') {
       throw new BadRequestException(
         'Só é possível cancelar agendamentos ativos.',
       );
@@ -470,7 +472,7 @@ export class AppointmentsService {
     throw new BadRequestException('Agendamento não encontrado.');
   }
 
-  if (appt.status !== 'SCHEDULED') {
+  if (appt.status !== 'SCHEDULED', 'CANCELED', 'COMPLETED') {
     throw new BadRequestException(
       'Só é possível reagendar agendamentos ativos.',
     );
@@ -531,7 +533,9 @@ export class AppointmentsService {
   const existing = await this.prisma.appointment.findMany({
     where: {
       userId,
-      status: 'SCHEDULED',
+      status: {
+        in: ['SCHEDULED', 'COMPLETED', 'CANCELED'],
+      },
       id: { not: appt.id },
       date: { gte: dayStart, lte: dayEnd },
     },
@@ -701,7 +705,9 @@ export class AppointmentsService {
     const existingAppointments = await this.prisma.appointment.findMany({
       where: {
         userId,
-        status: 'SCHEDULED',
+        status: {
+          in: ['SCHEDULED', 'COMPLETED', 'CANCELED'],
+        },
         date: { gte: dayStart, lte: dayEnd },
       },
       select: {
@@ -1089,7 +1095,9 @@ export class AppointmentsService {
     where: {
       userId,
       date: { gte: dayStart, lte: dayEnd },
-      status: 'SCHEDULED',
+      status: {
+        in: ['SCHEDULED', 'COMPLETED', 'CANCELED'],
+      },
     },
     orderBy: { date: 'asc' },
     select: {

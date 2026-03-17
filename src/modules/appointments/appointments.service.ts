@@ -295,7 +295,7 @@ export class AppointmentsService {
       throw new BadRequestException('Agendamento não encontrado.');
     }
 
-    if (appt.status !== 'SCHEDULED', 'CANCELED', 'COMPLETED') {
+    if (appt.status !== 'SCHEDULED') {
       throw new BadRequestException(
         'Só é possível cancelar agendamentos ativos.',
       );
@@ -472,7 +472,7 @@ export class AppointmentsService {
     throw new BadRequestException('Agendamento não encontrado.');
   }
 
-  if (appt.status !== 'SCHEDULED', 'CANCELED', 'COMPLETED') {
+  if (appt.status !== 'SCHEDULED') {
     throw new BadRequestException(
       'Só é possível reagendar agendamentos ativos.',
     );
@@ -533,9 +533,7 @@ export class AppointmentsService {
   const existing = await this.prisma.appointment.findMany({
     where: {
       userId,
-      status: {
-        in: ['SCHEDULED', 'COMPLETED', 'CANCELED'],
-      },
+      status: 'SCHEDULED',
       id: { not: appt.id },
       date: { gte: dayStart, lte: dayEnd },
     },

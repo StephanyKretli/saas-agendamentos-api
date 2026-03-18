@@ -31,14 +31,13 @@ model User {
 }
 
 model Service {
-  id         String   @id @default(cuid())
-  userId     String
-  name       String
-  duration   Int
-  priceCents Int
-
-  user User @relation(fields: [userId], references: [id])
-
+  id           String        @id @default(cuid())
+  userId       String
+  name         String
+  duration     Int
+  priceCents   Int
+  imageUrl     String?
+  user         User          @relation(fields: [userId], references: [id])
   appointments Appointment[]
 }
 

@@ -1,11 +1,15 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { CreateServiceDto } from './dto/create-service.dto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { UpdateServiceDto } from './dto/update-service.dto';
 
 @Injectable()
 export class ServicesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadsService: UploadsService,
+  ) {}
 
   create(userId: string, dto: CreateServiceDto) {
     return this.prisma.service.create({
@@ -15,12 +19,7 @@ export class ServicesService {
         duration: dto.duration,
         priceCents: dto.priceCents,
       },
-      select: {
-        id: true,
-        name: true,
-        duration: true,
-        priceCents: true,
-      },
+      select: this.serviceSelect(),
     });
   }
 
@@ -28,67 +27,75 @@ export class ServicesService {
     return this.prisma.service.findMany({
       where: { userId },
       orderBy: { name: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        duration: true,
-        priceCents: true,
-      },
+      select: this.serviceSelect(),
     });
   }
 
   async update(userId: string, id: string, dto: UpdateServiceDto) {
-    const existingService = await this.prisma.service.findFirst({
-      where: {
-        id,
-        userId,
-      },
-    });
-
-    if (!existingService) {
-      throw new NotFoundException('Serviço não encontrado.');
-    }
+    await this.ensureOwnership(userId, id);
 
     return this.prisma.service.update({
       where: { id },
       data: {
-        ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.duration !== undefined ? { duration: dto.duration } : {}),
-        ...(dto.priceCents !== undefined ? { priceCents: dto.priceCents } : {}),
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.duration !== undefined && { duration: dto.duration }),
+        ...(dto.priceCents !== undefined && { priceCents: dto.priceCents }),
       },
+      select: this.serviceSelect(),
+    });
+  }
+
+  async uploadImage(
+    userId: string,
+    id: string,
+    file: Express.Multer.File,
+  ) {
+    await this.ensureOwnership(userId, id);
+
+    const uploaded = await this.uploadsService.uploadImage(
+      file,
+      'saas-agendamentos/services',
+    );
+
+    return this.prisma.service.update({
+      where: { id },
+      data: {
+        imageUrl: uploaded.url,
+      },
+      select: this.serviceSelect(),
     });
   }
 
   async remove(userId: string, id: string) {
-    const existingService = await this.prisma.service.findFirst({
-      where: {
-        id,
-        userId,
-      },
-    });
-
-    if (!existingService) {
-      throw new NotFoundException('Serviço não encontrado.');
-    }
-
-    const appointmentUsingService = await this.prisma.appointment.findFirst({
-      where: {
-        serviceId: id,
-        userId,
-      },
-      select: { id: true },
-    });
-
-    if (appointmentUsingService) {
-      throw new BadRequestException(
-        'Não é possível excluir um serviço que já possui agendamentos.',
-      );
-    }
+    await this.ensureOwnership(userId, id);
 
     await this.prisma.service.delete({
       where: { id },
     });
 
-    return { ok: true };
+    return { success: true };
+  }
+
+  private async ensureOwnership(userId: string, id: string) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+
+    if (!service) {
+      throw new NotFoundException('Serviço não encontrado.');
+    }
+
+    return service;
+  }
+
+  private serviceSelect() {
+    return {
+      id: true,
+      name: true,
+      duration: true,
+      priceCents: true,
+      imageUrl: true,
+    } as const;
   }
 }

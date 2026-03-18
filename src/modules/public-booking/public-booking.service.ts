@@ -38,6 +38,7 @@ export class PublicBookingService {
         name: true,
         duration: true,
         priceCents: true,
+        imageUrl: true,
       },
       orderBy: {
         name: 'asc',

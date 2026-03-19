@@ -150,23 +150,35 @@ export class ClientsService {
   const lastAppointment = completed.length > 0 ? completed[0] : null;
 
   return {
-    client: {
-      id: client.id,
-      name: client.name,
-      phone: client.phone,
-      email: client.email,
-      notes: client.notes,
+  client: {
+    id: client.id,
+    name: client.name,
+    phone: client.phone,
+    email: client.email,
+    notes: client.notes,
+  },
+  summary: {
+    totalAppointments: client.appointments.length,
+    completedAppointments: completed.length,
+    upcomingAppointments: upcoming.length,
+    totalSpentCents,
+    totalSpentFormatted: (totalSpentCents / 100).toFixed(2),
+    lastAppointment,
+    nextAppointments: upcoming,
+  },
+  items: client.appointments.map((appointment) => ({
+    id: appointment.id,
+    date: appointment.date,
+    status: appointment.status,
+    notes: appointment.notes,
+    service: {
+      id: appointment.service.id,
+      name: appointment.service.name,
+      duration: appointment.service.duration,
+      priceCents: appointment.service.priceCents,
     },
-    summary: {
-      totalAppointments: client.appointments.length,
-      completedAppointments: completed.length,
-      upcomingAppointments: upcoming.length,
-      totalSpentCents,
-      totalSpentFormatted: (totalSpentCents / 100).toFixed(2),
-      lastAppointment,
-      nextAppointments: upcoming,
-    },
-  };
+  })),
+};
   }
 
   async update(userId: string, id: string, dto: UpdateClientDto) {

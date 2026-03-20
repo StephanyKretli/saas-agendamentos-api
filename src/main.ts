@@ -2,9 +2,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common'; 
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
@@ -19,6 +20,10 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+
+  app.useGlobalInterceptors(new TransformInterceptor());
+  app.useGlobalFilters(new AllExceptionsFilter());
+
 
   // Swagger somente fora de produção
   if (process.env.NODE_ENV !== 'production') {
@@ -45,7 +50,7 @@ async function bootstrap() {
 
   }
 
-  await app.listen(3001);
+  await app.listen(process.env.PORT || 3333);
 
 }
 

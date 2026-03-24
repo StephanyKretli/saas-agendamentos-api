@@ -18,6 +18,7 @@ export class ServicesService {
         name: dto.name,
         duration: dto.duration,
         priceCents: dto.priceCents,
+        icon: dto.icon || 'scissors', 
       },
       select: this.serviceSelect(),
     });
@@ -40,6 +41,7 @@ export class ServicesService {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.duration !== undefined && { duration: dto.duration }),
         ...(dto.priceCents !== undefined && { priceCents: dto.priceCents }),
+        ...(dto.icon !== undefined && { icon: dto.icon }), 
       },
       select: this.serviceSelect(),
     });
@@ -96,6 +98,7 @@ export class ServicesService {
       duration: true,
       priceCents: true,
       imageUrl: true,
+      icon: true, 
     } as const;
   }
 }

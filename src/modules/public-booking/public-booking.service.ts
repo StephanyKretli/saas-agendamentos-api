@@ -26,12 +26,12 @@ export class PublicBookingService {
     });
 
     if (!user) {
-      throw new BadRequestException('Profissional não encontrado.');
+      throw new BadRequestException('Página não encontrada.');
     }
 
     const services = await this.prisma.service.findMany({
       where: {
-        userId: user.id,
+        userId: user.id, // O tenant (dono da página)
       },
       select: {
         id: true,
@@ -51,127 +51,132 @@ export class PublicBookingService {
     };
   }
 
+  // 👇 1. Adicionado o professionalId aqui
   async getAvailability(
     username: string,
     serviceId: string,
     date: string,
+    professionalId: string, 
     stepMinutes = 30,
   ) {
     const normalizedUsername = username.trim().toLowerCase();
 
+    // Encontra o dono da conta (SaaS)
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
       select: { id: true },
     });
 
     if (!user) {
-      throw new BadRequestException('Profissional não encontrado.');
+      throw new BadRequestException('Página não encontrada.');
     }
 
+    // 👇 2. Repassando o professionalId para o AppointmentsService calcular as vagas
     return this.appointmentsService.getAvailability(
-      user.id,
+      user.id, // userId (Dono)
       serviceId,
       date,
+      professionalId, // Quem vai executar
       stepMinutes,
     );
   }
 
   async createAppointment(username: string, dto: CreatePublicAppointmentDto) {
-  const normalizedUsername = username.trim().toLowerCase();
+    const normalizedUsername = username.trim().toLowerCase();
 
-  const user = await this.prisma.user.findUnique({
-    where: { username: normalizedUsername },
-    select: { id: true, username: true },
-  });
+    // Encontra o dono da conta (SaaS)
+    const user = await this.prisma.user.findUnique({
+      where: { username: normalizedUsername },
+      select: { id: true, username: true },
+    });
 
-  if (!user) {
-    throw new BadRequestException('Profissional não encontrado.');
-  }
-
-  const appointment = await this.appointmentsService.create(user.id, {
-    serviceId: dto.serviceId,
-    date: dto.date,
-    notes: dto.notes,
-    client: {
-      name: dto.clientName,
-      phone: dto.clientPhone,
-      email: dto.clientEmail,
-    },
-  });
-
-  const publicCancelPath = `/cancel/${appointment.publicCancelToken}`;
-  const appWebUrl = process.env.APP_WEB_URL ?? 'http://localhost:3000';
-  const cancelUrl = `${appWebUrl}${publicCancelPath}`;
-
-  // Adicionada a proteção para garantir que client e email existem antes de enviar o e-mail
-  if (appointment.client && appointment.client.email) {
-    try {
-      await this.emailService.sendBookingConfirmation({
-        to: appointment.client.email,
-        clientName: appointment.client.name,
-        // E garantido que o serviço foi retornado corretamente
-        serviceName: appointment.service?.name || "Serviço", 
-        appointmentDate: new Date(appointment.date),
-        cancelUrl,
-      });
-    } catch (error) {
-      // Não derruba o agendamento por falha de email
-      console.error('Falha ao enviar email de confirmação:', error);
+    if (!user) {
+      throw new BadRequestException('Página não encontrada.');
     }
-  }
 
-  return {
-    ...appointment,
-    publicCancelPath,
-  };
+    // 👇 3. Repassando o professionalId na hora de criar
+    const appointment = await this.appointmentsService.create(user.id, {
+      serviceId: dto.serviceId,
+      professionalId: dto.professionalId, // O profissional escolhido na vitrine
+      date: dto.date,
+      notes: dto.notes,
+      client: {
+        name: dto.clientName,
+        phone: dto.clientPhone,
+        email: dto.clientEmail,
+      },
+    });
+
+    const publicCancelPath = `/cancel/${appointment.publicCancelToken}`;
+    const appWebUrl = process.env.APP_WEB_URL ?? 'http://localhost:3000';
+    const cancelUrl = `${appWebUrl}${publicCancelPath}`;
+
+    if (appointment.client && appointment.client.email) {
+      try {
+        await this.emailService.sendBookingConfirmation({
+          to: appointment.client.email,
+          clientName: appointment.client.name,
+          serviceName: appointment.service?.name || "Serviço", 
+          appointmentDate: new Date(appointment.date),
+          cancelUrl,
+        });
+      } catch (error) {
+        console.error('Falha ao enviar email de confirmação:', error);
+      }
+    }
+
+    return {
+      ...appointment,
+      publicCancelPath,
+    };
   }
 
   async getCancelPreview(token: string) {
-  const normalizedToken = token.trim();
+    const normalizedToken = token.trim();
 
-  const appointment = await this.prisma.appointment.findFirst({
-    where: {
-      publicCancelToken: normalizedToken,
-    },
-    include: {
-      service: {
-        select: {
-          name: true,
+    const appointment = await this.prisma.appointment.findFirst({
+      where: {
+        publicCancelToken: normalizedToken,
+      },
+      include: {
+        service: {
+          select: {
+            name: true,
+          },
+        },
+        client: {
+          select: {
+            name: true,
+            email: true,
+            phone: true,
+          },
         },
       },
-      client: {
-        select: {
-          name: true,
-          email: true,
-          phone: true,
-        },
-      },
-    },
-  });
+    });
 
-  if (!appointment) {
-    throw new BadRequestException('Link de cancelamento inválido.');
-  }
+    if (!appointment) {
+      throw new BadRequestException('Link de cancelamento inválido.');
+    }
 
-  if (
-    appointment.publicCancelTokenExpiresAt &&
-    appointment.publicCancelTokenExpiresAt < new Date()
-  ) {
-    throw new BadRequestException('Link de cancelamento expirado.');
-  }
+    if (
+      appointment.publicCancelTokenExpiresAt &&
+      appointment.publicCancelTokenExpiresAt < new Date()
+    ) {
+      throw new BadRequestException('Link de cancelamento expirado.');
+    }
 
-  return {
-    id: appointment.id,
-    status: appointment.status,
-    date: appointment.date,
-    serviceName: appointment.service.name,
-    clientName: appointment.client?.name ?? null,
-    clientEmail: appointment.client?.email ?? null,
-    clientPhone: appointment.client?.phone ?? null,
-    canCancel:
-      appointment.status !== 'CANCELED' &&
-      appointment.status !== 'COMPLETED',
-  };
+    return {
+      id: appointment.id,
+      status: appointment.status,
+      date: appointment.date,
+      serviceName: appointment.service.name,
+      clientName: appointment.client?.name ?? null,
+      clientEmail: appointment.client?.email ?? null,
+      clientPhone: appointment.client?.phone ?? null,
+      canCancel:
+        appointment.status !== 'CANCELED' &&
+        appointment.status !== 'COMPLETED',
+    };
   }
 
   async cancelByToken(token: string) {
@@ -218,5 +223,4 @@ export class PublicBookingService {
       },
     });
   }
-
 }

@@ -20,6 +20,10 @@ export class CreatePublicAppointmentDto {
   @IsISO8601()
   date: string;
 
+  @IsString()
+  @IsNotEmpty()
+  professionalId: string;
+
   @ApiProperty({ example: 'João Silva' })
   @IsString()
   @IsNotEmpty()

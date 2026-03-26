@@ -248,6 +248,7 @@ export class AppointmentsService {
       return tx.appointment.create({
         data: {
           userId,
+          professionalId: userId, // CORREÇÃO: Adicionado o campo obrigatório
           serviceId: dto.serviceId,
           clientId: resolvedClientId,
           date: start,

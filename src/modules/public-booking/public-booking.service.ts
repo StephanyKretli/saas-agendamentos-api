@@ -103,12 +103,14 @@ export class PublicBookingService {
   const appWebUrl = process.env.APP_WEB_URL ?? 'http://localhost:3000';
   const cancelUrl = `${appWebUrl}${publicCancelPath}`;
 
-  if (appointment.client?.email) {
+  // Adicionada a proteção para garantir que client e email existem antes de enviar o e-mail
+  if (appointment.client && appointment.client.email) {
     try {
       await this.emailService.sendBookingConfirmation({
         to: appointment.client.email,
         clientName: appointment.client.name,
-        serviceName: appointment.service.name,
+        // E garantido que o serviço foi retornado corretamente
+        serviceName: appointment.service?.name || "Serviço", 
         appointmentDate: new Date(appointment.date),
         cancelUrl,
       });

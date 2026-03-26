@@ -21,6 +21,7 @@ export class SettingsService {
         minBookingNoticeMinutes: true,
         maxBookingDays: true,
         avatarUrl: true,
+        role: true,
       },
     });
   }

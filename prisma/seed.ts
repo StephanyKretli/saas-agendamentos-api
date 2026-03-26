@@ -8,100 +8,73 @@ async function main() {
 
   const passwordHash = await bcrypt.hash("123456", 10);
 
-  // 1️⃣ Criar ou atualizar usuário demo
+  // 1️⃣ Criar usuário demo como ADMIN e Plano STARTER
   const demoUser = await prisma.user.upsert({
     where: { email: "demo@demo.com" },
     update: {
       name: "Demo User",
       username: "demo",
       password: passwordHash,
+      role: "ADMIN",
+      plan: "STARTER",
+      maxMembers: 3,
     },
     create: {
       name: "Demo User",
       email: "demo@demo.com",
       username: "demo",
       password: passwordHash,
+      role: "ADMIN",
+      plan: "STARTER",
+      maxMembers: 3,
     },
   });
 
   console.log("👤 Demo user ready");
 
-  // 2️⃣ Limpar dados do demo
-  await prisma.appointment.deleteMany({
-    where: { userId: demoUser.id },
-  });
+  // 2️⃣ Limpeza profunda (Ordem correta para evitar erros de chave estrangeira)
+  await prisma.appointment.deleteMany({});
+  await prisma.blockedSlot.deleteMany({});
+  await prisma.blockedDate.deleteMany({});
+  await prisma.businessHour.deleteMany({});
+  await prisma.service.deleteMany({});
+  await prisma.client.deleteMany({});
 
-  await prisma.client.deleteMany({
-    where: { userId: demoUser.id },
-  });
+  console.log("🧹 Cleaned old data");
 
-  await prisma.service.deleteMany({
-    where: { userId: demoUser.id },
-  });
-
-  await prisma.businessHour.deleteMany({
-    where: { userId: demoUser.id },
-  });
-
-  await prisma.blockedDate.deleteMany({
-    where: { userId: demoUser.id },
-  });
-
-  await prisma.blockedSlot.deleteMany({
-    where: { userId: demoUser.id },
-  });
-
-  console.log("🧹 Cleaned demo data");
-
-  // 3️⃣ Criar serviços padrão
-  await prisma.service.createMany({
-    data: [
-      {
-        id: "seed-service-1",
-        userId: demoUser.id,
-        name: "Corte",
-        duration: 30,
-        priceCents: 3000,
-      },
-      {
-        id: "seed-service-2",
-        userId: demoUser.id,
-        name: "Barba",
-        duration: 20,
-        priceCents: 2000,
-      },
-    ],
-  });
-
-  console.log("✂️ Services created");
-
-  // 4️⃣ Criar horário comercial padrão
-  await prisma.businessHour.createMany({
-    data: [
-      { userId: demoUser.id, weekday: 1, start: "09:00", end: "18:00" },
-      { userId: demoUser.id, weekday: 2, start: "09:00", end: "18:00" },
-      { userId: demoUser.id, weekday: 3, start: "09:00", end: "18:00" },
-      { userId: demoUser.id, weekday: 4, start: "09:00", end: "18:00" },
-      { userId: demoUser.id, weekday: 5, start: "09:00", end: "18:00" },
-    ],
-  });
-
-  console.log("🕒 Business hours created");
-
-  // 5️⃣ Criar cliente exemplo
-  await prisma.client.create({
+  // 3️⃣ Criar serviço
+  const service = await prisma.service.create({
     data: {
+      id: "seed-service-1",
       userId: demoUser.id,
-      name: "João da Silva",
-      phone: "31999999999",
-      email: "joao@email.com",
-      notes: "Cliente prefere horário da manhã",
+      name: "Corte Masculino",
+      duration: 30,
+      priceCents: 5000,
     },
   });
 
-  console.log("👥 Demo client created");
+  // 4️⃣ Criar cliente
+  const client = await prisma.client.create({
+    data: {
+      userId: demoUser.id,
+      name: "João Exemplo",
+      phone: "11999999999",
+    },
+  });
 
-  console.log("✅ Seed completed");
+  // 5️⃣ Criar agendamento (Agora com professionalId obrigatório)
+  await prisma.appointment.create({
+    data: {
+      userId: demoUser.id,           // Dono da conta
+      professionalId: demoUser.id,   // Quem atende (neste caso, o próprio admin)
+      serviceId: service.id,
+      clientId: client.id,
+      date: new Date(),
+      status: "SCHEDULED",
+    },
+  });
+
+  console.log("✅ Seed completed successfully!");
 }
 
 main()

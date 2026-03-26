@@ -7,50 +7,101 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Enums para Gestão de SaaS
+enum Plan {
+  STARTER
+  PRO
+  BUSINESS
+}
+
+enum Role {
+  ADMIN
+  PROFESSIONAL
+  USER
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CANCELED
+  COMPLETED
+}
+
 model User {
   id                      String         @id @default(cuid())
   email                   String         @unique
   name                    String
   password                String
-  role                    Role           @default(USER)
   username                String         @unique
+  avatarUrl               String?
+  bio                     String?
+  phone                   String?
+  
+  // Configurações de SaaS
+  role                    Role           @default(USER)
+  plan                    Plan           @default(STARTER)
+  maxMembers              Int            @default(3)
+  
+  // Hierarquia de Equipe
+  ownerId                 String?   
+  owner                   User?          @relation("TeamHierarchy", fields: [ownerId], references: [id])
+  teamMembers             User[]         @relation("TeamHierarchy")
+
+  // Configurações de Agendamento
   timezone                String         @default("America/Sao_Paulo")
   bufferMinutes           Int            @default(0)
   minBookingNoticeMinutes Int            @default(0)
   maxBookingDays          Int            @default(30)
-  avatarUrl               String?
+  
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 
+  // Relações
   services                Service[]
-  appointments            Appointment[]
   clients                 Client[]
   businessHours           BusinessHour[]
   blockedDates            BlockedDate[]
   blockedSlots            BlockedSlot[]
+  
+  // Agendamentos realizados POR este usuário (como profissional)
+  appointments            Appointment[]  @relation("ProfessionalAppointments")
+  
+  // Agendamentos pertencentes à CONTA deste usuário (como dono)
+  ownedAppointments       Appointment[]  @relation("AccountAppointments")
 }
 
 model Service {
   id           String        @id @default(cuid())
   userId       String
   name         String
-  icon        String         @default("scissors")
+  icon         String        @default("scissors")
   duration     Int
   priceCents   Int
   imageUrl     String?
+  
   user         User          @relation(fields: [userId], references: [id])
   appointments Appointment[]
-
 }
 
 model Appointment {
   id                          String             @id @default(uuid())
-  userId                      String
-  serviceId                   String
-  clientId                    String?
   date                        DateTime
   status                      AppointmentStatus
   notes                       String?
+  
+  // Profissional que executará o serviço
+  professionalId              String
+  professional                User               @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
+  
+  // Dono da conta (para relatórios e faturamento)
+  userId                      String
+  user                        User               @relation("AccountAppointments", fields: [userId], references: [id])
+
+  serviceId                   String
+  service                     Service            @relation(fields: [serviceId], references: [id])
+  
+  clientId                    String?
+  client                      Client?            @relation(fields: [clientId], references: [id])
+
   publicCancelToken           String?            @unique
   publicCancelTokenExpiresAt  DateTime?
   dayReminderSentAt           DateTime?
@@ -58,10 +109,6 @@ model Appointment {
   hourReminderSentAt          DateTime?
   hourReminderProcessingAt    DateTime?
   createdAt                   DateTime           @default(now())
-
-  user    User    @relation(fields: [userId], references: [id])
-  service Service @relation(fields: [serviceId], references: [id])
-  client  Client? @relation(fields: [clientId], references: [id])
 }
 
 model BlockedDate {
@@ -120,15 +167,4 @@ model Client {
 
   @@index([userId])
   @@unique([userId, phone])
-}
-
-enum AppointmentStatus {
-  SCHEDULED
-  CANCELED
-  COMPLETED
-}
-
-enum Role {
-  ADMIN
-  USER
 }

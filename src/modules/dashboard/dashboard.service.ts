@@ -6,48 +6,59 @@ export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
   async today(userId: string) {
-    const now = new Date();
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
 
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
 
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+  // 1. Verificar o perfil do usuário logado
+  const currentUser = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true }
+  });
 
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        userId,
-        date: {
-          gte: start,
-          lte: end,
-        },
+  // 2. Definir o filtro: Admin vê tudo da conta, Profissional vê apenas o dele
+  const whereClause = currentUser?.role === 'ADMIN' 
+    ? { userId: userId } // Filtra pela conta mestre
+    : { professionalId: userId }; // Filtra pelo profissional logado
+
+  const appointments = await this.prisma.appointment.findMany({
+    where: {
+      ...whereClause,
+      date: {
+        gte: start,
+        lte: end,
       },
-      orderBy: { date: 'asc' },
-      // Trocámos o "select" por "include" para trazer os dados completos do Cliente e Serviço
-      include: {
-        client: true,
-        service: true,
-      },
-    });
+    },
+    orderBy: { date: 'asc' },
+    include: {
+      client: true,
+      service: true,
+      professional: { // Adicionado para saber quem vai atender na visão de Admin
+        select: { name: true }
+      }
+    },
+  });
 
-    // Mapeamos para o formato exato que o nosso novo Frontend espera
-    return appointments.map((apt) => {
-      const startTime = apt.date;
-      const duration = apt.service?.duration || 0;
-      // Calcula a hora de fim (Data de início + Duração em minutos)
-      const endTime = new Date(startTime.getTime() + duration * 60000);
+  return appointments.map((apt) => {
+    const startTime = apt.date;
+    const duration = apt.service?.duration || 0;
+    const endTime = new Date(startTime.getTime() + duration * 60000);
 
-      return {
-        id: apt.id,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-        // Garante que pega o nome do cliente seja pela relação do Prisma ou por campo direto
-        clientName: apt.client?.name || (apt as any).clientName || 'Cliente',
-        serviceName: apt.service?.name || 'Serviço',
-        status: apt.status,
-      };
-    });
-  }
+    return {
+      id: apt.id,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      clientName: apt.client?.name || 'Cliente',
+      serviceName: apt.service?.name || 'Serviço',
+      status: apt.status,
+      // Útil para o Admin saber qual funcionário está ocupado
+      professionalName: apt.professional?.name 
+    };
+  });
+}
 
   async metrics(userId: string) {
     const now = new Date();

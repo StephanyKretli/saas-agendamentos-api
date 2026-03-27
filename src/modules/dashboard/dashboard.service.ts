@@ -21,8 +21,13 @@ export class DashboardService {
 
   // 2. Definir o filtro: Admin vê tudo da conta, Profissional vê apenas o dele
   const whereClause = currentUser?.role === 'ADMIN' 
-    ? { userId: userId } // Filtra pela conta mestre
-    : { professionalId: userId }; // Filtra pelo profissional logado
+  ? { 
+      OR: [
+        { userId: userId },           // Agendamentos da conta mestre
+        { professionalId: userId }    // Agendamentos onde você é a executora
+      ]
+    } 
+  : { professionalId: userId };
 
   const appointments = await this.prisma.appointment.findMany({
     where: {

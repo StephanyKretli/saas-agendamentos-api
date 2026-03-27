@@ -25,7 +25,7 @@ export class PublicBookingController {
     return this.service.getProfile(username);
   }
 
-  @Get(':username/availability')
+@Get(':username/availability')
   @Throttle({ default: { limit: 40, ttl: 60000 } })
   @ApiOperation({
     summary: 'Get public availability for a service and date',
@@ -48,6 +48,12 @@ export class PublicBookingController {
     description: 'Date in YYYY-MM-DD format',
   })
   @ApiQuery({
+    name: 'professionalId',
+    required: false,
+    example: 'prof123xyz',
+    description: 'ID of the specific professional',
+  })
+  @ApiQuery({
     name: 'step',
     required: false,
     example: 30,
@@ -57,14 +63,21 @@ export class PublicBookingController {
     @Param('username') username: string,
     @Query('serviceId') serviceId: string,
     @Query('date') date: string,
+    @Query('professionalId') professionalId?: string,
     @Query('step') step?: string,
   ) {
-    const stepMinutes = step || '30';
+    const stepMinutes = step ? Number(step) : 30;
+
+    // Converte a string "undefined" caso o front a envie assim
+    const targetProfId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null')
+      ? professionalId
+      : username; // Usa o username da URL como fallback final
 
     return this.service.getAvailability(
       username,
       serviceId,
       date,
+      targetProfId,
       stepMinutes,
     );
   }

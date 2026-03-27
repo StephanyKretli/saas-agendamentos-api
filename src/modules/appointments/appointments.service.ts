@@ -44,22 +44,41 @@ export class AppointmentsService {
     return expiresAt;
   }
 
-  private async getUserBookingSettings(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        bufferMinutes: true,
-        minBookingNoticeMinutes: true,
-        maxBookingDays: true,
-        timezone: true,
-      },
-    });
+  private async getUserBookingSettings(idOrUsername: string, fallbackId?: string) {
+    const idToSearch = (idOrUsername && idOrUsername !== 'undefined' && idOrUsername !== 'null') 
+      ? idOrUsername 
+      : fallbackId;
+
+    if (!idToSearch) {
+      throw new BadRequestException('Identificador do profissional não fornecido para carregar configurações.');
+    }
+
+    let user: {
+      id: string;
+      bufferMinutes: number | null;
+      minBookingNoticeMinutes: number | null;
+      maxBookingDays: number | null;
+      timezone: string;
+    } | null = null;
+    
+    try {
+      user = await this.prisma.user.findFirst({
+        where: { OR: [{ id: idToSearch }, { username: idToSearch }] },
+        select: { id: true, bufferMinutes: true, minBookingNoticeMinutes: true, maxBookingDays: true, timezone: true },
+      });
+    } catch {
+      user = await this.prisma.user.findFirst({
+        where: { username: idToSearch },
+        select: { id: true, bufferMinutes: true, minBookingNoticeMinutes: true, maxBookingDays: true, timezone: true },
+      });
+    }
 
     if (!user) {
-      throw new BadRequestException('Usuário não encontrado.');
+      throw new BadRequestException(`Configurações de agendamento não encontradas. ID/User: ${idToSearch}`);
     }
 
     return {
+      resolvedUserId: user.id,
       bufferMinutes: user.bufferMinutes ?? 0,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
@@ -67,11 +86,12 @@ export class AppointmentsService {
     };
   }
 
-  // 👇 1. CREATE: Agora aceita professionalId no DTO e filtra por ele
   async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string }) {
     const start = parseLocalISO(dto.date);
-    // Identifica quem vai executar o serviço (fallback para o dono se não houver)
-    const targetUserId = dto.professionalId || userId;
+    
+    const targetUserId = (dto.professionalId && dto.professionalId !== 'undefined' && dto.professionalId !== 'null') 
+      ? dto.professionalId 
+      : userId;
 
     if (Number.isNaN(start.getTime())) {
       throw new BadRequestException('Data inválida.');
@@ -83,7 +103,6 @@ export class AppointmentsService {
       throw new BadRequestException('Não é possível agendar no passado.');
     }
 
-    // Settings sempre do Dono da conta
     const settings = await this.getUserBookingSettings(userId);
 
     const minLeadMinutes =
@@ -125,7 +144,6 @@ export class AppointmentsService {
         settings.bufferMinutes,
       );
 
-      // 👇 Verifica horas do profissional específico
       const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
 
       if (!ok) {
@@ -140,7 +158,6 @@ export class AppointmentsService {
       const dayEnd = new Date(start);
       dayEnd.setHours(23, 59, 59, 999);
 
-      // 👇 Bloqueios do profissional específico
       const blockedDay = await tx.blockedDate.findFirst({
         where: { userId: targetUserId, date: dayStart },
         select: { id: true },
@@ -163,13 +180,12 @@ export class AppointmentsService {
         throw new BadRequestException('Horário indisponível (bloqueado).');
       }
 
-      // 👇 Conflitos do profissional específico
       const existing = await tx.appointment.findMany({
         where: {
-          userId, // Dono do SaaS
-          professionalId: targetUserId, // O profissional
+          userId, 
+          professionalId: targetUserId, 
           status: {
-            in: ['SCHEDULED', 'COMPLETED', 'CANCELED'],
+            in: ['SCHEDULED', 'COMPLETED'],
           },
           date: { gte: dayStart, lte: dayEnd },
         },
@@ -254,7 +270,7 @@ export class AppointmentsService {
       return tx.appointment.create({
         data: {
           userId,
-          professionalId: targetUserId, // 👇 Salva o responsável
+          professionalId: targetUserId, 
           serviceId: dto.serviceId,
           clientId: resolvedClientId,
           date: start,
@@ -353,7 +369,7 @@ export class AppointmentsService {
       status?: 'SCHEDULED' | 'CANCELED' | 'COMPLETED';
       clientId?: string;
       serviceId?: string;
-      professionalId?: string; // 👇 Opcional se quiser filtrar na UI
+      professionalId?: string;
     },
   ) {
     const page = filters?.page ?? 1;
@@ -365,7 +381,9 @@ export class AppointmentsService {
     if (filters?.status) where.status = filters.status;
     if (filters?.clientId) where.clientId = filters.clientId;
     if (filters?.serviceId) where.serviceId = filters.serviceId;
-    if (filters?.professionalId) where.professionalId = filters.professionalId;
+    if (filters?.professionalId && filters.professionalId !== 'undefined' && filters.professionalId !== 'null') {
+      where.professionalId = filters.professionalId;
+    }
 
     if (filters?.from || filters?.to) {
       where.date = {};
@@ -391,7 +409,7 @@ export class AppointmentsService {
           notes: true,
           status: true,
           createdAt: true,
-          professionalId: true, // Retorna quem vai atender
+          professionalId: true,
           service: {
             select: {
               id: true,
@@ -422,7 +440,6 @@ export class AppointmentsService {
     };
   }
 
-  // 👇 2. RESCHEDULE: Atualizado para respeitar a agenda do profissional original
   async reschedule(userId: string, appointmentId: string, newDateISO: string) {
     const start = parseLocalISO(newDateISO);
 
@@ -443,7 +460,7 @@ export class AppointmentsService {
         status: true,
         serviceId: true,
         date: true,
-        professionalId: true, // Pega quem é o profissional
+        professionalId: true, 
         service: {
           select: {
             duration: true,
@@ -458,7 +475,7 @@ export class AppointmentsService {
       throw new BadRequestException('Agendamento não encontrado.');
     }
 
-    const targetUserId = appt.professionalId;
+    const targetUserId = appt.professionalId || userId;
     const settings = await this.getUserBookingSettings(userId);
 
     const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
@@ -520,7 +537,7 @@ export class AppointmentsService {
       where: {
         userId,
         professionalId: targetUserId,
-        status: 'SCHEDULED',
+        status: { in: ['SCHEDULED', 'COMPLETED'] },
         id: { not: appt.id },
         date: { gte: dayStart, lte: dayEnd },
       },
@@ -556,20 +573,25 @@ export class AppointmentsService {
     });
   }
 
-  // 👇 3. GET AVAILABILITY: Recebe o professionalId
   async getAvailability(
     userId: string,
     serviceId: string,
     date: string,
-    professionalId?: string, // NOVO PARÂMETRO
+    professionalId?: string,
     stepMinutes = 15,
   ) {
     if (!serviceId) throw new BadRequestException('serviceId é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('date inválido.');
 
-    const targetUserId = professionalId || userId;
-    const settings = await this.getUserBookingSettings(userId);
+    // Quem vai executar o serviço (Pode ser o ID ou Username da URL)
+    let targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
+      ? professionalId 
+      : userId;
+      
+    // Converte o Username para o ID real (UUID) e carrega as configurações
+    const settings = await this.getUserBookingSettings(targetUserId, userId);
+    targetUserId = settings.resolvedUserId;
+    
     const requestedDay = startOfDayLocal(date);
 
     const maxBookingDays = settings.maxBookingDays ?? 30;
@@ -581,8 +603,9 @@ export class AppointmentsService {
       return { date, slots: [] };
     }
 
+    // 🌟 CORREÇÃO 1: O Serviço pertence ao dono da barbearia (userId), não ao executor
     const service = await this.prisma.service.findFirst({
-      where: { id: serviceId, userId },
+      where: { id: serviceId, userId: userId }, 
       select: { id: true, duration: true },
     });
 
@@ -600,16 +623,14 @@ export class AppointmentsService {
 
     const weekday = requestedDay.getDay();
 
-    // Filtra horas DESTE profissional
+    // 🌟 Horários de trabalho e bloqueios são da agenda do Profissional (targetUserId)
     const businessHours = await this.prisma.businessHour.findMany({
       where: { userId: targetUserId, weekday },
       orderBy: { start: 'asc' },
       select: { id: true, start: true, end: true },
     });
 
-    if (!businessHours.length) {
-      return { date, slots: [] };
-    }
+    if (!businessHours.length) return { date, slots: [] };
 
     const dayStart = new Date(requestedDay);
     dayStart.setHours(0, 0, 0, 0);
@@ -617,31 +638,23 @@ export class AppointmentsService {
     dayEnd.setHours(23, 59, 59, 999);
 
     const blockedDay = await this.prisma.blockedDate.findFirst({
-      where: {
-        userId: targetUserId, // Bloqueio dele
-        date: { gte: dayStart, lte: dayEnd },
-      },
+      where: { userId: targetUserId, date: { gte: dayStart, lte: dayEnd } },
       select: { id: true },
     });
 
-    if (blockedDay) {
-      return { date, slots: [] };
-    }
+    if (blockedDay) return { date, slots: [] };
 
     const blockedSlots = await this.prisma.blockedSlot.findMany({
-      where: {
-        userId: targetUserId, // Bloqueios dele
-        start: { lt: dayEnd },
-        end: { gt: dayStart },
-      },
+      where: { userId: targetUserId, start: { lt: dayEnd }, end: { gt: dayStart } },
       select: { start: true, end: true },
     });
 
+    // 🌟 CORREÇÃO 2: Procurar conflitos na agenda do Profissional, mas dentro da conta do Dono
     const existingAppointments = await this.prisma.appointment.findMany({
       where: {
-        userId,
-        professionalId: targetUserId, // Apenas agendamentos DELE
-        status: { in: ['SCHEDULED', 'COMPLETED', 'CANCELED'] },
+        userId: userId, // <-- Dono da barbearia
+        professionalId: targetUserId, // <-- Quem executa
+        status: { in: ['SCHEDULED', 'COMPLETED'] }, 
         date: { gte: dayStart, lte: dayEnd },
       },
       select: {
@@ -700,7 +713,6 @@ export class AppointmentsService {
     return { date, slots };
   }
 
-  // 👇 Repassando o professionalId para as disponibilidades da semana
   async getWeekAvailability(
     userId: string,
     serviceId: string,
@@ -745,7 +757,6 @@ export class AppointmentsService {
     };
   }
 
-  // 👇 Atualizado targetUserId para BusinessHours
   private async isWithinBusinessHours(
     targetUserId: string,
     start: Date,
@@ -847,15 +858,18 @@ export class AppointmentsService {
     });
   }
 
-  // 👇 Filtrar agendamentos do dia na Dashboard (Opcional passar professionalId)
   async getDayAppointments(userId: string, date: string, professionalId?: string) {
     const start = startOfDayLocal(date);
     const end = endOfDayLocal(date);
 
+    const targetProfId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
+      ? professionalId 
+      : undefined;
+
     const appointments = await this.prisma.appointment.findMany({
       where: {
         userId,
-        professionalId: professionalId || undefined, // Filtra se passado
+        professionalId: targetProfId, 
         date: { gte: start, lte: end }
       },
       include: {
@@ -868,12 +882,14 @@ export class AppointmentsService {
     return { date, appointments };
   }
 
-  // 👇 Timeline visual também respeitando as horas do profissional
   async getDayTimeline(userId: string, date: string, professionalId?: string) {
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('date inválido.');
 
-    const targetUserId = professionalId || userId;
+    const targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
+      ? professionalId 
+      : userId;
+      
     const settings = await this.getUserBookingSettings(userId);
     const bufferMinutes = settings.bufferMinutes ?? 0;
 
@@ -914,7 +930,7 @@ export class AppointmentsService {
         userId,
         professionalId: targetUserId,
         date: { gte: dayStart, lte: dayEnd },
-        status: { in: ['SCHEDULED', 'COMPLETED', 'CANCELED'] },
+        status: { in: ['SCHEDULED', 'COMPLETED'] }, 
       },
       orderBy: { date: 'asc' },
       select: {
@@ -922,6 +938,8 @@ export class AppointmentsService {
         date: true,
         status: true,
         notes: true,
+        professionalId: true, 
+        userId: true,
         service: { select: { id: true, name: true, duration: true, priceCents: true } },
         client: { select: { id: true, name: true, phone: true, email: true } },
       },
@@ -936,9 +954,10 @@ export class AppointmentsService {
       })
       .sort((a, b) => a.start.getTime() - b.start.getTime());
 
+    // 👇 O SEGREDO ESTAVA AQUI: Tipagem correta permite que os IDs entrem no objeto
     const items: Array<
       | { type: 'free'; start: string; end: string }
-      | { type: 'busy'; start: string; end: string; appointmentId: string; status: string; notes: string | null; service: any; client: any }
+      | { type: 'busy'; start: string; end: string; appointmentId: string; status: string; notes: string | null; professionalId?: string; userId?: string; service: any; client: any }
       | { type: 'blocked'; start: string; end: string }
     > = [];
 
@@ -977,6 +996,10 @@ export class AppointmentsService {
             appointmentId: item.data.id,
             status: item.data.status,
             notes: item.data.notes,
+            // Utilizamos (item.data as any) para calar os falsos-positivos do TypeScript,
+            // garantindo que os dados selecionados no banco de dados sejam inseridos!
+            professionalId: (item.data as any).professionalId,
+            userId: (item.data as any).userId,
             service: item.data.service,
             client: item.data.client,
           });

@@ -55,6 +55,23 @@ export class SettingsService {
     });
   }
 
+  // No seu NestJS Service
+  async getProfile(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        avatarUrl: true,
+        plan: true,       
+        maxMembers: true, 
+        timezone: true,
+      }
+    });
+  }
+
   async uploadAvatar(userId: string, file: Express.Multer.File) {
     const uploaded = await this.uploadsService.uploadImage(
       file,

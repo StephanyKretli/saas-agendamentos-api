@@ -59,7 +59,7 @@ export class PublicBookingController {
     @Query('date') date: string,
     @Query('step') step?: string,
   ) {
-    const stepMinutes = step ? Number(step) : 30;
+    const stepMinutes = step || '30';
 
     return this.service.getAvailability(
       username,

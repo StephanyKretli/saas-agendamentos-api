@@ -125,7 +125,11 @@ export class AppointmentsController {
   }
 
   @Get('day-timeline')
-  getDayTimeline(@Req() req: any, @Query('date') date: string) {
-    return this.appointmentsService.getDayTimeline(req.user.id, date);
+  getDayTimeline(
+    @Req() req: any, 
+    @Query('date') date: string,
+    @Query('professionalId') professionalId?: string, 
+  ) {
+    return this.appointmentsService.getDayTimeline(req.user.id, date, professionalId);
   }
 }

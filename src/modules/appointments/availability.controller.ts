@@ -10,7 +10,6 @@ import { AppointmentsService } from './appointments.service';
 export class AvailabilityController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
-  // /availability?serviceId=...&date=YYYY-MM-DD&step=30
   @Get()
   getAvailability(
     @Req() req: any,
@@ -18,11 +17,17 @@ export class AvailabilityController {
     @Query('date') date: string,
     @Query('step') step?: string,
   ) {
-    const stepMinutes = step ? Number(step) : 30;
-    return this.appointmentsService.getAvailability(req.user.id, serviceId, date, stepMinutes);
+    // 👇 Aqui o serviço exige TEXTO (string)
+    const stepMinutes: string = step || '30';
+    
+    return this.appointmentsService.getAvailability(
+      req.user.id, 
+      serviceId, 
+      date, 
+      stepMinutes
+    );
   }
 
-  // /availability/week?serviceId=...&startDate=YYYY-MM-DD&days=7&step=30
   @Get('week')
   getWeekAvailability(
     @Req() req: any,
@@ -31,8 +36,9 @@ export class AvailabilityController {
     @Query('days') days?: string,
     @Query('step') step?: string,
   ) {
-    const stepMinutes = step ? Number(step) : 30;
-    const totalDays = days ? Number(days) : 7;
+    // 👇 Aqui o serviço exige Dias como TEXTO e Minutos como NÚMERO
+    const totalDays: string = days || '7';
+    const stepMinutes: number = step ? Number(step) : 30;
 
     return this.appointmentsService.getWeekAvailability(
       req.user.id,

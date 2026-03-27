@@ -51,4 +51,25 @@ export class TeamService {
       }
     });
   }
+
+  async removeMember(adminId: string, memberId: string) {
+    // 1. Verifica se o profissional existe e se pertence a este admin
+    const member = await this.prisma.user.findFirst({
+      where: { 
+        id: memberId,
+        ownerId: adminId // Bloqueia a exclusão se for de outra equipe
+      }
+    });
+
+    if (!member) {
+      throw new NotFoundException('Profissional não encontrado ou não pertence à sua equipe.');
+    }
+
+    // 2. Exclui o profissional da base de dados
+    await this.prisma.user.delete({
+      where: { id: memberId }
+    });
+
+    return { message: 'Profissional removido com sucesso.' };
+  }
 }

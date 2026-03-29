@@ -130,8 +130,9 @@ export class AppointmentsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Serviço pertence ao Admin
       const service = await tx.service.findFirst({
-        where: { id: dto.serviceId, userId },
+        where: { id: dto.serviceId },
         select: { id: true, duration: true },
       });
 
@@ -182,8 +183,7 @@ export class AppointmentsService {
 
       const existing = await tx.appointment.findMany({
         where: {
-          userId, 
-          professionalId: targetUserId, 
+          professionalId: targetUserId, // Avalia o conflito pelo profissional
           status: {
             in: ['SCHEDULED', 'COMPLETED'],
           },
@@ -224,7 +224,7 @@ export class AppointmentsService {
 
       if (resolvedClientId) {
         const existingClientById = await tx.client.findFirst({
-          where: { id: resolvedClientId, userId },
+          where: { id: resolvedClientId }, // Busca global pelo cliente
           select: { id: true },
         });
 
@@ -310,7 +310,11 @@ export class AppointmentsService {
 
   async cancel(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
-      where: { id: appointmentId, userId },
+      where: { 
+        id: appointmentId,
+        // 🌟 PERMITE CANCELAR SE FOR O DONO OU O FUNCIONÁRIO
+        OR: [{ userId: userId }, { professionalId: userId }] 
+      },
       select: { id: true, date: true, status: true },
     });
 
@@ -376,7 +380,13 @@ export class AppointmentsService {
     const limit = filters?.limit ?? 10;
     const skip = (page - 1) * limit;
 
-    const where: any = { userId };
+    // 🌟 MOSTRA OS AGENDAMENTOS SE FOR O DONO OU O PROFISSIONAL
+    const where: any = { 
+      OR: [
+        { userId: userId },
+        { professionalId: userId }
+      ]
+    };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.clientId) where.clientId = filters.clientId;
@@ -454,7 +464,11 @@ export class AppointmentsService {
     }
 
     const appt = await this.prisma.appointment.findFirst({
-      where: { id: appointmentId, userId },
+      where: { 
+        id: appointmentId,
+        // 🌟 PERMITE REAGENDAR SE FOR O DONO OU O FUNCIONÁRIO
+        OR: [{ userId: userId }, { professionalId: userId }] 
+      },
       select: {
         id: true,
         status: true,
@@ -535,8 +549,7 @@ export class AppointmentsService {
 
     const existing = await this.prisma.appointment.findMany({
       where: {
-        userId,
-        professionalId: targetUserId,
+        professionalId: targetUserId, // O conflito é sempre do profissional
         status: { in: ['SCHEDULED', 'COMPLETED'] },
         id: { not: appt.id },
         date: { gte: dayStart, lte: dayEnd },
@@ -583,12 +596,10 @@ export class AppointmentsService {
     if (!serviceId) throw new BadRequestException('serviceId é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
 
-    // Quem vai executar o serviço (Pode ser o ID ou Username da URL)
     let targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
       ? professionalId 
       : userId;
       
-    // Converte o Username para o ID real (UUID) e carrega as configurações
     const settings = await this.getUserBookingSettings(targetUserId, userId);
     targetUserId = settings.resolvedUserId;
     
@@ -603,7 +614,6 @@ export class AppointmentsService {
       return { date, slots: [] };
     }
 
-    // 🌟 CORREÇÃO 1: O Serviço pertence ao dono da barbearia (userId), não ao executor
     const service = await this.prisma.service.findFirst({
       where: { id: serviceId, userId: userId }, 
       select: { id: true, duration: true },
@@ -623,7 +633,6 @@ export class AppointmentsService {
 
     const weekday = requestedDay.getDay();
 
-    // 🌟 Horários de trabalho e bloqueios são da agenda do Profissional (targetUserId)
     const businessHours = await this.prisma.businessHour.findMany({
       where: { userId: targetUserId, weekday },
       orderBy: { start: 'asc' },
@@ -649,11 +658,9 @@ export class AppointmentsService {
       select: { start: true, end: true },
     });
 
-    // 🌟 CORREÇÃO 2: Procurar conflitos na agenda do Profissional, mas dentro da conta do Dono
     const existingAppointments = await this.prisma.appointment.findMany({
       where: {
-        userId: userId, // <-- Dono da barbearia
-        professionalId: targetUserId, // <-- Quem executa
+        professionalId: targetUserId, // <-- Busca bloqueios pelo Profissional
         status: { in: ['SCHEDULED', 'COMPLETED'] }, 
         date: { gte: dayStart, lte: dayEnd },
       },
@@ -815,7 +822,11 @@ export class AppointmentsService {
 
   async complete(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
-      where: { id: appointmentId, userId },
+      where: { 
+        id: appointmentId,
+        // 🌟 PERMITE CONCLUIR SE FOR O DONO OU O FUNCIONÁRIO
+        OR: [{ userId: userId }, { professionalId: userId }] 
+      },
       select: {
         id: true,
         status: true,
@@ -868,7 +879,8 @@ export class AppointmentsService {
 
     const appointments = await this.prisma.appointment.findMany({
       where: {
-        userId,
+        // 🌟 MOSTRA OS AGENDAMENTOS SE FOR O DONO OU O PROFISSIONAL
+        OR: [{ userId: userId }, { professionalId: userId }],
         professionalId: targetProfId, 
         date: { gte: start, lte: end }
       },
@@ -927,7 +939,8 @@ export class AppointmentsService {
 
     const appointments = await this.prisma.appointment.findMany({
       where: {
-        userId,
+        // 🌟 MOSTRA OS AGENDAMENTOS SE FOR O DONO OU O PROFISSIONAL
+        OR: [{ userId: userId }, { professionalId: userId }],
         professionalId: targetUserId,
         date: { gte: dayStart, lte: dayEnd },
         status: { in: ['SCHEDULED', 'COMPLETED'] }, 
@@ -954,7 +967,6 @@ export class AppointmentsService {
       })
       .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-    // 👇 O SEGREDO ESTAVA AQUI: Tipagem correta permite que os IDs entrem no objeto
     const items: Array<
       | { type: 'free'; start: string; end: string }
       | { type: 'busy'; start: string; end: string; appointmentId: string; status: string; notes: string | null; professionalId?: string; userId?: string; service: any; client: any }
@@ -996,8 +1008,6 @@ export class AppointmentsService {
             appointmentId: item.data.id,
             status: item.data.status,
             notes: item.data.notes,
-            // Utilizamos (item.data as any) para calar os falsos-positivos do TypeScript,
-            // garantindo que os dados selecionados no banco de dados sejam inseridos!
             professionalId: (item.data as any).professionalId,
             userId: (item.data as any).userId,
             service: item.data.service,

@@ -30,12 +30,17 @@ export class ServicesService {
   }
 
   findMine(userId: string) {
-    return this.prisma.service.findMany({
-      where: { userId },
-      orderBy: { name: 'asc' },
-      select: this.serviceSelect(),
-    });
-  }
+      return this.prisma.service.findMany({
+        where: {
+          OR: [
+            { userId: userId }, // Mostra se for o Admin (Dono)
+            { professionals: { some: { id: userId } } } // Mostra se for um membro da equipa vinculado
+          ]
+        },
+        orderBy: { name: 'asc' },
+        select: this.serviceSelect(),
+      });
+    }
 
   async update(userId: string, id: string, dto: UpdateServiceDto & { professionalIds?: string[] }) {
     await this.ensureOwnership(userId, id);

@@ -15,38 +15,34 @@ export class PublicBookingService {
   async getProfile(username: string) {
     const normalizedUsername = username.trim().toLowerCase();
 
-    // 1. Busca o utilizador da URL e verifica se ele é dono ou funcionário
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        avatarUrl: true,
-        ownerId: true, // 🌟 Adicionado para sabermos quem é o "chefe" dele
-      },
+      select: { id: true, name: true, username: true, avatarUrl: true, ownerId: true },
     });
 
     if (!user) {
       throw new BadRequestException('Página não encontrada.');
     }
 
-    // 2. Define quem é o Dono da Barbearia (Tenant)
     const tenantId = user.ownerId ? user.ownerId : user.id;
 
-    // 3. Busca a equipa inteira para apanhar todos os IDs da barbearia
+    // Busca os dados do Dono e da Equipa para a vitrine
+    const adminUser = await this.prisma.user.findUnique({
+      where: { id: tenantId },
+      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
+    });
+
     const teamMembers = await this.prisma.user.findMany({
       where: { ownerId: tenantId },
       select: { id: true, name: true, username: true, avatarUrl: true, role: true },
     });
 
-    // Adiciona o dono na lista de IDs
-    const allShopUserIds = [tenantId, ...teamMembers.map((m) => m.id)];
+    const allProfessionals = [adminUser, ...teamMembers].filter(Boolean);
 
-    // 4. Busca TODOS os serviços criados pelo dono OU pela equipa
+    // 🌟 A MÁGICA ACONTECE AQUI: Busca os Serviços do Catálogo (Dono) e inclui quem os faz
     const services = await this.prisma.service.findMany({
       where: {
-        userId: { in: allShopUserIds }, // 🌟 CORREÇÃO: Puxa os serviços de todos
+        userId: tenantId, // Puxa apenas o Catálogo Mestre
       },
       select: {
         id: true,
@@ -55,23 +51,24 @@ export class PublicBookingService {
         priceCents: true,
         icon: true,
         userId: true, 
+        // 👇 Traz a lista de profissionais vinculados a este serviço específico
+        professionals: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true
+          }
+        }
       },
       orderBy: {
         name: 'asc',
       },
     });
 
-    // Buscar os dados do Admin para a vitrine
-    const adminUser = await this.prisma.user.findUnique({
-      where: { id: tenantId },
-      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
-    });
-
     return {
       user,
       services,
-      // 🌟 Enviamos a equipa inteira para o Frontend (Admin + Equipa)
-      professionals: [adminUser, ...teamMembers].filter(Boolean),
+      professionals: allProfessionals, // Lista geral da barbearia
     };
   }
 

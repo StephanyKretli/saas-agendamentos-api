@@ -1,5 +1,5 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Req, UseGuards, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DashboardService } from './dashboard.service';
 
@@ -8,20 +8,24 @@ import { DashboardService } from './dashboard.service';
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard)
 export class DashboardController {
-  constructor(private service: DashboardService) {}
-
-  @Get('today')
-  today(@Req() req: any) {
-    return this.service.today(req.user.id);
-  }
+  constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('metrics')
-  metrics(@Req() req: any) {
-    return this.service.metrics(req.user.id);
+  @ApiOperation({
+    summary: 'Get dashboard metrics',
+    description: 'Returns financial and operational metrics for the given month.',
+  })
+  @ApiQuery({ name: 'month', required: false, description: 'Format YYYY-MM. Defaults to current month.' })
+  getMetrics(@Req() req: any, @Query('month') month?: string) {
+    return this.dashboardService.getMetrics(req.user.id, month);
   }
 
-  @Get('stats')
-  stats(@Req() req: any) {
-    return this.service.stats(req.user.id);
+  @Get('today')
+  @ApiOperation({
+    summary: 'Get today agenda',
+    description: 'Returns all appointments scheduled for today.',
+  })
+  getTodayAgenda(@Req() req: any) {
+    return this.dashboardService.getTodayAgenda(req.user.id);
   }
 }

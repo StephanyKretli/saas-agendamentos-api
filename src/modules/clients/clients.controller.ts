@@ -82,17 +82,16 @@ export class ClientsController {
   }
 
   @Get(':id/history')
-  @ApiOperation({
-    summary: 'Get client history',
-    description: 'Returns appointment history and summary for a client.',
-  })
-  @ApiParam({
-    name: 'id',
-    example: 'client_123',
-    description: 'Client ID',
-  })
-  history(@Req() req: any, @Param('id') id: string) {
-    return this.service.history(req.user.id, id);
+  @ApiOperation({ summary: 'Obter histórico e resumo do cliente' })
+  @ApiQuery({ name: 'from', required: false, description: 'Data inicial (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'to', required: false, description: 'Data final (YYYY-MM-DD)' })
+  history(
+    @Req() req: any, 
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.history(req.user.id, id, from, to);
   }
 
   @Patch(':id')

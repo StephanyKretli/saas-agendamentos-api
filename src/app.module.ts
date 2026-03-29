@@ -21,6 +21,8 @@ import { SettingsModule } from './settings/settings.module';
 import { TeamModule } from './modules/team/team.module';
 // 👇 1. Importar o nosso novo módulo
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+
 
 @Module({
   imports: [
@@ -40,7 +42,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     ScheduleModule.forRoot(),
     SettingsModule, 
     TeamModule,
-    NotificationsModule, // 👇 2. Adicionar aqui na lista de imports do sistema
+    NotificationsModule, 
+    PaymentsModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

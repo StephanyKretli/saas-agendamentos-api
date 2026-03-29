@@ -8,6 +8,7 @@ import { randomBytes } from 'crypto';
 import { addMinutes, getAppointmentTotalMinutes, rangesOverlap, resolveBufferMinutes, } from './buffer-rules';
 import { endOfDayLocal } from '../../common/date/parse-local-iso';
 import { WhatsappService } from '../notifications/whatsapp.service';
+import { MercadoPagoService } from '../payments/mercado-pago.service';
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -35,7 +36,8 @@ function startOfDayLocal(yyyyMmDd: string) {
 export class AppointmentsService {
   constructor(
     private prisma: PrismaService,
-    private whatsappService: WhatsappService 
+    private whatsappService: WhatsappService, 
+    private mercadoPagoService: MercadoPagoService
   ) {}
 
   private generatePublicCancelToken() {
@@ -97,29 +99,17 @@ export class AppointmentsService {
       ? dto.professionalId 
       : userId;
 
-    if (Number.isNaN(start.getTime())) {
-      throw new BadRequestException('Data inválida.');
-    }
-
+    if (Number.isNaN(start.getTime())) throw new BadRequestException('Data inválida.');
+    
     const now = new Date();
-
-    if (start.getTime() <= now.getTime()) {
-      throw new BadRequestException('Não é possível agendar no passado.');
-    }
+    if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível agendar no passado.');
 
     const settings = await this.getUserBookingSettings(userId);
-
-    const minLeadMinutes =
-      settings.minBookingNoticeMinutes > 0
-        ? settings.minBookingNoticeMinutes
-        : MIN_LEAD_MINUTES;
-
+    const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
     const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
 
     if (start.getTime() < minStart.getTime()) {
-      throw new BadRequestException(
-        `Agende com pelo menos ${minLeadMinutes} minutos de antecedência.`,
-      );
+      throw new BadRequestException(`Agende com pelo menos ${minLeadMinutes} minutos de antecedência.`);
     }
 
     const maxBookingDays = settings.maxBookingDays ?? 30;
@@ -128,34 +118,22 @@ export class AppointmentsService {
     maxDate.setDate(maxDate.getDate() + maxBookingDays);
 
     if (start.getTime() > maxDate.getTime()) {
-      throw new BadRequestException(
-        `O agendamento só pode ser feito com até ${maxBookingDays} dias de antecedência.`,
-      );
+      throw new BadRequestException(`O agendamento só pode ser feito com até ${maxBookingDays} dias de antecedência.`);
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // Serviço pertence ao Admin
+    // 🌟 PASSO 1: Guardar no banco de dados
+    const newAppointment = await this.prisma.$transaction(async (tx) => {
       const service = await tx.service.findFirst({
         where: { id: dto.serviceId },
-        select: { id: true, duration: true },
+        select: { id: true, duration: true, priceCents: true, name: true },
       });
 
-      if (!service) {
-        throw new BadRequestException('Serviço inválido.');
-      }
+      if (!service) throw new BadRequestException('Serviço inválido.');
 
-      const totalMinutes = getAppointmentTotalMinutes(
-        service.duration,
-        settings.bufferMinutes,
-      );
-
+      const totalMinutes = getAppointmentTotalMinutes(service.duration, settings.bufferMinutes);
       const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
 
-      if (!ok) {
-        throw new BadRequestException(
-          'O horário escolhido não cabe dentro do expediente do profissional.',
-        );
-      }
+      if (!ok) throw new BadRequestException('O horário escolhido não cabe dentro do expediente do profissional.');
 
       const end = addMinutes(start, totalMinutes);
       const dayStart = new Date(start);
@@ -163,172 +141,130 @@ export class AppointmentsService {
       const dayEnd = new Date(start);
       dayEnd.setHours(23, 59, 59, 999);
 
-      const blockedDay = await tx.blockedDate.findFirst({
-        where: { userId: targetUserId, date: dayStart },
-        select: { id: true },
-      });
-
-      if (blockedDay) {
-        throw new BadRequestException('Dia indisponível para este profissional.');
-      }
+      const blockedDay = await tx.blockedDate.findFirst({ where: { userId: targetUserId, date: dayStart }, select: { id: true } });
+      if (blockedDay) throw new BadRequestException('Dia indisponível para este profissional.');
 
       const blocks = await tx.blockedSlot.findMany({
-        where: {
-          userId: targetUserId,
-          start: { lt: end },
-          end: { gt: start },
-        },
+        where: { userId: targetUserId, start: { lt: end }, end: { gt: start } },
         select: { id: true },
       });
-
-      if (blocks.length > 0) {
-        throw new BadRequestException('Horário indisponível (bloqueado).');
-      }
+      if (blocks.length > 0) throw new BadRequestException('Horário indisponível (bloqueado).');
 
       const existing = await tx.appointment.findMany({
         where: {
-          professionalId: targetUserId, // Avalia o conflito pelo profissional
-          status: {
-            in: ['SCHEDULED', 'COMPLETED'],
-          },
+          professionalId: targetUserId,
+          status: { in: ['SCHEDULED', 'COMPLETED'] },
           date: { gte: dayStart, lte: dayEnd },
         },
-        select: {
-          date: true,
-          service: {
-            select: { duration: true },
-          },
-        },
+        select: { date: true, service: { select: { duration: true } } },
       });
 
       const hasConflict = existing.some((a) => {
         const aStart = new Date(a.date);
-        const aTotalMinutes = getAppointmentTotalMinutes(
-          a.service.duration,
-          settings.bufferMinutes,
-        );
+        const aTotalMinutes = getAppointmentTotalMinutes(a.service.duration, settings.bufferMinutes);
         const aEnd = addMinutes(aStart, aTotalMinutes);
-
         return rangesOverlap(aStart, aEnd, start, end);
       });
 
-      if (hasConflict) {
-        throw new BadRequestException(
-          'Conflito de horário: o profissional já tem um agendamento nesse intervalo.',
-        );
-      }
+      if (hasConflict) throw new BadRequestException('Conflito de horário na agenda.');
 
       let resolvedClientId: string | undefined = dto.clientId;
-
-      if (dto.clientId && dto.client) {
-        throw new BadRequestException(
-          'Informe apenas clientId ou client, não os dois.',
-        );
-      }
+      if (dto.clientId && dto.client) throw new BadRequestException('Informe apenas clientId ou client, não os dois.');
 
       if (resolvedClientId) {
-        const existingClientById = await tx.client.findFirst({
-          where: { id: resolvedClientId }, // Busca global pelo cliente
-          select: { id: true },
-        });
-
-        if (!existingClientById) {
-          throw new BadRequestException('Cliente inválido.');
-        }
+        const existingClientById = await tx.client.findFirst({ where: { id: resolvedClientId }, select: { id: true } });
+        if (!existingClientById) throw new BadRequestException('Cliente inválido.');
       }
 
       if (!resolvedClientId && dto.client) {
         const normalizedPhone = dto.client.phone.replace(/\D/g, '');
-
-        const existingClient = await tx.client.findFirst({
-          where: {
-            userId,
-            phone: normalizedPhone,
-          },
-        });
+        const existingClient = await tx.client.findFirst({ where: { userId, phone: normalizedPhone } });
 
         if (existingClient) {
           resolvedClientId = existingClient.id;
-
           await tx.client.update({
             where: { id: existingClient.id },
-            data: {
-              name: dto.client.name,
-              email: dto.client.email,
-            },
+            data: { name: dto.client.name, email: dto.client.email },
           });
         } else {
           const createdClient = await tx.client.create({
-            data: {
-              userId,
-              name: dto.client.name,
-              phone: normalizedPhone,
-              email: dto.client.email,
-            },
+            data: { userId, name: dto.client.name, phone: normalizedPhone, email: dto.client.email },
           });
-
           resolvedClientId = createdClient.id;
         }
       }
 
-      const newAppointment = await tx.appointment.create({
+      // 💰 LÓGICA DE COBRANÇA (20% de sinal)
+      const depositCents = service.priceCents > 0 ? Math.round(service.priceCents * 0.2) : 0;
+      const paymentStatus = depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED';
+
+      return tx.appointment.create({
         data: {
           userId,
-          professionalId: targetUserId, 
+          professionalId: targetUserId,
           serviceId: dto.serviceId,
           clientId: resolvedClientId,
           date: start,
           notes: dto.notes,
-          status: 'SCHEDULED',
+          status: 'SCHEDULED', // Fica na agenda, mas com pagamento pendente
+          paymentStatus,       // 👈 Salva o status do pagamento
+          depositCents,        // 👈 Salva o valor do sinal
           publicCancelToken: this.generatePublicCancelToken(),
           publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
         },
-        select: {
-          id: true,
-          date: true,
-          notes: true,
-          status: true,
-          createdAt: true,
-          publicCancelToken: true,
-          publicCancelTokenExpiresAt: true,
-          service: {
-            select: {
-              id: true,
-              name: true,
-              duration: true,
-              priceCents: true,
-            },
-          },
-          client: {
-            select: {
-              id: true,
-              name: true,
-              phone: true,
-              email: true,
-            },
-          },
-        },
+        include: {
+          service: true,
+          client: true,
+          professional: { select: { name: true } }
+        }
       });
+    });
 
+    // 🌟 PASSO 2: Falar com o Mercado Pago (Fora da transação!)
+    let finalAppointment = newAppointment;
+
+    if (newAppointment.paymentStatus === 'PENDING' && newAppointment.depositCents) {
       try {
-        const prof = await tx.user.findUnique({ where: { id: targetUserId }, select: { name: true }});
-        
-        if (newAppointment.client?.phone) {
-          // Dispara em segundo plano (sem "await" aqui) para a tela do cliente não ficar carregando
+        const pixData = await this.mercadoPagoService.createPixPayment(
+          newAppointment.id,
+          newAppointment.depositCents,
+          newAppointment.client?.name || 'Cliente',
+          newAppointment.client?.email || undefined
+        );
+
+        console.log('\n💳 === PIX GERADO === 💳');
+        console.log(`ID para simular pagamento: ${pixData.transactionId}\n`);
+
+        // Atualiza a marcação com o código do PIX
+        finalAppointment = await this.prisma.appointment.update({
+          where: { id: newAppointment.id },
+          data: {
+            pixPayload: pixData.qrCodePayload,
+            transactionId: pixData.transactionId,
+          },
+          include: { service: true, client: true, professional: { select: { name: true } } }
+        });
+      } catch (error) {
+        console.error('Erro ao gerar PIX no Mercado Pago:', error);
+      }
+    } else {
+      // 🌟 PASSO 3: Enviar WhatsApp de confirmação IMEDIATO apenas se o serviço for gratuito
+      try {
+        if (finalAppointment.client?.phone) {
           this.whatsappService.sendAppointmentConfirmation(
-            newAppointment.client.name,
-            newAppointment.client.phone,
-            newAppointment.service.name,
-            newAppointment.date,
-            prof?.name || 'Equipe'
+            finalAppointment.client.name,
+            finalAppointment.client.phone,
+            finalAppointment.service.name,
+            finalAppointment.date,
+            finalAppointment.professional?.name || 'Equipe'
           );
         }
       } catch (error) {
-        console.error('Erro ao tentar engatilhar WhatsApp:', error);
+        console.error('Erro ao engatilhar WhatsApp:', error);
       }
+    }
 
-      return newAppointment;
-    }); // Fim do tx
+    return finalAppointment;
   }
 
   async cancel(userId: string, appointmentId: string) {

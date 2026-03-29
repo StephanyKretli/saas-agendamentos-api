@@ -7,6 +7,7 @@ import { MIN_CANCEL_LEAD_MINUTES } from './cancel-rules';
 import { randomBytes } from 'crypto';
 import { addMinutes, getAppointmentTotalMinutes, rangesOverlap, resolveBufferMinutes, } from './buffer-rules';
 import { endOfDayLocal } from '../../common/date/parse-local-iso';
+import { WhatsappService } from '../notifications/whatsapp.service';
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -32,7 +33,10 @@ function startOfDayLocal(yyyyMmDd: string) {
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsappService: WhatsappService 
+  ) {}
 
   private generatePublicCancelToken() {
     return randomBytes(24).toString('hex');
@@ -267,7 +271,7 @@ export class AppointmentsService {
         }
       }
 
-      return tx.appointment.create({
+      const newAppointment = await tx.appointment.create({
         data: {
           userId,
           professionalId: targetUserId, 
@@ -305,7 +309,26 @@ export class AppointmentsService {
           },
         },
       });
-    });
+
+      try {
+        const prof = await tx.user.findUnique({ where: { id: targetUserId }, select: { name: true }});
+        
+        if (newAppointment.client?.phone) {
+          // Dispara em segundo plano (sem "await" aqui) para a tela do cliente não ficar carregando
+          this.whatsappService.sendAppointmentConfirmation(
+            newAppointment.client.name,
+            newAppointment.client.phone,
+            newAppointment.service.name,
+            newAppointment.date,
+            prof?.name || 'Equipe'
+          );
+        }
+      } catch (error) {
+        console.error('Erro ao tentar engatilhar WhatsApp:', error);
+      }
+
+      return newAppointment;
+    }); // Fim do tx
   }
 
   async cancel(userId: string, appointmentId: string) {

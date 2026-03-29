@@ -19,11 +19,28 @@ import { EmailModule } from './modules/email/email.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SettingsModule } from './settings/settings.module';
 import { TeamModule } from './modules/team/team.module';
+// 👇 1. Importar o nosso novo módulo
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, AuthModule, AppointmentsModule, ServicesModule, BlockedDatesModule, BusinessHoursModule, 
-    DashboardModule, CalendarModule, ClientsModule, PublicBookingModule, BlockedSlotsModule, EmailModule, ScheduleModule.forRoot(),
-    SettingsModule, TeamModule,
+  imports: [
+    PrismaModule, 
+    UsersModule, 
+    AuthModule, 
+    AppointmentsModule, 
+    ServicesModule, 
+    BlockedDatesModule, 
+    BusinessHoursModule, 
+    DashboardModule, 
+    CalendarModule, 
+    ClientsModule, 
+    PublicBookingModule, 
+    BlockedSlotsModule, 
+    EmailModule, 
+    ScheduleModule.forRoot(),
+    SettingsModule, 
+    TeamModule,
+    NotificationsModule, // 👇 2. Adicionar aqui na lista de imports do sistema
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

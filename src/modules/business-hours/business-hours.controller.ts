@@ -1,9 +1,8 @@
-import { Controller, Post, Get, Delete, Param, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, Req, UseGuards, Query, Patch } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BusinessHoursService } from './business-hours.service';
-import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiTags, ApiQuery } from '@nestjs/swagger';
 import { CreateBusinessHourDto } from './dto/create-business-hour.dto';
-import { Patch } from '@nestjs/common';
 import { CreateBusinessHoursBulkDto } from './dto/create-business-hours-bulk.dto';
 import { ApplyBusinessHoursTemplateDto } from './dto/apply-business-hours-template.dto';
 
@@ -14,51 +13,47 @@ import { ApplyBusinessHoursTemplateDto } from './dto/apply-business-hours-templa
 export class BusinessHoursController {
   constructor(private service: BusinessHoursService) {}
 
+  @Get()
+  @ApiQuery({ name: 'professionalId', required: false })
+  async findAll(@Req() req: any, @Query('professionalId') professionalId?: string) {
+    // Descobre se vai buscar os horários do Admin ou do Membro da equipe
+    const targetId = await this.service.resolveTargetUser(req.user.id, professionalId);
+    return this.service.findAll(targetId);
+  }
+
   @Post()
   @ApiBody({ type: CreateBusinessHourDto })
-  create(@Req() req: any, @Body() dto: CreateBusinessHourDto) {
-    return this.service.create(req.user.id, dto.weekday, dto.start, dto.end);
+  @ApiQuery({ name: 'professionalId', required: false })
+  async create(@Req() req: any, @Body() dto: CreateBusinessHourDto, @Query('professionalId') professionalId?: string) {
+    const targetId = await this.service.resolveTargetUser(req.user.id, professionalId);
+    return this.service.create(targetId, dto.weekday, dto.start, dto.end);
   }
 
   @Patch(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() dto: CreateBusinessHourDto) {
-    return this.service.update(
-      req.user.id,
-      id,
-      dto.weekday,
-      dto.start,
-      dto.end,
-    );
-  }
-
-  @Get()
-  findAll(@Req() req: any) {
-    return this.service.findAll(req.user.id);
+  @ApiQuery({ name: 'professionalId', required: false })
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: CreateBusinessHourDto, @Query('professionalId') professionalId?: string) {
+    const targetId = await this.service.resolveTargetUser(req.user.id, professionalId);
+    return this.service.update(targetId, id, dto.weekday, dto.start, dto.end);
   }
 
   @Post('bulk')
-  createBulk(@Req() req: any, @Body() dto: CreateBusinessHoursBulkDto) {
-    return this.service.createBulk(
-      req.user.id,
-      dto.weekdays,
-      dto.start,
-      dto.end,
-    );
+  @ApiQuery({ name: 'professionalId', required: false })
+  async createBulk(@Req() req: any, @Body() dto: CreateBusinessHoursBulkDto, @Query('professionalId') professionalId?: string) {
+    const targetId = await this.service.resolveTargetUser(req.user.id, professionalId);
+    return this.service.createBulk(targetId, dto.weekdays, dto.start, dto.end);
   }
 
   @Delete(':id')
-  delete(@Req() req: any, @Param('id') id: string) {
-    return this.service.delete(req.user.id, id);
+  @ApiQuery({ name: 'professionalId', required: false })
+  async delete(@Req() req: any, @Param('id') id: string, @Query('professionalId') professionalId?: string) {
+    const targetId = await this.service.resolveTargetUser(req.user.id, professionalId);
+    return this.service.delete(targetId, id);
   }
 
   @Post('apply-template')
-  applyTemplate(@Req() req: any, @Body() dto: ApplyBusinessHoursTemplateDto) {
-    return this.service.applyTemplate(
-      req.user.id,
-      dto.sourceWeekday,
-      dto.targetWeekdays,
-      dto.replace ?? false,
-    );
+  @ApiQuery({ name: 'professionalId', required: false })
+  async applyTemplate(@Req() req: any, @Body() dto: ApplyBusinessHoursTemplateDto, @Query('professionalId') professionalId?: string) {
+    const targetId = await this.service.resolveTargetUser(req.user.id, professionalId);
+    return this.service.applyTemplate(targetId, dto.sourceWeekday, dto.targetWeekdays, dto.replace ?? false);
   }
-
 }

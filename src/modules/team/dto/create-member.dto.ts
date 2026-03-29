@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional } from 'class-validator';
 
 export class CreateMemberDto {
   @ApiProperty({ example: 'Carlos Barbeiro', description: 'Nome do profissional' })
@@ -11,13 +11,14 @@ export class CreateMemberDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'carlos-cortes', description: 'Username para a vitrine pública' })
+  @ApiPropertyOptional({ description: 'Gerado automaticamente se não enviado' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  username: string;
+  username?: string;
 
-  @ApiProperty({ example: 'senha-segura123', description: 'Senha inicial de acesso' })
+  @ApiPropertyOptional({ description: 'Gerado automaticamente se não enviado' })
+  @IsOptional()
   @IsString()
   @MinLength(6)
-  password: string;
+  password?: string;
 }

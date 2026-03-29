@@ -40,6 +40,22 @@ function validateTimeRange(start: string, end: string) {
 export class BusinessHoursService {
   constructor(private prisma: PrismaService) {}
 
+  async resolveTargetUser(loggedUserId: string, targetUserId?: string) {
+    // Se não mandou um ID alvo, ou se mandou o próprio ID, segue a vida normal
+    if (!targetUserId || targetUserId === loggedUserId) return loggedUserId;
+
+    // Se mandou um ID diferente (Admin editando Equipe), verifica se o membro pertence a ele
+    const member = await this.prisma.user.findFirst({
+      where: { id: targetUserId, ownerId: loggedUserId }
+    });
+
+    if (!member) {
+      throw new BadRequestException('Profissional não encontrado ou não pertence à sua equipe.');
+    }
+
+    return targetUserId;
+  }
+
   private async ensureNoOverlap(params: {
     userId: string;
     weekday: number;

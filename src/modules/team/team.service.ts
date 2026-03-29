@@ -1,42 +1,63 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import * as bcrypt from 'bcrypt'; // 🌟 1. IMPORTANTE: Importação do bcrypt
 
 @Injectable()
 export class TeamService {
   constructor(private prisma: PrismaService) {}
 
-  async createMember(adminId: string, data: any) {
-    // 1. Busca o Admin com contagem de membros
+async createMember(adminId: string, data: any) {
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
       include: { 
-        _count: { 
-          select: { teamMembers: true } 
-        } 
+        _count: { select: { teamMembers: true } } 
       }
     });
 
-    // Erro 18047: Proteção contra admin nulo
     if (!admin) {
       throw new NotFoundException('Administrador não encontrado.');
     }
 
-    // 2. Validar limite do plano (Erro 2339 resolvido após o migrate/generate)
     if (admin.plan !== 'BUSINESS' && admin._count.teamMembers >= admin.maxMembers) {
       throw new BadRequestException(
         `Limite de membros atingido para o plano ${admin.plan}. Faça upgrade para adicionar mais.`
       );
     }
 
-    // 3. Criar o novo utilizador vinculado
-    return this.prisma.user.create({
+    // 🌟 PROTEÇÃO MÁXIMA PARA A SENHA:
+    // Ignora campos vazios ou com espaços e força 'Mudar@123' se não vier uma senha real
+    let plainPassword = data.password;
+    if (!plainPassword || plainPassword.trim() === '') {
+      plainPassword = 'Mudar@123';
+    }
+
+    console.log(`\n--- 🚀 DEBUG DE CRIAÇÃO DA EQUIPA ---`);
+    console.log(`Email do novo membro: '${data.email}'`);
+    console.log(`Senha (texto puro) que será encriptada e salva: '${plainPassword}'`);
+
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+    const generatedUsername = data.username && data.username.trim() !== '' 
+      ? data.username 
+      : `${data.email.split('@')[0]}-${Math.floor(Math.random() * 1000)}`;
+
+    const newMember = await this.prisma.user.create({
       data: {
-        ...data,
+        // ⚠️ ATENÇÃO: Especificamos campo a campo para NUNCA usar o "...data" aqui
+        name: data.name,
+        email: data.email,
+        username: generatedUsername,
+        password: hashedPassword, // Guarda a hash segura de verdade!
         ownerId: adminId,
         role: 'PROFESSIONAL',
         plan: admin.plan,
       },
     });
+
+    console.log(`✅ Membro criado com sucesso no banco de dados!`);
+    console.log(`--------------------------\n`);
+
+    return newMember;
   }
 
   async listTeam(adminId: string) {

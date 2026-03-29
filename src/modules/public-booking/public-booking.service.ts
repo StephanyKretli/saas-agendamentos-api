@@ -15,6 +15,7 @@ export class PublicBookingService {
   async getProfile(username: string) {
     const normalizedUsername = username.trim().toLowerCase();
 
+    // 1. Busca o utilizador da URL e verifica se ele é dono ou funcionário
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
       select: {
@@ -22,6 +23,7 @@ export class PublicBookingService {
         name: true,
         username: true,
         avatarUrl: true,
+        ownerId: true, // 🌟 Adicionado para sabermos quem é o "chefe" dele
       },
     });
 
@@ -29,9 +31,22 @@ export class PublicBookingService {
       throw new BadRequestException('Página não encontrada.');
     }
 
+    // 2. Define quem é o Dono da Barbearia (Tenant)
+    const tenantId = user.ownerId ? user.ownerId : user.id;
+
+    // 3. Busca a equipa inteira para apanhar todos os IDs da barbearia
+    const teamMembers = await this.prisma.user.findMany({
+      where: { ownerId: tenantId },
+      select: { id: true, name: true, username: true, avatarUrl: true, role: true },
+    });
+
+    // Adiciona o dono na lista de IDs
+    const allShopUserIds = [tenantId, ...teamMembers.map((m) => m.id)];
+
+    // 4. Busca TODOS os serviços criados pelo dono OU pela equipa
     const services = await this.prisma.service.findMany({
       where: {
-        userId: user.id, // O tenant (dono da página)
+        userId: { in: allShopUserIds }, // 🌟 CORREÇÃO: Puxa os serviços de todos
       },
       select: {
         id: true,
@@ -39,19 +54,27 @@ export class PublicBookingService {
         duration: true,
         priceCents: true,
         icon: true,
+        userId: true, 
       },
       orderBy: {
         name: 'asc',
       },
     });
 
+    // Buscar os dados do Admin para a vitrine
+    const adminUser = await this.prisma.user.findUnique({
+      where: { id: tenantId },
+      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
+    });
+
     return {
       user,
       services,
+      // 🌟 Enviamos a equipa inteira para o Frontend (Admin + Equipa)
+      professionals: [adminUser, ...teamMembers].filter(Boolean),
     };
   }
 
-  // 👇 1. Adicionado o professionalId aqui
   async getAvailability(
     username: string,
     serviceId: string,
@@ -61,19 +84,20 @@ export class PublicBookingService {
   ) {
     const normalizedUsername = username.trim().toLowerCase();
 
-    // Encontra o dono da conta (SaaS)
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
-      select: { id: true },
+      select: { id: true, ownerId: true }, // 🌟 Adicionado ownerId
     });
 
     if (!user) {
       throw new BadRequestException('Página não encontrada.');
     }
 
-    // 👇 2. Repassando o professionalId para o AppointmentsService calcular as vagas
+    // Garante que o ID do Dono é passado para o serviço de agendamentos
+    const tenantId = user.ownerId ? user.ownerId : user.id;
+
     return this.appointmentsService.getAvailability(
-      user.id, // userId (Dono)
+      tenantId, // userId (Dono)
       serviceId,
       date,
       professionalId, // Quem vai executar
@@ -84,20 +108,21 @@ export class PublicBookingService {
   async createAppointment(username: string, dto: CreatePublicAppointmentDto) {
     const normalizedUsername = username.trim().toLowerCase();
 
-    // Encontra o dono da conta (SaaS)
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
-      select: { id: true, username: true },
+      select: { id: true, username: true, ownerId: true }, // 🌟 Adicionado ownerId
     });
 
     if (!user) {
       throw new BadRequestException('Página não encontrada.');
     }
 
-    // 👇 3. Repassando o professionalId na hora de criar
-    const appointment = await this.appointmentsService.create(user.id, {
+    const tenantId = user.ownerId ? user.ownerId : user.id;
+
+    // Repassa sempre o tenantId (Dono) como primeiro argumento
+    const appointment = await this.appointmentsService.create(tenantId, {
       serviceId: dto.serviceId,
-      professionalId: dto.professionalId, // O profissional escolhido na vitrine
+      professionalId: dto.professionalId, 
       date: dto.date,
       notes: dto.notes,
       client: {
@@ -139,29 +164,13 @@ export class PublicBookingService {
         publicCancelToken: normalizedToken,
       },
       include: {
-        service: {
-          select: {
-            name: true,
-          },
-        },
-        client: {
-          select: {
-            name: true,
-            email: true,
-            phone: true,
-          },
-        },
+        service: { select: { name: true } },
+        client: { select: { name: true, email: true, phone: true } },
       },
     });
 
-    if (!appointment) {
-      throw new BadRequestException('Link de cancelamento inválido.');
-    }
-
-    if (
-      appointment.publicCancelTokenExpiresAt &&
-      appointment.publicCancelTokenExpiresAt < new Date()
-    ) {
+    if (!appointment) throw new BadRequestException('Link de cancelamento inválido.');
+    if (appointment.publicCancelTokenExpiresAt && appointment.publicCancelTokenExpiresAt < new Date()) {
       throw new BadRequestException('Link de cancelamento expirado.');
     }
 
@@ -173,9 +182,7 @@ export class PublicBookingService {
       clientName: appointment.client?.name ?? null,
       clientEmail: appointment.client?.email ?? null,
       clientPhone: appointment.client?.phone ?? null,
-      canCancel:
-        appointment.status !== 'CANCELED' &&
-        appointment.status !== 'COMPLETED',
+      canCancel: appointment.status !== 'CANCELED' && appointment.status !== 'COMPLETED',
     };
   }
 
@@ -183,44 +190,20 @@ export class PublicBookingService {
     const normalizedToken = token.trim();
 
     const appointment = await this.prisma.appointment.findFirst({
-      where: {
-        publicCancelToken: normalizedToken,
-      },
+      where: { publicCancelToken: normalizedToken },
     });
 
-    if (!appointment) {
-      throw new BadRequestException('Link de cancelamento inválido.');
-    }
-
-    if (
-      appointment.publicCancelTokenExpiresAt &&
-      appointment.publicCancelTokenExpiresAt < new Date()
-    ) {
+    if (!appointment) throw new BadRequestException('Link de cancelamento inválido.');
+    if (appointment.publicCancelTokenExpiresAt && appointment.publicCancelTokenExpiresAt < new Date()) {
       throw new BadRequestException('Link de cancelamento expirado.');
     }
-
-    if (appointment.status === 'CANCELED') {
-      throw new BadRequestException('Este agendamento já foi cancelado.');
-    }
-
-    if (appointment.status === 'COMPLETED') {
-      throw new BadRequestException(
-        'Não é possível cancelar um agendamento concluído.',
-      );
-    }
+    if (appointment.status === 'CANCELED') throw new BadRequestException('Este agendamento já foi cancelado.');
+    if (appointment.status === 'COMPLETED') throw new BadRequestException('Não é possível cancelar um agendamento concluído.');
 
     return this.prisma.appointment.update({
-      where: {
-        id: appointment.id,
-      },
-      data: {
-        status: 'CANCELED',
-      },
-      select: {
-        id: true,
-        status: true,
-        date: true,
-      },
+      where: { id: appointment.id },
+      data: { status: 'CANCELED' },
+      select: { id: true, status: true, date: true },
     });
   }
 }

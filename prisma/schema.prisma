@@ -55,8 +55,11 @@ model User {
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 
-  // Relações
-  services                Service[]
+  // 👇 RELAÇÕES DE SERVIÇOS ATUALIZADAS
+  ownedServices           Service[]      @relation("UserOwnedServices")     // Serviços CRIADOS pela conta (Catálogo Mestre)
+  services                Service[]      @relation("ProfessionalServices")  // Serviços EXECUTADOS por este profissional
+
+  // Outras Relações
   clients                 Client[]
   businessHours           BusinessHour[]
   blockedDates            BlockedDate[]
@@ -71,14 +74,17 @@ model User {
 
 model Service {
   id           String        @id @default(cuid())
-  userId       String
+  userId       String        // ID do dono da conta (Admin) que criou o serviço
   name         String
   icon         String        @default("scissors")
   duration     Int
   priceCents   Int
   imageUrl     String?
   
-  user         User          @relation(fields: [userId], references: [id])
+  // 👇 RELAÇÕES DE USUÁRIOS ATUALIZADAS
+  user         User          @relation("UserOwnedServices", fields: [userId], references: [id]) 
+  professionals User[]       @relation("ProfessionalServices")                                 
+  
   appointments Appointment[]
 }
 

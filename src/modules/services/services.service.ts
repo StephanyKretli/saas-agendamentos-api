@@ -12,6 +12,10 @@ export class ServicesService {
   ) {}
 
   create(userId: string, dto: CreateServiceDto) {
+    const professionalsData = dto.professionalIds && dto.professionalIds.length > 0
+      ? { connect: dto.professionalIds.map(id => ({ id })) }
+      : undefined;
+
     return this.prisma.service.create({
       data: {
         userId,
@@ -19,6 +23,7 @@ export class ServicesService {
         duration: dto.duration,
         priceCents: dto.priceCents,
         icon: dto.icon || 'scissors', 
+        professionals: professionalsData, 
       },
       select: this.serviceSelect(),
     });
@@ -32,8 +37,13 @@ export class ServicesService {
     });
   }
 
-  async update(userId: string, id: string, dto: UpdateServiceDto) {
+  async update(userId: string, id: string, dto: UpdateServiceDto & { professionalIds?: string[] }) {
     await this.ensureOwnership(userId, id);
+
+    // Usa 'set' para reescrever a lista de profissionais inteira (remove quem não está na lista nova)
+    const professionalsData = dto.professionalIds
+      ? { set: dto.professionalIds.map(profId => ({ id: profId })) }
+      : undefined;
 
     return this.prisma.service.update({
       where: { id },
@@ -42,6 +52,7 @@ export class ServicesService {
         ...(dto.duration !== undefined && { duration: dto.duration }),
         ...(dto.priceCents !== undefined && { priceCents: dto.priceCents }),
         ...(dto.icon !== undefined && { icon: dto.icon }), 
+        ...(professionalsData !== undefined && { professionals: professionalsData }), // 👇 Atualiza o vínculo
       },
       select: this.serviceSelect(),
     });
@@ -99,6 +110,14 @@ export class ServicesService {
       priceCents: true,
       imageUrl: true,
       icon: true, 
+      // 👇 Retorna a lista de quem faz o serviço para o Frontend
+      professionals: {
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true
+        }
+      }
     } as const;
   }
 }

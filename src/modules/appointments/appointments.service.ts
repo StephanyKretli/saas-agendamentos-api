@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { parseLocalISO } from '../../common/date/parse-local-iso';
@@ -9,6 +9,7 @@ import { addMinutes, getAppointmentTotalMinutes, rangesOverlap, resolveBufferMin
 import { endOfDayLocal } from '../../common/date/parse-local-iso';
 import { WhatsappService } from '../notifications/whatsapp.service';
 import { MercadoPagoService } from '../payments/mercado-pago.service';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -34,6 +35,7 @@ function startOfDayLocal(yyyyMmDd: string) {
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
   constructor(
     private prisma: PrismaService,
     private whatsappService: WhatsappService, 
@@ -941,6 +943,8 @@ export class AppointmentsService {
         notes: true,
         professionalId: true, 
         userId: true,
+        paymentStatus: true,
+        depositCents: true,
         service: { select: { id: true, name: true, duration: true, priceCents: true } },
         client: { select: { id: true, name: true, phone: true, email: true } },
       },
@@ -957,7 +961,7 @@ export class AppointmentsService {
 
     const items: Array<
       | { type: 'free'; start: string; end: string }
-      | { type: 'busy'; start: string; end: string; appointmentId: string; status: string; notes: string | null; professionalId?: string; userId?: string; service: any; client: any }
+      | { type: 'busy'; start: string; end: string; appointmentId: string; status: string; paymentStatus?: string; depositCents?: number | null; notes: string | null; professionalId?: string; userId?: string; service: any; client: any }
       | { type: 'blocked'; start: string; end: string }
     > = [];
 
@@ -995,6 +999,8 @@ export class AppointmentsService {
             end: formatTime(itemEnd),
             appointmentId: item.data.id,
             status: item.data.status,
+            paymentStatus: (item.data as any).paymentStatus,
+            depositCents: (item.data as any).depositCents,
             notes: item.data.notes,
             professionalId: (item.data as any).professionalId,
             userId: (item.data as any).userId,
@@ -1014,5 +1020,50 @@ export class AppointmentsService {
     }
 
     return { date, items };
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async clearUnpaidAppointments() {
+    this.logger.log('🧹 Iniciando varredura de PIX expirados...');
+
+    // Calcula a hora de "15 minutos atrás"
+    const expirationTime = new Date();
+    expirationTime.setMinutes(expirationTime.getMinutes() - 15);
+
+    try {
+      // Procura quem está pendente há mais de 15 minutos
+      const expiredAppointments = await this.prisma.appointment.findMany({
+        where: {
+          status: 'SCHEDULED',
+          paymentStatus: 'PENDING',
+          createdAt: {
+            lt: expirationTime, // Menor que (antes de) 15 minutos atrás
+          },
+        },
+        select: { id: true },
+      });
+
+      if (expiredAppointments.length === 0) {
+        this.logger.log('✨ Nenhuma limpeza necessária. Agenda impecável!');
+        return;
+      }
+
+      this.logger.log(`🗑️ Encontrados ${expiredAppointments.length} agendamentos expirados. Cancelando...`);
+
+      // Atualiza todos de uma vez para CANCELED
+      const expiredIds = expiredAppointments.map((a) => a.id);
+      
+      await this.prisma.appointment.updateMany({
+        where: { id: { in: expiredIds } },
+        data: { 
+          status: 'CANCELED',
+          notes: 'Cancelado automaticamente: PIX não foi pago dentro do prazo de 15 minutos.'
+        },
+      });
+
+      this.logger.log('✅ Limpeza concluída com sucesso. Horários liberados!');
+    } catch (error) {
+      this.logger.error('Erro ao limpar agendamentos expirados:', error);
+    }
   }
 }

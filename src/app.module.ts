@@ -19,7 +19,6 @@ import { EmailModule } from './modules/email/email.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SettingsModule } from './settings/settings.module';
 import { TeamModule } from './modules/team/team.module';
-// 👇 1. Importar o nosso novo módulo
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 

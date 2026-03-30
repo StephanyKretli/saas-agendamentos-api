@@ -1,6 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
-
+import { IsInt, IsOptional, IsString, Min, IsBoolean, Max } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 'Stephany Kretli' })
@@ -35,4 +34,16 @@ export class UpdateSettingsDto {
   @IsInt()
   @Min(0)
   maxBookingDays?: number;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  requirePixDeposit?: boolean;
+
+  @ApiPropertyOptional({ example: 20 })
+  @IsOptional()
+  @IsInt()
+  @Min(10)
+  @Max(100)
+  pixDepositPercentage?: number;
 }

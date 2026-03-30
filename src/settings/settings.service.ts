@@ -22,6 +22,9 @@ export class SettingsService {
         maxBookingDays: true,
         avatarUrl: true,
         role: true,
+        // 👇 Traz as configs de pagamento para o frontend
+        requirePixDeposit: true,    
+        pixDepositPercentage: true, 
       },
     });
   }
@@ -33,15 +36,12 @@ export class SettingsService {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.username !== undefined && { username: data.username }),
         ...(data.timezone !== undefined && { timezone: data.timezone }),
-        ...(data.bufferMinutes !== undefined && {
-          bufferMinutes: data.bufferMinutes,
-        }),
-        ...(data.minBookingNoticeMinutes !== undefined && {
-          minBookingNoticeMinutes: data.minBookingNoticeMinutes,
-        }),
-        ...(data.maxBookingDays !== undefined && {
-          maxBookingDays: data.maxBookingDays,
-        }),
+        ...(data.bufferMinutes !== undefined && { bufferMinutes: data.bufferMinutes }),
+        ...(data.minBookingNoticeMinutes !== undefined && { minBookingNoticeMinutes: data.minBookingNoticeMinutes }),
+        ...(data.maxBookingDays !== undefined && { maxBookingDays: data.maxBookingDays }),
+        // 👇 Grava as configurações de pagamento se vierem do frontend
+        ...(data.requirePixDeposit !== undefined && { requirePixDeposit: data.requirePixDeposit }),
+        ...(data.pixDepositPercentage !== undefined && { pixDepositPercentage: data.pixDepositPercentage }),
       },
       select: {
         name: true,
@@ -51,6 +51,8 @@ export class SettingsService {
         minBookingNoticeMinutes: true,
         maxBookingDays: true,
         avatarUrl: true,
+        requirePixDeposit: true,
+        pixDepositPercentage: true,
       },
     });
   }
@@ -68,6 +70,9 @@ export class SettingsService {
         plan: true,       
         maxMembers: true, 
         timezone: true,
+        // 👇 Traz as configs de pagamento para o perfil também
+        requirePixDeposit: true,
+        pixDepositPercentage: true,
       }
     });
   }

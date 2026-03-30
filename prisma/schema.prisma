@@ -54,6 +54,8 @@ model User {
   
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
+  requirePixDeposit       Boolean        @default(false) // Desligado por padrão
+  pixDepositPercentage    Int            @default(20)    // 20% por padrão
 
   // 👇 RELAÇÕES DE SERVIÇOS ATUALIZADAS
   ownedServices           Service[]      @relation("UserOwnedServices")     // Serviços CRIADOS pela conta (Catálogo Mestre)

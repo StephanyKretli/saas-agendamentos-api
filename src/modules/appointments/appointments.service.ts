@@ -59,23 +59,42 @@ export class AppointmentsService {
       throw new BadRequestException('Identificador do profissional não fornecido para carregar configurações.');
     }
 
+    // 🌟 Adicionamos requirePixDeposit e pixDepositPercentage na tipagem de retorno
     let user: {
       id: string;
       bufferMinutes: number | null;
       minBookingNoticeMinutes: number | null;
       maxBookingDays: number | null;
       timezone: string;
+      requirePixDeposit: boolean;
+      pixDepositPercentage: number;
     } | null = null;
     
     try {
       user = await this.prisma.user.findFirst({
         where: { OR: [{ id: idToSearch }, { username: idToSearch }] },
-        select: { id: true, bufferMinutes: true, minBookingNoticeMinutes: true, maxBookingDays: true, timezone: true },
+        select: { 
+          id: true, 
+          bufferMinutes: true, 
+          minBookingNoticeMinutes: true, 
+          maxBookingDays: true, 
+          timezone: true,
+          requirePixDeposit: true,    // 👈 NOVO CAMPO
+          pixDepositPercentage: true  // 👈 NOVO CAMPO
+        },
       });
     } catch {
       user = await this.prisma.user.findFirst({
         where: { username: idToSearch },
-        select: { id: true, bufferMinutes: true, minBookingNoticeMinutes: true, maxBookingDays: true, timezone: true },
+        select: { 
+          id: true, 
+          bufferMinutes: true, 
+          minBookingNoticeMinutes: true, 
+          maxBookingDays: true, 
+          timezone: true,
+          requirePixDeposit: true,    // 👈 NOVO CAMPO
+          pixDepositPercentage: true  // 👈 NOVO CAMPO
+        },
       });
     }
 
@@ -83,12 +102,15 @@ export class AppointmentsService {
       throw new BadRequestException(`Configurações de agendamento não encontradas. ID/User: ${idToSearch}`);
     }
 
+    // 🌟 E agora retornamos os dois campos para quem chamou a função!
     return {
       resolvedUserId: user.id,
       bufferMinutes: user.bufferMinutes ?? 0,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
       timezone: user.timezone,
+      requirePixDeposit: user.requirePixDeposit ?? false,       // 👈 DEVOLVE AQUI (Falso por padrão)
+      pixDepositPercentage: user.pixDepositPercentage ?? 20,    // 👈 DEVOLVE AQUI (20% por padrão)
     };
   }
 
@@ -194,8 +216,15 @@ export class AppointmentsService {
         }
       }
 
-      // 💰 LÓGICA DE COBRANÇA (20% de sinal)
-      const depositCents = service.priceCents > 0 ? Math.round(service.priceCents * 0.2) : 0;
+      // 💰 LÓGICA DE COBRANÇA BASEADA NAS CONFIGURAÇÕES DO ADMIN
+      let depositCents = 0;
+      
+      if (settings.requirePixDeposit && service.priceCents > 0) {
+        // Calcula a percentagem escolhida pelo salão (ex: 20%)
+        const percentage = settings.pixDepositPercentage / 100;
+        depositCents = Math.round(service.priceCents * percentage);
+      }
+
       const paymentStatus = depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED';
 
       return tx.appointment.create({

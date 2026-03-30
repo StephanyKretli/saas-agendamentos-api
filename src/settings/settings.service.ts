@@ -22,9 +22,16 @@ export class SettingsService {
         maxBookingDays: true,
         avatarUrl: true,
         role: true,
-        // 👇 Traz as configs de pagamento para o frontend
         requirePixDeposit: true,    
         pixDepositPercentage: true, 
+        mercadoPagoAccessToken: true,
+        centralizePayments: true,
+        ownerId: true,
+        owner: {
+          select: {
+            centralizePayments: true,
+          }
+        }
       },
     });
   }
@@ -39,9 +46,10 @@ export class SettingsService {
         ...(data.bufferMinutes !== undefined && { bufferMinutes: data.bufferMinutes }),
         ...(data.minBookingNoticeMinutes !== undefined && { minBookingNoticeMinutes: data.minBookingNoticeMinutes }),
         ...(data.maxBookingDays !== undefined && { maxBookingDays: data.maxBookingDays }),
-        // 👇 Grava as configurações de pagamento se vierem do frontend
         ...(data.requirePixDeposit !== undefined && { requirePixDeposit: data.requirePixDeposit }),
         ...(data.pixDepositPercentage !== undefined && { pixDepositPercentage: data.pixDepositPercentage }),
+        ...(data.mercadoPagoAccessToken !== undefined && { mercadoPagoAccessToken: data.mercadoPagoAccessToken }),
+        ...(data.centralizePayments !== undefined && { centralizePayments: data.centralizePayments }),
       },
       select: {
         name: true,
@@ -53,6 +61,14 @@ export class SettingsService {
         avatarUrl: true,
         requirePixDeposit: true,
         pixDepositPercentage: true,
+        mercadoPagoAccessToken: true,
+        centralizePayments: true,
+        ownerId: true,
+        owner: {
+          select: {
+            centralizePayments: true,
+          }
+        }
       },
     });
   }
@@ -70,9 +86,16 @@ export class SettingsService {
         plan: true,       
         maxMembers: true, 
         timezone: true,
-        // 👇 Traz as configs de pagamento para o perfil também
         requirePixDeposit: true,
         pixDepositPercentage: true,
+        mercadoPagoAccessToken: true,
+        centralizePayments: true,
+        ownerId: true,
+        owner: {
+          select: {
+            centralizePayments: true,
+          }
+        }
       }
     });
   }

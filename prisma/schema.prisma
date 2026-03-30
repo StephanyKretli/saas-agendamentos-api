@@ -56,6 +56,8 @@ model User {
   updatedAt               DateTime       @updatedAt
   requirePixDeposit       Boolean        @default(false) // Desligado por padrão
   pixDepositPercentage    Int            @default(20)    // 20% por padrão
+  mercadoPagoAccessToken  String?
+  centralizePayments      Boolean        @default(true) // true = Cai pro Dono | false = Cai pro Funcionário
 
   // 👇 RELAÇÕES DE SERVIÇOS ATUALIZADAS
   ownedServices           Service[]      @relation("UserOwnedServices")     // Serviços CRIADOS pela conta (Catálogo Mestre)

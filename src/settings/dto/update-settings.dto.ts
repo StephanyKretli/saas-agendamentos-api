@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Min, IsBoolean, Max } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min, IsBoolean, Max, IsNumber } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 'Stephany Kretli' })
@@ -35,15 +35,23 @@ export class UpdateSettingsDto {
   @Min(0)
   maxBookingDays?: number;
 
-  @ApiPropertyOptional({ example: true })
+ @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
   requirePixDeposit?: boolean;
 
-  @ApiPropertyOptional({ example: 20 })
+  @ApiPropertyOptional()
   @IsOptional()
-  @IsInt()
-  @Min(10)
-  @Max(100)
+  @IsNumber()
   pixDepositPercentage?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  mercadoPagoAccessToken?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  centralizePayments?: boolean;
 }

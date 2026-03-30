@@ -52,7 +52,7 @@ export class AppointmentsService {
     return expiresAt;
   }
 
-  private async getUserBookingSettings(idOrUsername: string, fallbackId?: string) {
+ private async getUserBookingSettings(idOrUsername: string, fallbackId?: string) {
     const idToSearch = (idOrUsername && idOrUsername !== 'undefined' && idOrUsername !== 'null') 
       ? idOrUsername 
       : fallbackId;
@@ -61,58 +61,58 @@ export class AppointmentsService {
       throw new BadRequestException('Identificador do profissional não fornecido para carregar configurações.');
     }
 
-    // 🌟 Adicionamos requirePixDeposit e pixDepositPercentage na tipagem de retorno
-    let user: {
-      id: string;
-      bufferMinutes: number | null;
-      minBookingNoticeMinutes: number | null;
-      maxBookingDays: number | null;
-      timezone: string;
-      requirePixDeposit: boolean;
-      pixDepositPercentage: number;
-    } | null = null;
-    
-    try {
-      user = await this.prisma.user.findFirst({
-        where: { OR: [{ id: idToSearch }, { username: idToSearch }] },
-        select: { 
-          id: true, 
-          bufferMinutes: true, 
-          minBookingNoticeMinutes: true, 
-          maxBookingDays: true, 
-          timezone: true,
-          requirePixDeposit: true,    // 👈 NOVO CAMPO
-          pixDepositPercentage: true  // 👈 NOVO CAMPO
-        },
-      });
-    } catch {
-      user = await this.prisma.user.findFirst({
-        where: { username: idToSearch },
-        select: { 
-          id: true, 
-          bufferMinutes: true, 
-          minBookingNoticeMinutes: true, 
-          maxBookingDays: true, 
-          timezone: true,
-          requirePixDeposit: true,    // 👈 NOVO CAMPO
-          pixDepositPercentage: true  // 👈 NOVO CAMPO
-        },
-      });
-    }
+    // 1. Buscamos o profissional E trazemos o chefe dele junto (se existir)
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ id: idToSearch }, { username: idToSearch }] },
+      include: { owner: true } // Trazemos o chefe graças à relação TeamHierarchy
+    });
 
     if (!user) {
       throw new BadRequestException(`Configurações de agendamento não encontradas. ID/User: ${idToSearch}`);
     }
 
-    // 🌟 E agora retornamos os dois campos para quem chamou a função!
+    // 2. Definimos quem é a "Entidade Pagadora"
+    // (Garantimos ao TS que user.owner realmente existe antes de o usar)
+    const salonOwner = (user.ownerId && user.owner) ? user.owner : user;
+
+    // 3. O Cofre de quem vamos usar? A Decisão de Roteamento!
+    // Avisamos ao TS que esta variável pode ser texto OU nula
+    let tokenParaUsar: string | null = null; 
+
+    // O TypeScript agora sabe que salonOwner nunca é nulo
+    const centralize = salonOwner.centralizePayments ?? true; 
+
+    if (centralize) {
+      // CENÁRIO A: Dinheiro vai para o Dono do Salão
+      tokenParaUsar = salonOwner.mercadoPagoAccessToken;
+    } else {
+      // CENÁRIO B: Dinheiro vai direto para o Funcionário
+      tokenParaUsar = user.mercadoPagoAccessToken;
+    }
+
+    console.log('\n--- 🕵️‍♂️ RADAR DE ROTEAMENTO (EQUIPE) ---');
+    console.log('1. ID do Profissional Agendado:', user.id);
+    console.log('2. Ele tem Chefe (ownerId)?', user.ownerId || 'NÃO TEM CHEFE');
+    console.log('3. ID do Dono do Cofre (salonOwner):', salonOwner.id);
+    console.log('4. Regra Centralizada está ligada?', centralize);
+    console.log('5. O Dono do Cofre exige PIX?', salonOwner.requirePixDeposit);
+    console.log('6. Achou alguma chave Token?', !!tokenParaUsar);
+    console.log('---------------------------------------\n');
+
+    // 4. Devolvemos tudo mastigado para a função create() usar!
     return {
       resolvedUserId: user.id,
       bufferMinutes: user.bufferMinutes ?? 0,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
       timezone: user.timezone,
-      requirePixDeposit: user.requirePixDeposit ?? false,       // 👈 DEVOLVE AQUI (Falso por padrão)
-      pixDepositPercentage: user.pixDepositPercentage ?? 20,    // 👈 DEVOLVE AQUI (20% por padrão)
+      
+      // As regras de cobrança (se exige PIX e a %) vêm do Dono do Salão
+      requirePixDeposit: salonOwner.requirePixDeposit ?? false,       
+      pixDepositPercentage: salonOwner.pixDepositPercentage ?? 20, 
+      
+      // O token já vai roteado corretamente
+      mercadoPagoAccessToken: tokenParaUsar || undefined,   
     };
   }
 
@@ -128,7 +128,7 @@ export class AppointmentsService {
     const now = new Date();
     if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível agendar no passado.');
 
-    const settings = await this.getUserBookingSettings(userId);
+    const settings = await this.getUserBookingSettings(targetUserId);
     const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
     const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
 
@@ -218,17 +218,24 @@ export class AppointmentsService {
         }
       }
 
-      // 💰 LÓGICA DE COBRANÇA BASEADA NAS CONFIGURAÇÕES DO ADMIN
+      console.log('\n--- 🕵️‍♂️ DEBUG DO PIX ---');
+      console.log('1. ID do Profissional Alvo:', targetUserId);
+      console.log('2. Exige PIX nas configs?', settings.requirePixDeposit);
+      console.log('3. Preço do Serviço (cents):', service.priceCents);
+      console.log('4. Tem Token do MP salvo?', !!settings.mercadoPagoAccessToken);
+      console.log('------------------------\n');
+
+ // 💰 1. LÓGICA DE COBRANÇA (Obedecendo ao Roteamento)
       let depositCents = 0;
       
       if (settings.requirePixDeposit && service.priceCents > 0) {
-        // Calcula a percentagem escolhida pelo salão (ex: 20%)
         const percentage = settings.pixDepositPercentage / 100;
         depositCents = Math.round(service.priceCents * percentage);
       }
 
       const paymentStatus = depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED';
 
+      // 💾 2. SALVAR NO BANCO DE DADOS
       return tx.appointment.create({
         data: {
           userId,
@@ -237,9 +244,9 @@ export class AppointmentsService {
           clientId: resolvedClientId,
           date: start,
           notes: dto.notes,
-          status: 'SCHEDULED', // Fica na agenda, mas com pagamento pendente
-          paymentStatus,       // 👈 Salva o status do pagamento
-          depositCents,        // 👈 Salva o valor do sinal
+          status: 'SCHEDULED', 
+          paymentStatus,       
+          depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(),
           publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
         },
@@ -249,37 +256,45 @@ export class AppointmentsService {
           professional: { select: { name: true } }
         }
       });
-    });
+    }); // 👈 FIM DA TRANSAÇÃO PRISMA
 
-    // 🌟 PASSO 2: Falar com o Mercado Pago (Fora da transação!)
+    // 🚀 3. GERAR O PIX COM A CHAVE VENCEDORA (Fora da transação)
     let finalAppointment = newAppointment;
 
-    if (newAppointment.paymentStatus === 'PENDING' && newAppointment.depositCents) {
+    if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
       try {
         const pixData = await this.mercadoPagoService.createPixPayment(
           newAppointment.id,
-          newAppointment.depositCents,
+          newAppointment.depositCents!,
           newAppointment.client?.name || 'Cliente',
-          newAppointment.client?.email || undefined
+          newAppointment.client?.email || undefined,
+          settings.mercadoPagoAccessToken // 👈 A mágica acontece aqui!
         );
 
-        console.log('\n💳 === PIX GERADO === 💳');
-        console.log(`ID para simular pagamento: ${pixData.transactionId}\n`);
+        console.log('\n💳 === PIX GERADO COM SUCESSO === 💳');
 
-        // Atualiza a marcação com o código do PIX
+        // Atualiza a marcação com o código do PIX gerado
         finalAppointment = await this.prisma.appointment.update({
           where: { id: newAppointment.id },
           data: {
-            pixPayload: pixData.qrCodePayload,
             transactionId: pixData.transactionId,
+            pixPayload: pixData.qrCodePayload,
           },
           include: { service: true, client: true, professional: { select: { name: true } } }
         });
       } catch (error) {
         console.error('Erro ao gerar PIX no Mercado Pago:', error);
+        
+        // 💥 DESTRÓI O AGENDAMENTO FANTASMA
+        await this.prisma.appointment.delete({
+          where: { id: newAppointment.id }
+        });
+
+        // 🛑 BLOQUEIA A TELA DO CLIENTE COM O ERRO
+        throw new BadRequestException('Erro na conta do salão: Não foi possível gerar a cobrança PIX. Tente novamente mais tarde.');
       }
-    } else {
-      // 🌟 PASSO 3: Enviar WhatsApp de confirmação IMEDIATO apenas se o serviço for gratuito
+    } else if (newAppointment.paymentStatus === 'NOT_REQUIRED') {
+      // 🌟 PASSO 4: Enviar WhatsApp IMEDIATO apenas se não precisar de PIX
       try {
         if (finalAppointment.client?.phone) {
           this.whatsappService.sendAppointmentConfirmation(

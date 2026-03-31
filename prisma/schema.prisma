@@ -40,6 +40,11 @@ model User {
   role                    Role           @default(USER)
   plan                    Plan           @default(STARTER)
   maxMembers              Int            @default(3)
+
+  trialEndsAt             DateTime?      // Quando acabam os 14 dias grátis?
+  subscriptionStatus      String         @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, CANCELED
+  asaasCustomerId         String?        // ID do cliente lá no painel do Asaas (cus_xxxx)
+  asaasSubscriptionId     String?        // ID da assinatura lá no Asaas (sub_xxxx)
   
   // Hierarquia de Equipe
   ownerId                 String?   

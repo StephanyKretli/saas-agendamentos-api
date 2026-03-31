@@ -8,11 +8,13 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { AsaasService } from '../payments/asaas.service'; 
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
+    private asaasService: AsaasService,
     private jwt: JwtService,
   ) {}
 
@@ -35,12 +37,32 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
+    // 🌟 1. O Relógio: Calcula os 14 dias a partir de agora
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 14);
+
+    // 🌟 2. O Asaas: Cria o cliente na plataforma de cobrança em background
+    let asaasCustomerId = null;
+    try {
+      const asaasCustomer = await this.asaasService.createCustomer(dto.name, dto.email);
+      asaasCustomerId = asaasCustomer.id;
+      console.log(`✅ Cliente criado no Asaas com ID: ${asaasCustomerId}`);
+    } catch (error) {
+      console.error('Aviso: Falha ao pré-criar cliente no Asaas durante o registo.', error);
+    }
+
+    // 🌟 3. O Cofre: Salva no Prisma com o Trial ativado
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
         email: dto.email,
         password: passwordHash,
         username: dto.username,
+        
+        // 👇 A CATRACA VIP ENTRA AQUI!
+        trialEndsAt: trialEndsAt,
+        subscriptionStatus: 'TRIAL',
+        asaasCustomerId: asaasCustomerId,
       },
       select: {
         id: true,

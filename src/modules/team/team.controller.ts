@@ -3,11 +3,12 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody, ApiParam } from '@nestjs
 import { TeamService } from './team.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 
 @ApiTags('Team') 
 @ApiBearerAuth('jwt')
 @Controller('team')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export default class TeamController {
   constructor(private readonly teamService: TeamService) {}
 

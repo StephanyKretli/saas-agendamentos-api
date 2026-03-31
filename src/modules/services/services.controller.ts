@@ -18,11 +18,12 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { ServicesService } from './services.service';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 
 @ApiTags('Services')
 @ApiBearerAuth('jwt')
 @Controller('services')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class ServicesController {
   constructor(private readonly services: ServicesService) {}
 

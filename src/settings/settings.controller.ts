@@ -14,11 +14,12 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../modules/auth/jwt-auth.guard';
 import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { SubscriptionGuard } from '../common/guards/subscription.guard';
 
 @ApiTags('Settings')
 @ApiBearerAuth('jwt')
 @Controller('settings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 

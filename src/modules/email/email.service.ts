@@ -232,4 +232,88 @@ export class EmailService {
       this.logger.log('--- HOUR REMINDER EMAIL DEBUG END ---');
     }
   }
+
+  // 🌟 NOVA FUNÇÃO ADICIONADA AQUI (Com design premium)
+  async sendForgotPasswordEmail(to: string, name: string, token: string) {
+    this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG START ---');
+    this.logger.log(`TO: ${to}`);
+
+    if (!process.env.RESEND_API_KEY) {
+      this.logger.warn('RESEND_API_KEY não configurada. E-mail não enviado.');
+      this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG END ---');
+      return;
+    }
+
+    // Fallback de segurança para localhost se a variável FRONTEND_URL faltar
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const resetLink = `${frontendUrl}/reset-password?token=${token}`;
+    const subject = 'Recuperação de senha 🔒';
+
+    const html = `
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          
+          <div style="margin-bottom: 24px;">
+            <span style="font-size: 48px;">🔐</span>
+          </div>
+
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; margin-bottom: 16px;">
+            Esqueceu a senha?
+          </h1>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">
+            Olá, <strong>${name}</strong>! Recebemos um pedido para redefinir a sua senha. Clique no botão abaixo para criar uma nova.
+          </p>
+
+          <a href="${resetLink}" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); margin-bottom: 32px;">
+            Redefinir Senha
+          </a>
+
+          <p style="color: #9ca3af; font-size: 13px; line-height: 20px;">
+            Se não solicitou isto, pode ignorar este e-mail com segurança. 
+            Este link é válido por apenas <strong>1 hora</strong>.
+          </p>
+
+          <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #f3f4f6;">
+            <p style="color: #111827; font-size: 14px; font-weight: 600; margin: 0;">SaaS de Agendamentos</p>
+            <p style="color: #9ca3af; font-size: 12px; margin-top: 4px;">Gerenciando o seu tempo com inteligência.</p>
+          </div>
+        </div>
+        
+        <div style="margin-top: 24px;">
+          <p style="color: #9ca3af; font-size: 12px;">
+            Se o botão não funcionar, copie este link:<br>
+            <a href="${resetLink}" style="color: #6366f1; text-decoration: none;">${resetLink}</a>
+          </p>
+        </div>
+      </div>
+    `;
+
+    try {
+      const result = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+      });
+
+      this.logger.log(`RESEND PASSWORD RESULT: ${JSON.stringify(result)}`);
+
+      if (result.error) {
+        this.logger.error(`Erro ao enviar email de senha: ${result.error.message}`);
+        throw new Error(result.error.message);
+      }
+
+      this.logger.log('Email de recuperação enviado com sucesso.');
+    } catch (error) {
+      this.logger.error(
+        `Falha ao enviar email de senha: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      throw error;
+    } finally {
+      this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG END ---');
+    }
+  }
 }

@@ -60,7 +60,7 @@ export class NotificationsCron {
           apt.client.phone,
           apt.service?.name || 'Serviço',
           apt.date,
-          prof?.name || 'a nossa equipa'
+          prof?.name || 'a nossa equipe'
         );
       }
     }

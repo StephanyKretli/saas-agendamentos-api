@@ -2,13 +2,15 @@ import {
   ConflictException,
   Injectable,
   UnauthorizedException,
+  BadRequestException
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AsaasService } from '../payments/asaas.service'; 
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
@@ -16,6 +18,7 @@ export class AuthService {
     private prisma: PrismaService,
     private asaasService: AsaasService,
     private jwt: JwtService,
+    private emailService: EmailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -129,4 +132,66 @@ export class AuthService {
       },
     };
   }
+
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    // Regra de ouro da segurança: Nunca dizer se o e-mail não existe
+    if (!user) {
+      return { message: 'Se o e-mail estiver cadastrado, um link de recuperação será enviado.' };
+    }
+
+    // Gerar token e validade (1 hora)
+    const token = crypto.randomUUID(); // Função nativa do Node.js
+    const expires = new Date();
+    expires.setHours(expires.getHours() + 1);
+
+    // Salvar o token na base de dados
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken: token,
+        resetTokenExpires: expires,
+      },
+    });
+
+    // Chamar o seu serviço de e-mail descolado
+    await this.emailService.sendForgotPasswordEmail(user.email, user.name, token);
+
+    return { message: 'E-mail enviado com sucesso.' };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    console.log(`\n--- 🔐 DEBUG DE REDEFINIÇÃO ---`);
+    console.log(`Nova senha que chegou do frontend: '${newPassword}'`);
+  const user = await this.prisma.user.findFirst({
+    where: {
+      resetToken: token,
+      resetTokenExpires: { gt: new Date() },
+    },
+  });
+
+  if (!user) {
+    console.log(`❌ ERRO: Token não encontrado ou expirado.`);
+    throw new BadRequestException('Token inválido ou expirado.');
+  }
+
+  // 🌟 O SEGREDO ESTÁ AQUI: Encriptar a nova senha antes de salvar!
+  const saltOrRounds = 10;
+  const hashedPassword = await bcrypt.hash(newPassword, saltOrRounds);
+
+  console.log(`Hash gerada (bcryptjs): '${hashedPassword}'`);
+  console.log(`------------------------------\n`);
+
+  await this.prisma.user.update({
+    where: { id: user.id },
+    data: {
+      password: hashedPassword, // 👈 Salvar a senha encriptada, NÃO a original
+      resetToken: null,
+      resetTokenExpires: null,
+    },
+  });
+
+  return { message: 'Senha atualizada com sucesso!' };
+}
 }

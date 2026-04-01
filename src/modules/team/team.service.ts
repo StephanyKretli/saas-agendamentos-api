@@ -31,7 +31,7 @@ async createMember(adminId: string, data: any) {
       plainPassword = 'Mudar@123';
     }
 
-    console.log(`\n--- 🚀 DEBUG DE CRIAÇÃO DA EQUIPA ---`);
+    console.log(`\n--- 🚀 DEBUG DE CRIAÇÃO DA equipe ---`);
     console.log(`Email do novo membro: '${data.email}'`);
     console.log(`Senha (texto puro) que será encriptada e salva: '${plainPassword}'`);
 

@@ -4,20 +4,23 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private auth: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+    // ✅ Corrigido para chamar o service
+    return this.authService.register(dto);
   }
 
   @Post('login')
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+    // ✅ Corrigido para chamar o service
+    return this.authService.login(dto);
   }
 
   @ApiBearerAuth('jwt')
@@ -26,5 +29,17 @@ export class AuthController {
   me(@Req() req: any) {
     // req.user vem do JwtStrategy.validate()
     return req.user; // { id, email, role }
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body('email') email: string) {
+    // ✅ Perfeito
+    return this.authService.forgotPassword(email);
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() data: ResetPasswordDto) {
+    // ✅ Perfeito
+    return this.authService.resetPassword(data.token, data.password);
   }
 }

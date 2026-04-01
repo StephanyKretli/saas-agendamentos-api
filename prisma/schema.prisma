@@ -35,6 +35,9 @@ model User {
   avatarUrl               String?
   bio                     String?
   phone                   String?
+
+  resetToken         String?
+  resetTokenExpires  DateTime?
   
   // Configurações de SaaS
   role                    Role           @default(USER)

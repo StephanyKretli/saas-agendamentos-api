@@ -34,7 +34,7 @@ export class ServicesService {
         where: {
           OR: [
             { userId: userId }, // Mostra se for o Admin (Dono)
-            { professionals: { some: { id: userId } } } // Mostra se for um membro da equipa vinculado
+            { professionals: { some: { id: userId } } } // Mostra se for um membro da equipe vinculado
           ]
         },
         orderBy: { name: 'asc' },

@@ -194,4 +194,59 @@ export class AuthService {
 
   return { message: 'Senha atualizada com sucesso!' };
 }
+
+  async validateOAuthLogin(googleUser: any) {
+    const email = googleUser.email;
+    let user = await this.prisma.user.findUnique({ where: { email } });
+
+    // Se a conta não existir, criamos uma nova automaticamente!
+    if (!user) {
+      console.log(`✨ Novo utilizador via Google detetado: ${email}`);
+      
+      const trialEndsAt = new Date();
+      trialEndsAt.setDate(trialEndsAt.getDate() + 14);
+
+      let asaasCustomerId = null;
+      try {
+        const asaasCustomer = await this.asaasService.createCustomer(
+          `${googleUser.firstName} ${googleUser.lastName}`, 
+          email
+        );
+        asaasCustomerId = asaasCustomer.id;
+      } catch (error) {
+        console.error('Aviso: Falha ao pré-criar cliente no Asaas (Google Login).', error);
+      }
+
+      // Geramos uma senha aleatória complexa porque o login será sempre pelo Google
+      const randomPassword = crypto.randomUUID(); 
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+      // Gerar um username base a partir do email
+      let baseUsername = email.split('@')[0];
+      
+      // Criar a conta
+      user = await this.prisma.user.create({
+        data: {
+          name: `${googleUser.firstName} ${googleUser.lastName}`,
+          email: email,
+          password: passwordHash,
+          username: baseUsername, 
+          trialEndsAt: trialEndsAt,
+          subscriptionStatus: 'TRIAL',
+          asaasCustomerId: asaasCustomerId,
+        }
+      });
+    }
+
+    // Quer seja uma conta nova ou existente, geramos o Token de acesso (JWT)
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
+    const accessToken = await this.jwt.signAsync(payload);
+
+    return { accessToken };
+  }
 }

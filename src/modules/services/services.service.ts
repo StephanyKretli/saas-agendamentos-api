@@ -11,12 +11,13 @@ export class ServicesService {
     private readonly uploadsService: UploadsService,
   ) {}
 
-  create(userId: string, dto: CreateServiceDto) {
+  async create(userId: string, dto: CreateServiceDto) {
+    // 👇 CORREÇÃO: Cria os registros na tabela intermediária
     const professionalsData = dto.professionalIds && dto.professionalIds.length > 0
-      ? { connect: dto.professionalIds.map(id => ({ id })) }
+      ? { create: dto.professionalIds.map(id => ({ professional: { connect: { id } } })) }
       : undefined;
 
-    return this.prisma.service.create({
+    const rawService = await this.prisma.service.create({
       data: {
         userId,
         name: dto.name,
@@ -27,47 +28,57 @@ export class ServicesService {
       },
       select: this.serviceSelect(),
     });
+
+    return this.formatServiceForFrontend(rawService);
   }
 
-  findMine(userId: string) {
-      return this.prisma.service.findMany({
-        where: {
-          OR: [
-            { userId: userId }, // Mostra se for o Admin (Dono)
-            { professionals: { some: { id: userId } } } // Mostra se for um membro da equipe vinculado
-          ]
-        },
-        orderBy: { name: 'asc' },
-        select: this.serviceSelect(),
-      });
-    }
+  async findMine(userId: string) {
+    const rawServices = await this.prisma.service.findMany({
+      where: {
+        OR: [
+          { userId: userId }, 
+          // 👇 CORREÇÃO: Busca usando o formato da tabela intermediária
+          { professionals: { some: { professionalId: userId } } } 
+        ]
+      },
+      orderBy: { name: 'asc' },
+      select: this.serviceSelect(),
+    });
+
+    return rawServices.map(service => this.formatServiceForFrontend(service));
+  }
 
   async update(userId: string, id: string, dto: UpdateServiceDto & { professionalIds?: string[] }) {
     await this.ensureOwnership(userId, id);
 
-    // Usa 'set' para reescrever a lista de profissionais inteira (remove quem não está na lista nova)
-    const professionalsData = dto.professionalIds
-      ? { set: dto.professionalIds.map(profId => ({ id: profId })) }
-      : undefined;
+    let professionalsData;
+    if (dto.professionalIds) {
+      // Se a lista de profissionais foi enviada, deletamos todos os antigos e criamos a nova lista
+      await this.prisma.professionalService.deleteMany({
+        where: { serviceId: id }
+      });
 
-    return this.prisma.service.update({
+      professionalsData = {
+        create: dto.professionalIds.map(profId => ({ professional: { connect: { id: profId } } }))
+      };
+    }
+
+    const rawService = await this.prisma.service.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.duration !== undefined && { duration: dto.duration }),
         ...(dto.priceCents !== undefined && { priceCents: dto.priceCents }),
         ...(dto.icon !== undefined && { icon: dto.icon }), 
-        ...(professionalsData !== undefined && { professionals: professionalsData }), // 👇 Atualiza o vínculo
+        ...(professionalsData !== undefined && { professionals: professionalsData }), 
       },
       select: this.serviceSelect(),
     });
+
+    return this.formatServiceForFrontend(rawService);
   }
 
-  async uploadImage(
-    userId: string,
-    id: string,
-    file: Express.Multer.File,
-  ) {
+  async uploadImage(userId: string, id: string, file: Express.Multer.File) {
     await this.ensureOwnership(userId, id);
 
     const uploaded = await this.uploadsService.uploadImage(
@@ -75,22 +86,20 @@ export class ServicesService {
       'saas-agendamentos/services',
     );
 
-    return this.prisma.service.update({
+    const rawService = await this.prisma.service.update({
       where: { id },
       data: {
         imageUrl: uploaded.url,
       },
       select: this.serviceSelect(),
     });
+
+    return this.formatServiceForFrontend(rawService);
   }
 
   async remove(userId: string, id: string) {
     await this.ensureOwnership(userId, id);
-
-    await this.prisma.service.delete({
-      where: { id },
-    });
-
+    await this.prisma.service.delete({ where: { id } });
     return { success: true };
   }
 
@@ -107,6 +116,7 @@ export class ServicesService {
     return service;
   }
 
+  // 👇 CORREÇÃO: Formato de retorno da tabela intermediária
   private serviceSelect() {
     return {
       id: true,
@@ -115,14 +125,25 @@ export class ServicesService {
       priceCents: true,
       imageUrl: true,
       icon: true, 
-      // 👇 Retorna a lista de quem faz o serviço para o Frontend
       professionals: {
         select: {
-          id: true,
-          name: true,
-          avatarUrl: true
+          professional: {
+            select: {
+              id: true,
+              name: true,
+              avatarUrl: true
+            }
+          }
         }
       }
     } as const;
+  }
+
+  // 👇 FUNÇÃO AUXILIAR: Mapeia de volta para o formato que a sua tela Next.js espera
+  private formatServiceForFrontend(rawService: any) {
+    return {
+      ...rawService,
+      professionals: rawService.professionals.map((p: any) => p.professional)
+    };
   }
 }

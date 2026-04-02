@@ -35,10 +35,9 @@ model User {
   avatarUrl               String?
   bio                     String?
   phone                   String?
+  resetToken              String?
+  resetTokenExpires       DateTime?
 
-  resetToken         String?
-  resetTokenExpires  DateTime?
-  
   // Configurações de SaaS
   role                    Role           @default(USER)
   plan                    Plan           @default(STARTER)
@@ -50,7 +49,7 @@ model User {
   asaasSubscriptionId     String?        // ID da assinatura lá no Asaas (sub_xxxx)
   
   // Hierarquia de Equipe
-  ownerId                 String?   
+  ownerId                 String?
   owner                   User?          @relation("TeamHierarchy", fields: [ownerId], references: [id])
   teamMembers             User[]         @relation("TeamHierarchy")
 
@@ -60,6 +59,11 @@ model User {
   minBookingNoticeMinutes Int            @default(0)
   maxBookingDays          Int            @default(30)
   
+  // 👇 NOVAS REGRAS FINANCEIRAS (Configuradas pelo Admin/Dona do Salão)
+  absorbPixFee            Boolean        @default(true) // true = Salão absorve a taxa PIX | false = Abate do valor antes da comissão
+  defaultCommissionRate   Float?         // Porcentagem padrão do profissional (ex: 50.0). Usado se o serviço específico não tiver taxa.
+  commissionType          String         @default("PERCENTAGE") // "PERCENTAGE" (Porcentagem) ou "FIXED" (Valor Fixo)
+  
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
   requirePixDeposit       Boolean        @default(false) // Desligado por padrão
@@ -67,9 +71,11 @@ model User {
   mercadoPagoAccessToken  String?
   centralizePayments      Boolean        @default(true) // true = Cai pro Dono | false = Cai pro Funcionário
 
-  // 👇 RELAÇÕES DE SERVIÇOS ATUALIZADAS
-  ownedServices           Service[]      @relation("UserOwnedServices")     // Serviços CRIADOS pela conta (Catálogo Mestre)
-  services                Service[]      @relation("ProfessionalServices")  // Serviços EXECUTADOS por este profissional
+  // Relações de Serviços
+  ownedServices           Service[]             @relation("UserOwnedServices")     
+  
+  // 👇 RELAÇÃO ATUALIZADA: Agora aponta para a tabela intermediária com as comissões específicas
+  services                ProfessionalService[] @relation("ProfessionalToService")
 
   // Outras Relações
   clients                 Client[]
@@ -77,27 +83,42 @@ model User {
   blockedDates            BlockedDate[]
   blockedSlots            BlockedSlot[]
   
-  // Agendamentos realizados POR este usuário (como profissional)
   appointments            Appointment[]  @relation("ProfessionalAppointments")
-  
-  // Agendamentos pertencentes à CONTA deste usuário (como dono)
   ownedAppointments       Appointment[]  @relation("AccountAppointments")
 }
 
 model Service {
-  id           String        @id @default(cuid())
-  userId       String        // ID do dono da conta (Admin) que criou o serviço
-  name         String
-  icon         String        @default("scissors")
-  duration     Int
-  priceCents   Int
-  imageUrl     String?
+  id            String        @id @default(cuid())
+  userId        String        // ID do dono da conta (Admin) que criou o serviço
+  name          String
+  icon          String        @default("scissors")
+  duration      Int
+  priceCents    Int
+  imageUrl      String?
+
+  user          User                  @relation("UserOwnedServices", fields: [userId], references: [id]) 
   
-  // 👇 RELAÇÕES DE USUÁRIOS ATUALIZADAS
-  user         User          @relation("UserOwnedServices", fields: [userId], references: [id]) 
-  professionals User[]       @relation("ProfessionalServices")                                 
+  // 👇 RELAÇÃO ATUALIZADA: Agora aponta para a tabela intermediária
+  professionals ProfessionalService[] @relation("ServiceToProfessional")                                 
   
-  appointments Appointment[]
+  appointments  Appointment[]
+}
+
+// 👇 NOVO MODELO: Tabela intermediária para definir a comissão de cada profissional por serviço
+model ProfessionalService {
+  professionalId  String
+  serviceId       String
+  
+  // Regras específicas para esta combinação (Profissional x Serviço)
+  commissionRate  Float?    // Se nulo, o sistema vai usar o 'defaultCommissionRate' do User
+  commissionType  String?   // "PERCENTAGE" ou "FIXED". Se nulo, usa o tipo padrão do User
+
+  professional    User      @relation("ProfessionalToService", fields: [professionalId], references: [id], onDelete: Cascade)
+  service         Service   @relation("ServiceToProfessional", fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([professionalId, serviceId]) // Garante que não haja duplicatas do mesmo serviço para o mesmo profissional
+  @@index([professionalId])
+  @@index([serviceId])
 }
 
 model Appointment {
@@ -105,12 +126,10 @@ model Appointment {
   date                      DateTime
   status                    AppointmentStatus
   notes                     String?
-  
-  // Profissional que executará o serviço
+
   professionalId            String
   professional              User               @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
   
-  // Dono da conta (para relatórios e faturamento)
   userId                    String
   user                      User               @relation("AccountAppointments", fields: [userId], references: [id])
 
@@ -122,16 +141,26 @@ model Appointment {
 
   publicCancelToken         String?            @unique
   publicCancelTokenExpiresAt  DateTime?
+
   dayReminderSentAt         DateTime?
   dayReminderProcessingAt   DateTime?
+
   hourReminderSentAt        DateTime?
   hourReminderProcessingAt  DateTime?
+
   createdAt                 DateTime           @default(now())
 
+  // Dados de Pagamento e PIX
   paymentStatus             String             @default("NOT_REQUIRED") // NOT_REQUIRED, PENDING, PAID, REFUNDED
-  transactionId             String?            @unique                  // ID gerado pelo Mercado Pago
-  depositCents              Int?                                        // Valor cobrado antecipadamente
-  pixPayload                String?            @db.Text                 // Código PIX Copia e Cola
+  transactionId             String?            @unique                  
+  depositCents              Int?               
+  pixPayload                String?            @db.Text                 
+
+  // 👇 NOVOS CAMPOS: Fotografia Financeira do Agendamento
+  // Valores "congelados" no momento da conclusão para manter os relatórios imutáveis
+  commissionValueCents      Int?               // Valor exato da comissão que o profissional ganhou
+  pixFeeCents               Int?               // Taxa exata cobrada pelo Mercado Pago neste agendamento
+  netRevenueCents           Int?               // Valor líquido que sobrou para o salão (Preço - Comissão - Taxa)
 }
 
 model BlockedDate {

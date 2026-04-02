@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { UploadsService } from '../modules/uploads/uploads.service';
+import { UpdateFinancialSettingsDto } from './dto/update-financial-settings.dto';
 
 @Injectable()
 export class SettingsService {
@@ -26,6 +27,12 @@ export class SettingsService {
         pixDepositPercentage: true, 
         mercadoPagoAccessToken: true,
         centralizePayments: true,
+        
+        // 👇 OS 3 CAMPOS NOVOS ADICIONADOS AQUI
+        absorbPixFee: true,
+        commissionType: true,
+        defaultCommissionRate: true,
+
         ownerId: true,
         owner: {
           select: {
@@ -63,6 +70,12 @@ export class SettingsService {
         pixDepositPercentage: true,
         mercadoPagoAccessToken: true,
         centralizePayments: true,
+        
+        // 👇 ADICIONADOS AQUI TAMBÉM
+        absorbPixFee: true,
+        commissionType: true,
+        defaultCommissionRate: true,
+
         ownerId: true,
         owner: {
           select: {
@@ -90,6 +103,12 @@ export class SettingsService {
         pixDepositPercentage: true,
         mercadoPagoAccessToken: true,
         centralizePayments: true,
+
+        // 👇 ADICIONADOS AQUI TAMBÉM POR GARANTIA
+        absorbPixFee: true,
+        commissionType: true,
+        defaultCommissionRate: true,
+
         ownerId: true,
         owner: {
           select: {
@@ -121,5 +140,25 @@ export class SettingsService {
         avatarUrl: true,
       },
     });
+  }
+
+  async updateFinancialSettings(userId: string, dto: UpdateFinancialSettingsDto) {
+    // Atualiza apenas os campos que vieram preenchidos na requisição
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.absorbPixFee !== undefined && { absorbPixFee: dto.absorbPixFee }),
+        ...(dto.defaultCommissionRate !== undefined && { defaultCommissionRate: dto.defaultCommissionRate }),
+        ...(dto.commissionType !== undefined && { commissionType: dto.commissionType }),
+      },
+      select: {
+        id: true,
+        absorbPixFee: true,
+        defaultCommissionRate: true,
+        commissionType: true,
+      }
+    });
+
+    return updatedUser;
   }
 }

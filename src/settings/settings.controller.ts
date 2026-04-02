@@ -9,12 +9,13 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../modules/auth/jwt-auth.guard';
 import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { SubscriptionGuard } from '../common/guards/subscription.guard';
+import { UpdateFinancialSettingsDto } from './dto/update-financial-settings.dto';
 
 @ApiTags('Settings')
 @ApiBearerAuth('jwt')
@@ -59,5 +60,11 @@ export class SettingsController {
     }
 
     return this.settingsService.uploadAvatar(req.user.id, file);
+  }
+
+  @Patch('financial')
+  @ApiOperation({ summary: 'Atualizar configurações financeiras e de comissão' })
+  updateFinancial(@Req() req: any, @Body() dto: UpdateFinancialSettingsDto) {
+    return this.settingsService.updateFinancialSettings(req.user.id, dto);
   }
 }

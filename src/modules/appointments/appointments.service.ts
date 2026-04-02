@@ -1,5 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { parseLocalISO } from '../../common/date/parse-local-iso';
 import { MIN_LEAD_MINUTES } from './booking-rules';
@@ -10,6 +9,7 @@ import { endOfDayLocal } from '../../common/date/parse-local-iso';
 import { WhatsappService } from '../notifications/whatsapp.service';
 import { MercadoPagoService } from '../payments/mercado-pago.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { PrismaService } from '../../prisma/prisma.service';
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -826,29 +826,21 @@ export class AppointmentsService {
   }
 
   async complete(userId: string, appointmentId: string) {
+    // 1. Busca o agendamento com as verificações de permissão e inclui os dados para a matemática
     const appt = await this.prisma.appointment.findFirst({
       where: { 
         id: appointmentId,
         // 🌟 PERMITE CONCLUIR SE FOR O DONO OU O FUNCIONÁRIO
         OR: [{ userId: userId }, { professionalId: userId }] 
       },
-      select: {
-        id: true,
-        status: true,
-        date: true,
-        notes: true,
-        createdAt: true,
-        service: {
-          select: { id: true, name: true, duration: true, priceCents: true },
-        },
-        client: {
-          select: { id: true, name: true, phone: true, email: true },
-        },
+      include: {
+        service: true,
+        user: true, // Dona do salão para pegar as configurações globais de comissão
       },
     });
 
     if (!appt) {
-      throw new BadRequestException('Agendamento não encontrado.');
+      throw new BadRequestException('Agendamento não encontrado ou sem permissão.');
     }
 
     if (appt.status === 'CANCELED') {
@@ -859,9 +851,55 @@ export class AppointmentsService {
       throw new BadRequestException('Agendamento já foi concluído.');
     }
 
+    // --- 🧮 INÍCIO DA MATEMÁTICA FINANCEIRA ---
+    const adminConfig = appt.user;
+    const priceCents = appt.service.priceCents;
+
+    // 2. Calcula a Taxa do PIX (Mercado Pago cobra em média 0.99% no PIX)
+    let pixFeeCents = 0;
+    if (appt.depositCents && appt.depositCents > 0) {
+      pixFeeCents = Math.round(appt.depositCents * 0.0099);
+    }
+
+    // 3. Define a base de cálculo da comissão (abate a taxa se a dona tiver configurado)
+    const baseForCommission = adminConfig.absorbPixFee 
+      ? priceCents 
+      : (priceCents - pixFeeCents);
+
+    // 4. Descobre a regra de comissão aplicável ao profissional
+    const specificRule = await this.prisma.professionalService.findUnique({
+      where: {
+        professionalId_serviceId: {
+          professionalId: appt.professionalId,
+          serviceId: appt.serviceId,
+        }
+      }
+    });
+
+    const commissionRate = specificRule?.commissionRate ?? adminConfig.defaultCommissionRate ?? 0;
+    const commissionType = specificRule?.commissionType ?? adminConfig.commissionType ?? 'PERCENTAGE';
+
+    // 5. Calcula a comissão do profissional
+    let commissionValueCents = 0;
+    if (commissionType === 'PERCENTAGE') {
+      commissionValueCents = Math.round(baseForCommission * (commissionRate / 100));
+    } else if (commissionType === 'FIXED') {
+      commissionValueCents = Math.round(commissionRate * 100);
+    }
+
+    // 6. Calcula o Lucro Líquido Real do Salão
+    const netRevenueCents = priceCents - commissionValueCents - pixFeeCents;
+    // --- FIM DA MATEMÁTICA ---
+
+    // 7. Atualiza o agendamento no banco de dados "congelando" a fotografia financeira
     return this.prisma.appointment.update({
       where: { id: appt.id },
-      data: { status: 'COMPLETED' },
+      data: { 
+        status: 'COMPLETED',
+        commissionValueCents,
+        pixFeeCents,
+        netRevenueCents
+      },
       select: {
         id: true,
         date: true,

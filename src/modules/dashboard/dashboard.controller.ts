@@ -17,7 +17,8 @@ export class DashboardController {
   })
   @ApiQuery({ name: 'month', required: false, description: 'Format YYYY-MM. Defaults to current month.' })
   getMetrics(@Req() req: any, @Query('month') month?: string) {
-    return this.dashboardService.getMetrics(req.user.id, month);
+    // 👇 Nome corrigido para bater com o serviço
+    return this.dashboardService.getDashboardMetrics(req.user.id, month);
   }
 
   @Get('today')

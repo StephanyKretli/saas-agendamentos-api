@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { CreatePublicAppointmentDto } from './dto/create-public-appointment.dto';
 import { EmailService } from '../email/email.service';
-import { MercadoPagoService } from '../payments/mercado-pago.service'; // 🌟 1. Importado o serviço do MP
+import { MercadoPagoService } from '../payments/mercado-pago.service';
 
 @Injectable()
 export class PublicBookingService {
@@ -11,7 +11,7 @@ export class PublicBookingService {
     private readonly prisma: PrismaService,
     private readonly appointmentsService: AppointmentsService,
     private readonly emailService: EmailService,
-    private readonly mercadoPagoService: MercadoPagoService, // 🌟 2. Injetado no construtor
+    private readonly mercadoPagoService: MercadoPagoService,
   ) {}
 
   async getProfile(username: string) {
@@ -44,74 +44,72 @@ export class PublicBookingService {
       where: { userId: tenantId },
       select: {
         id: true, name: true, duration: true, priceCents: true, icon: true, userId: true, 
-        professionals: { select: { id: true, name: true, avatarUrl: true } }
+        // 👇 CORREÇÃO: Passando pela tabela intermediária
+        professionals: { 
+          select: { 
+            professional: {
+              select: { id: true, name: true, avatarUrl: true }
+            } 
+          } 
+        }
       },
       orderBy: { name: 'asc' },
     });
 
-    // 🌟 A MÁGICA DO SALÃO DE 1 PESSOA:
-    // Se a lista de profissionais estiver vazia, injetamos a Dona automaticamente!
-    const servicesWithFallback = services.map(service => ({
-      ...service,
-      professionals: service.professionals.length > 0 
-        ? service.professionals 
-        : adminUser ? [{ 
-            id: adminUser.id, 
-            name: adminUser.name, 
-            avatarUrl: adminUser.avatarUrl 
-          }] : []
-    }));
+    // 🌟 A MÁGICA: Formatando de volta para a tela e lidando com salão de 1 pessoa
+    const servicesWithFallback = services.map(service => {
+      // Extrai os profissionais de dentro da tabela intermediária
+      const mappedProfessionals = service.professionals.map(p => p.professional);
+      
+      return {
+        ...service,
+        professionals: mappedProfessionals.length > 0 
+          ? mappedProfessionals 
+          : adminUser ? [{ 
+              id: adminUser.id, 
+              name: adminUser.name, 
+              avatarUrl: adminUser.avatarUrl 
+            }] : []
+      };
+    });
 
     return {
       user,
-      services: servicesWithFallback, // 👈 Enviamos a lista corrigida para o frontend
+      services: servicesWithFallback, 
       professionals: allProfessionals, 
     };
   }
 
+  // ... (o restante do arquivo (getAvailability, createAppointment, getCancelPreview, cancelByToken) continua exatamente igual)
   async getAvailability(username: string, serviceId: string, date: string, professionalId: string, stepMinutes = 30) {
     const normalizedUsername = username.trim().toLowerCase();
-
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
       select: { id: true, ownerId: true }, 
     });
-
     if (!user) throw new BadRequestException('Página não encontrada.');
-
     const tenantId = user.ownerId ? user.ownerId : user.id;
-
     return this.appointmentsService.getAvailability(tenantId, serviceId, date, professionalId, stepMinutes);
   }
 
   async createAppointment(username: string, dto: CreatePublicAppointmentDto) {
     const normalizedUsername = username.trim().toLowerCase();
-
-    // 🌟 3. Agora buscamos as configurações de PIX do usuário
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
       select: { id: true, username: true, ownerId: true }, 
     });
-
     if (!user) throw new BadRequestException('Página não encontrada.');
-
     const tenantId = user.ownerId ? user.ownerId : user.id;
-
-    // 🌟 4. Buscamos o "Dono" real do salão para ler as regras de cobrança dele
     const tenant = await this.prisma.user.findUnique({
       where: { id: tenantId },
       select: { requirePixDeposit: true, pixDepositPercentage: true, mercadoPagoAccessToken: true }
     });
-
-    // 🌟 5. Buscamos o preço do serviço escolhido
     const service = await this.prisma.service.findUnique({
       where: { id: dto.serviceId },
       select: { name: true, priceCents: true }
     });
-
     if (!service) throw new BadRequestException('Serviço não encontrado.');
 
-    // Cria o agendamento normal primeiro
     const appointment = await this.appointmentsService.create(tenantId, {
       serviceId: dto.serviceId,
       professionalId: dto.professionalId, 
@@ -128,7 +126,6 @@ export class PublicBookingService {
     const appWebUrl = process.env.APP_WEB_URL ?? 'http://localhost:3000';
     const cancelUrl = `${appWebUrl}${publicCancelPath}`;
 
-    // Tenta enviar o e-mail (não bloqueia se falhar)
     if (appointment.client && appointment.client.email) {
       this.emailService.sendBookingConfirmation({
         to: appointment.client.email,
@@ -139,30 +136,24 @@ export class PublicBookingService {
       }).catch(err => console.error('Falha ao enviar email:', err));
     }
 
-    // 🌟 6. A MÁGICA DO PIX: O salão exige sinal? O preço é maior que zero?
-    let pixData: any = null; // 👈 CORREÇÃO 1: Avisamos o TS que esta variável aceita objetos
+    let pixData: any = null; 
     
-    // 👈 CORREÇÃO 2: Só entramos no if se o dono realmente tiver um token gravado no banco
     if (tenant?.requirePixDeposit && service.priceCents > 0 && tenant.mercadoPagoAccessToken) {
-      // Calcula quanto é X% do preço total
       const percentage = tenant.pixDepositPercentage || 20;
       const pixAmountCents = Math.round(service.priceCents * (percentage / 100));
-
       try {
-        // Chama o seu MercadoPagoService
         pixData = await this.mercadoPagoService.createPixPayment(
           appointment.id,
           pixAmountCents,
           dto.clientName,
           dto.clientEmail,
-          tenant.mercadoPagoAccessToken as string // 👈 CORREÇÃO 3: Garantimos ao TS que isto é uma string
+          tenant.mercadoPagoAccessToken as string 
         );
       } catch (error) {
         console.error('Falha ao gerar o PIX para o cliente:', error);
       }
     }
 
-    // Devolve as informações de volta para a tela do Frontend
     return {
       ...appointment,
       publicCancelPath,
@@ -171,7 +162,6 @@ export class PublicBookingService {
     };
   }
 
-  // ... (getCancelPreview e cancelByToken continuam iguais aqui para baixo)
   async getCancelPreview(token: string) {
     const normalizedToken = token.trim();
     const appointment = await this.prisma.appointment.findFirst({

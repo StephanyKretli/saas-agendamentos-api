@@ -1,119 +1,138 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {}
 
-  async getMetrics(userId: string, targetMonthStr?: string) {
-    const targetDate = targetMonthStr ? new Date(`${targetMonthStr}-01T00:00:00`) : new Date();
-    const year = targetDate.getFullYear();
-    const month = targetDate.getMonth();
+  // 👇 FUNÇÃO 1: A matemática do painel que fizemos
+  async getDashboardMetrics(userId: string, monthStr?: string) {
+    // Se não vier mês, pega o mês atual
+    const today = new Date();
+    const targetMonthStr = monthStr || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    
+    const [year, month] = targetMonthStr.split('-');
+    const startDate = new Date(Number(year), Number(month) - 1, 1);
+    const endDate = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
 
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
-
-    // 🌟 A MÁGICA ESTÁ AQUI: Filtra pelo Dono (todos) OU pelo Profissional (só os dele)
     const appointments = await this.prisma.appointment.findMany({
       where: {
-        OR: [{ userId: userId }, { professionalId: userId }],
-        date: { gte: firstDay, lte: lastDay },
+        userId: userId,
+        date: { gte: startDate, lte: endDate },
       },
       include: { service: true },
     });
 
-    let expectedCents = 0;
-    let realizedCents = 0;
+    let expectedRevenueCents = 0;
+    let realizedRevenueCents = 0;
+    let teamCommissionsCents = 0;
+    let pixFeesCents = 0;
+    let netRevenueCents = 0;
+    
     let canceledCount = 0;
+    let totalValidAppointments = 0;
 
-    let mostBookedService: { name: string; count: number } | null = null;
-    const serviceCounts: Record<string, { name: string; count: number }> = {};
+    const serviceCountMap: Record<string, { name: string; count: number }> = {};
 
-    appointments.forEach((apt) => {
-      const price = apt.service.priceCents || 0;
+    for (const apt of appointments) {
+      const price = apt.service.priceCents;
 
-      // 1. Receita Esperada (Tudo o que não foi cancelado)
       if (apt.status !== 'CANCELED') {
-        expectedCents += price;
-      }
-
-      // 2. Receita Realizada (Apenas o que já foi pago/concluído)
-      if (apt.status === 'COMPLETED') {
-        realizedCents += price;
-      }
-
-      // 3. Taxa de Cancelamento
-      if (apt.status === 'CANCELED') {
-        canceledCount += 1;
-      }
-
-      // 4. Serviço mais popular
-      if (apt.status !== 'CANCELED') {
-        if (!serviceCounts[apt.serviceId]) {
-          serviceCounts[apt.serviceId] = { name: apt.service.name, count: 0 };
+        totalValidAppointments++;
+        
+        if (!serviceCountMap[apt.serviceId]) {
+          serviceCountMap[apt.serviceId] = { name: apt.service.name, count: 0 };
         }
-        serviceCounts[apt.serviceId].count += 1;
+        serviceCountMap[apt.serviceId].count++;
+        
+        expectedRevenueCents += price;
+      } else {
+        canceledCount++;
       }
-    });
 
-    // Calcula a percentagem de cancelamentos
-    const totalAppointments = appointments.length;
-    const cancelRate = totalAppointments === 0 
-      ? 0 
-      : Math.round((canceledCount / totalAppointments) * 100);
-
-    // Descobre qual o serviço mais vendido
-    let maxCount = 0;
-    for (const key in serviceCounts) {
-      if (serviceCounts[key].count > maxCount) {
-        maxCount = serviceCounts[key].count;
-        mostBookedService = serviceCounts[key];
+      if (apt.status === 'COMPLETED') {
+        realizedRevenueCents += price;
+        teamCommissionsCents += apt.commissionValueCents || 0;
+        pixFeesCents += apt.pixFeeCents || 0;
+        
+        if (apt.netRevenueCents !== null) {
+          netRevenueCents += apt.netRevenueCents;
+        } else {
+          netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
+        }
       }
     }
 
-    const formatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+    const totalAppointments = appointments.length;
+    const cancelRate = totalAppointments > 0 ? Math.round((canceledCount / totalAppointments) * 100) : 0;
+
+    let mostBookedService: { name: string; count: number } | null = null;
+    let maxCount = 0;
+    for (const key in serviceCountMap) {
+      if (serviceCountMap[key].count > maxCount) {
+        maxCount = serviceCountMap[key].count;
+        mostBookedService = serviceCountMap[key];
+      }
+    }
+
+    const formatBRL = (cents: number) => {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
+    };
 
     return {
-      month: `${year}-${String(month + 1).padStart(2, '0')}`,
-      expectedRevenueFormatted: formatter.format(expectedCents / 100),
-      realizedRevenueFormatted: formatter.format(realizedCents / 100),
+      month: targetMonthStr,
+      expectedRevenueCents,
+      expectedRevenueFormatted: formatBRL(expectedRevenueCents),
+      realizedRevenueCents,
+      realizedRevenueFormatted: formatBRL(realizedRevenueCents),
       cancelRate,
       mostBookedService,
+      teamCommissionsCents,
+      teamCommissionsFormatted: formatBRL(teamCommissionsCents),
+      pixFeesCents,
+      pixFeesFormatted: formatBRL(pixFeesCents),
+      netRevenueCents,
+      netRevenueFormatted: formatBRL(netRevenueCents),
     };
   }
 
+  // 👇 FUNÇÃO 2: Restaurada! Traz a agenda do dia para a listagem
   async getTodayAgenda(userId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const endOfDay = new Date(today);
-    endOfDay.setHours(23, 59, 59, 999);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
     const appointments = await this.prisma.appointment.findMany({
       where: {
-        OR: [{ userId: userId }, { professionalId: userId }],
-        date: { gte: today, lte: endOfDay },
+        userId,
+        date: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
       },
       include: {
-        client: true,
         service: true,
+        client: true,
       },
-      orderBy: { date: 'asc' },
+      orderBy: {
+        date: 'asc',
+      },
     });
 
-    // Formata os dados para o ecrã do frontend
-    return appointments.map((apt) => {
+    // Mapeia para o formato exato que a sua tela (TodayAppointment) espera
+    return appointments.map(apt => {
       const startTime = new Date(apt.date);
-      // Para saber o fim, adicionamos a duração do serviço (e assumimos 0 buffer por enquanto)
-      const endTime = new Date(startTime.getTime() + (apt.service.duration * 60000));
+      // Calcula o horário de término somando a duração do serviço (em minutos) ao horário de início
+      const endTime = new Date(startTime.getTime() + apt.service.duration * 60000);
 
       return {
         id: apt.id,
         status: apt.status,
-        clientName: apt.client?.name || 'Cliente Sem Nome',
-        serviceName: apt.service?.name || 'Serviço Excluído',
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
+        clientName: apt.client?.name || 'Cliente Avulso',
+        serviceName: apt.service.name,
       };
     });
   }

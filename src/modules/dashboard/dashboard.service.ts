@@ -1,11 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
-  // 👇 FUNÇÃO 1: A matemática do painel que fizemos
+  // 👇 FUNÇÃO 1: A matemática do painel blindada por cargo
   async getDashboardMetrics(userId: string, monthStr?: string) {
+    // 1. Descobre quem é o usuário, incluindo o seu cargo
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { ownerId: true, role: true }, // 👈 Trouxemos o role!
+    });
+    
+    // 2. É um administrador se for a Dona (não tem ownerId) OU se o cargo for ADMIN
+    const isAdmin = !currentUser?.ownerId || currentUser?.role === 'ADMIN';
+    
+    // 3. O ID do salão é o ID da Dona. Se for Co-Admin, usamos o ownerId.
+    const shopId = currentUser?.ownerId || userId;
+
     // Se não vier mês, pega o mês atual
     const today = new Date();
     const targetMonthStr = monthStr || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -14,11 +27,19 @@ export class DashboardService {
     const startDate = new Date(Number(year), Number(month) - 1, 1);
     const endDate = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
 
+    // Monta a regra de busca baseada no cargo
+    const whereClause: any = {
+      date: { gte: startDate, lte: endDate },
+    };
+
+    if (isAdmin) {
+      whereClause.userId = shopId; // Admin vê o faturamento do salão todo
+    } else {
+      whereClause.professionalId = userId; // Profissional vê apenas a si mesmo
+    }
+
     const appointments = await this.prisma.appointment.findMany({
-      where: {
-        userId: userId,
-        date: { gte: startDate, lte: endDate },
-      },
+      where: whereClause,
       include: { service: true },
     });
 
@@ -50,14 +71,18 @@ export class DashboardService {
       }
 
       if (apt.status === 'COMPLETED') {
-        realizedRevenueCents += price;
-        teamCommissionsCents += apt.commissionValueCents || 0;
-        pixFeesCents += apt.pixFeeCents || 0;
+        realizedRevenueCents += price; 
+        teamCommissionsCents += apt.commissionValueCents || 0; 
         
-        if (apt.netRevenueCents !== null) {
-          netRevenueCents += apt.netRevenueCents;
-        } else {
-          netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
+        // Blindagem: Somente a dona e o Co-admin calculam e veem o Lucro Líquido
+        if (isAdmin) {
+          pixFeesCents += apt.pixFeeCents || 0;
+          
+          if (apt.netRevenueCents !== null) {
+            netRevenueCents += apt.netRevenueCents;
+          } else {
+            netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
+          }
         }
       }
     }
@@ -80,6 +105,8 @@ export class DashboardService {
 
     return {
       month: targetMonthStr,
+      // 🌟 O Front-end espera a variável "isOwner", então passamos o isAdmin nela!
+      isOwner: isAdmin, 
       expectedRevenueCents,
       expectedRevenueFormatted: formatBRL(expectedRevenueCents),
       realizedRevenueCents,
@@ -95,22 +122,37 @@ export class DashboardService {
     };
   }
 
-  // 👇 FUNÇÃO 2: Restaurada! Traz a agenda do dia para a listagem
+  // 👇 FUNÇÃO 2: Agenda do dia blindada por cargo
   async getTodayAgenda(userId: string) {
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { ownerId: true, role: true },
+    });
+    
+    const isAdmin = !currentUser?.ownerId || currentUser?.role === 'ADMIN';
+    const shopId = currentUser?.ownerId || userId;
+
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        userId,
-        date: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
+    const whereClause: any = {
+      date: {
+        gte: todayStart,
+        lte: todayEnd,
       },
+    };
+
+    if (isAdmin) {
+      whereClause.userId = shopId; // Admin vê a agenda de todo o mundo
+    } else {
+      whereClause.professionalId = userId; // Equipe comum só vê a si mesma
+    }
+
+    const appointments = await this.prisma.appointment.findMany({
+      where: whereClause,
       include: {
         service: true,
         client: true,
@@ -120,10 +162,8 @@ export class DashboardService {
       },
     });
 
-    // Mapeia para o formato exato que a sua tela (TodayAppointment) espera
     return appointments.map(apt => {
       const startTime = new Date(apt.date);
-      // Calcula o horário de término somando a duração do serviço (em minutos) ao horário de início
       const endTime = new Date(startTime.getTime() + apt.service.duration * 60000);
 
       return {

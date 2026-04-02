@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsString, Min, IsOptional, IsEnum, IsArray } from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, Min, IsOptional, IsIn, IsArray } from 'class-validator';
 
 export class CreateServiceDto {
   @ApiProperty({ example: 'Corte feminino' })
@@ -20,7 +20,6 @@ export class CreateServiceDto {
   @ApiPropertyOptional({ example: 'scissors' })
   @IsOptional()
   @IsString()
-  @IsEnum(['scissors', 'brush', 'sparkles', 'droplets', 'flower2', 'wand2', 'crown', 'heart', 'smile'])
   icon?: string;
 
   @ApiPropertyOptional({ type: [String], description: 'IDs dos profissionais que executam este serviço' })

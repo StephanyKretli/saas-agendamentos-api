@@ -22,7 +22,6 @@ import { TeamModule } from './modules/team/team.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 
-
 @Module({
   imports: [
     PrismaModule, 

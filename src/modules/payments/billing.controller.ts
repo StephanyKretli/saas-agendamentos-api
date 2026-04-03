@@ -1,54 +1,63 @@
-import { Controller, Post, Body, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AsaasService } from './asaas.service'; 
+import { BillingService } from './billing.service';
 
 @Controller('billing')
+// 🚨 AVISO: NÃO coloque @UseGuards(JwtAuthGuard) aqui, ou o Asaas será bloqueado!
 export class BillingController {
   constructor(
     private prisma: PrismaService,
-    private asaasService: AsaasService,
+    private readonly billingService: BillingService
   ) {}
 
-  // 1. ROTA DE ASSINATURA (Trancada apenas com Auth normal)
+// 🔒 ROTA PROTEGIDA: Apenas utilizadores logados podem assinar
   @Post('subscribe')
   @UseGuards(JwtAuthGuard)
   async subscribe(@Request() req, @Body() body: { plan: string }) {
-    const userId = req.user.sub || req.user.id || req.user.userId;
+    const userId = req.user.id || req.user.sub;
     const { plan } = body;
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    
     if (!user) throw new BadRequestException('Usuário não encontrado');
     
-    if (user.ownerId) {
+    // 1. A NOVA TRAVA: Bloqueia apenas se não for a Dona E não for ADMIN
+    if (user.ownerId && user.role !== 'ADMIN') {
       throw new BadRequestException('Apenas a administração do salão pode assinar um plano.');
     }
 
-    let customerId = user.asaasCustomerId;
+    // 2. A MÁGICA: Se for um ADMIN a clicar, pegamos a conta da Dona do salão para faturar!
+    const targetUserId = user.ownerId ? user.ownerId : user.id;
+    const billingUser = user.ownerId 
+      ? await this.prisma.user.findUnique({ where: { id: user.ownerId } }) 
+      : user;
 
+    if (!billingUser) throw new BadRequestException('Conta principal não encontrada.');
+
+    // 3. Garante que o cliente existe no Asaas
+    let customerId = billingUser.asaasCustomerId;
     if (!customerId) {
-      const newCustomer = await this.asaasService.createCustomer(user.name, user.email);
+      const newCustomer = await this.billingService.createCustomer(billingUser.name, billingUser.email);
       customerId = newCustomer.id;
+      
       await this.prisma.user.update({ 
-        where: { id: user.id }, 
+        where: { id: billingUser.id }, 
         data: { asaasCustomerId: customerId } 
       });
     }
 
-    // ...
-    const value = plan === 'PRO' ? 99.00 : 49.00;
-
-    // 👇 ADICIONE ESTAS 3 LINHAS PARA ACALMAR O TYPESCRIPT
     if (!customerId) {
       throw new BadRequestException('Erro interno: ID de cobrança não foi gerado.');
     }
 
-    const subscription = await this.asaasService.createSubscription(customerId, value);
-    // ...
+    const value = plan === 'PRO' ? 99.00 : 49.00;
 
+    // 4. Gera a cobrança e o link
+    const subscription = await this.billingService.createSubscription(customerId, value, plan);
+
+    // 5. Salva a intenção de compra no banco da Dona do Salão
     await this.prisma.user.update({
-      where: { id: user.id },
+      where: { id: billingUser.id },
       data: {
         asaasSubscriptionId: subscription.subscriptionId,
         plan: plan === 'PRO' ? 'PRO' : 'STARTER',
@@ -58,47 +67,58 @@ export class BillingController {
 
     return {
       message: 'Assinatura gerada com sucesso!',
-      checkoutUrl: subscription.invoiceUrl || 'https://sandbox.asaas.com/customer/invoices',
+      checkoutUrl: subscription.invoiceUrl, 
     };
   }
 
-  // 👇 2. ROTA DO WEBHOOK (Totalmente aberta para o Asaas conseguir avisar)
+  // 🔓 ROTA PÚBLICA: O Asaas envia os avisos de pagamento para cá
   @Post('webhook')
   async handleAsaasWebhook(@Body() body: any) {
     console.log('\n🔔 WEBHOOK DO ASAAS RECEBIDO:', body.event);
 
     try {
-      // Quando o pagamento do cartão é aprovado ou o PIX é pago
       if (body.event === 'PAYMENT_CONFIRMED' || body.event === 'PAYMENT_RECEIVED') {
         const asaasCustomerId = body.payment?.customer;
-
         if (asaasCustomerId) {
           await this.prisma.user.updateMany({
             where: { asaasCustomerId: asaasCustomerId },
             data: { subscriptionStatus: 'ACTIVE' } // 🟢 Destranca o painel!
           });
-          console.log(`✅ Assinatura ATIVADA para o cliente Asaas: ${asaasCustomerId}\n`);
         }
       }
 
-      // Quando a mensalidade atrasa ou o cartão é recusado na renovação
       if (body.event === 'PAYMENT_OVERDUE' || body.event === 'SUBSCRIPTION_DELETED') {
         const asaasCustomerId = body.payment?.customer || body.subscription?.customer;
-        
         if (asaasCustomerId) {
           await this.prisma.user.updateMany({
             where: { asaasCustomerId: asaasCustomerId },
             data: { subscriptionStatus: 'PAST_DUE' } // 🔴 Tranca o painel!
           });
-          console.log(`❌ Assinatura SUSPENSA/ATRASADA para o cliente Asaas: ${asaasCustomerId}\n`);
         }
       }
-
     } catch (error) {
       console.error('Erro ao processar o webhook do Asaas:', error);
     }
 
-    // É OBRIGATÓRIO devolver sucesso, senão o Asaas fica tentando enviar de novo 50 vezes
     return { received: true };
+  }
+
+  // 🔒 ROTA PROTEGIDA: Apenas utilizadores logados podem cancelar
+  @Delete('cancel')
+  @UseGuards(JwtAuthGuard)
+  async cancelSubscription(@Request() req) {
+    const userId = req.user.id || req.user.sub;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) throw new BadRequestException('Usuário não encontrado');
+
+    // Mesma trava de segurança para o cancelamento
+    if (user.ownerId && user.role !== 'ADMIN') {
+      throw new BadRequestException('Apenas a administração do salão pode cancelar o plano.');
+    }
+
+    // Se for ADMIN, cancela a assinatura da Dona
+    const targetUserId = user.ownerId ? user.ownerId : user.id;
+    return this.billingService.cancelSubscription(targetUserId);
   }
 }

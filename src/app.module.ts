@@ -21,6 +21,8 @@ import { SettingsModule } from './settings/settings.module';
 import { TeamModule } from './modules/team/team.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { SupportModule } from './modules/support/support.module'; 
+
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { PaymentsModule } from './modules/payments/payments.module';
     TeamModule,
     NotificationsModule, 
     PaymentsModule,
+    // 👇 2. Registo do módulo aqui
+    SupportModule, 
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

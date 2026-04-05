@@ -102,17 +102,15 @@ export class AppointmentsService {
     // 4. Devolvemos tudo mastigado para a função create() usar!
     return {
       resolvedUserId: user.id,
+      plan: salonOwner.plan,
       bufferMinutes: user.bufferMinutes ?? 0,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
       timezone: user.timezone,
-      
-      // As regras de cobrança (se exige PIX e a %) vêm do Dono do Salão
       requirePixDeposit: salonOwner.requirePixDeposit ?? false,       
       pixDepositPercentage: salonOwner.pixDepositPercentage ?? 20, 
-      
-      // O token já vai roteado corretamente
-      mercadoPagoAccessToken: tokenParaUsar || undefined,   
+      mercadoPagoAccessToken: tokenParaUsar || undefined,  
+      salonOwnerId: salonOwner.id, 
     };
   }
 
@@ -228,7 +226,7 @@ export class AppointmentsService {
  // 💰 1. LÓGICA DE COBRANÇA (Obedecendo ao Roteamento)
       let depositCents = 0;
       
-      if (settings.requirePixDeposit && service.priceCents > 0) {
+      if (settings.plan === 'PRO' && settings.requirePixDeposit && service.priceCents > 0) {
         const percentage = settings.pixDepositPercentage / 100;
         depositCents = Math.round(service.priceCents * percentage);
       }
@@ -253,7 +251,7 @@ export class AppointmentsService {
         include: {
           service: true,
           client: true,
-          professional: { select: { name: true } }
+          professional: { select: { name: true, phone: true } }
         }
       });
     }); // 👈 FIM DA TRANSAÇÃO PRISMA
@@ -280,7 +278,7 @@ export class AppointmentsService {
             transactionId: pixData.transactionId,
             pixPayload: pixData.qrCodePayload,
           },
-          include: { service: true, client: true, professional: { select: { name: true } } }
+          include: { service: true, client: true, professional: { select: { name: true, phone: true } } } // ✅ CORRIGIDO
         });
       } catch (error) {
         console.error('Erro ao gerar PIX no Mercado Pago:', error);
@@ -297,30 +295,53 @@ export class AppointmentsService {
       // 🌟 PASSO 4: Enviar WhatsApp IMEDIATO apenas se não precisar de PIX
       try {
         if (finalAppointment.client?.phone) {
+          // 1. Pega a URL base do seu Front-end (Coloque FRONTEND_URL=http://localhost:3000 no seu .env)
+          const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+          
+          // 2. Monta o link mágico usando o token que já foi salvo no banco de dados!
+          const manageLink = `${frontendUrl}/agendamento/${finalAppointment.publicCancelToken}`;
+
+          // 3. Envia o WhatsApp
           this.whatsappService.sendAppointmentConfirmation(
+            settings.salonOwnerId, 
             finalAppointment.client.name,
             finalAppointment.client.phone,
             finalAppointment.service.name,
             finalAppointment.date,
-            finalAppointment.professional?.name || 'Equipe'
+            finalAppointment.professional?.name || 'Equipe',
+            manageLink // 👈 Passamos o link gerado aqui!
           );
+        }
+        if (settings.plan === 'PRO' && finalAppointment.professional?.phone) {
+          this.whatsappService.notifyProfessionalNewAppointment(
+            settings.salonOwnerId, // 👈 1º Parâmetro: ID do Salão
+            finalAppointment.professional.phone,
+            finalAppointment.client?.name || 'Cliente',
+            finalAppointment.date,
+            finalAppointment.service.name
+          ).catch(e => console.error('Erro WPP Profissional:', e));
         }
       } catch (error) {
         console.error('Erro ao engatilhar WhatsApp:', error);
       }
     }
-
     return finalAppointment;
   }
 
   async cancel(userId: string, appointmentId: string) {
+    // 1. Busca o agendamento trazendo junto os dados necessários para o WhatsApp
     const appt = await this.prisma.appointment.findFirst({
       where: { 
         id: appointmentId,
         // 🌟 PERMITE CANCELAR SE FOR O DONO OU O FUNCIONÁRIO
         OR: [{ userId: userId }, { professionalId: userId }] 
       },
-      select: { id: true, date: true, status: true },
+      include: { 
+        service: true, 
+        client: true, 
+        professional: { select: { phone: true } },
+        user: { select: { plan: true, ownerId: true } }
+      },
     });
 
     if (!appt) {
@@ -352,7 +373,8 @@ export class AppointmentsService {
       );
     }
 
-    return this.prisma.appointment.update({
+    // 2. Atualiza o status no banco de dados para CANCELED (mantendo o seu select original)
+    const canceledAppt = await this.prisma.appointment.update({
       where: { id: appt.id },
       data: { status: 'CANCELED' },
       select: {
@@ -366,6 +388,87 @@ export class AppointmentsService {
         },
       },
     });
+
+    // 3. 🚀 DISPARO DE WHATSAPP (COM TRAVA DE PLANO) 🚀
+    // Só envia se a dona do salão pagar o plano PRO e se a profissional tiver telefone
+    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
+      const salonOwnerId = appt.user.ownerId ? appt.user.ownerId : appt.userId;
+      this.whatsappService.notifyProfessionalCanceledAppointment(
+        salonOwnerId,
+        appt.professional.phone,
+        appt.client?.name || 'Cliente',
+        appt.date,
+        appt.service.name
+      ).catch(e => console.error('Erro WPP Cancelamento:', e));
+    }
+
+    return canceledAppt;
+  }
+
+  // =========================================================
+  // MÉTODOS PÚBLICOS (Sem exigir Login)
+  // =========================================================
+
+  async findByPublicToken(token: string) {
+    const appt = await this.prisma.appointment.findFirst({
+      where: { publicCancelToken: token },
+      include: {
+        service: { select: { name: true, duration: true, priceCents: true } },
+        professional: { select: { name: true } },
+        user: { select: { name: true } } // Traz o nome do Salão
+      }
+    });
+
+    if (!appt) throw new NotFoundException('Agendamento não encontrado ou link inválido.');
+
+    return appt;
+  }
+
+  async cancelByPublicToken(token: string) {
+    // 1. Busca completo para aplicar as regras
+    const appt = await this.prisma.appointment.findFirst({
+      where: { publicCancelToken: token },
+      include: {
+        service: true,
+        client: true,
+        professional: { select: { phone: true } },
+        user: { select: { plan: true, ownerId: true } }
+      }
+    });
+
+    if (!appt) throw new NotFoundException('Agendamento não encontrado.');
+    if (appt.status !== 'SCHEDULED') throw new BadRequestException('Só é possível cancelar agendamentos ativos.');
+
+    // 2. Validações de Tempo Mínimo
+    const now = new Date();
+    const start = new Date(appt.date);
+    if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível cancelar no momento ou após o início do agendamento.');
+    
+    const minCancelTime = new Date(now.getTime() + MIN_CANCEL_LEAD_MINUTES * 60_000);
+    if (start.getTime() < minCancelTime.getTime()) {
+      throw new BadRequestException(`Cancelamento permitido somente com ${MIN_CANCEL_LEAD_MINUTES} minutos de antecedência.`);
+    }
+
+    // 3. Cancela no Banco
+    const canceledAppt = await this.prisma.appointment.update({
+      where: { id: appt.id },
+      data: { status: 'CANCELED' }
+    });
+
+    // 4. Dispara WPP para a Profissional (Trava PRO)
+    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
+      const salonOwnerId = appt.user.ownerId ? appt.user.ownerId : appt.userId;
+      
+      this.whatsappService.notifyProfessionalCanceledAppointment(
+        salonOwnerId,
+        appt.professional.phone,
+        appt.client?.name || 'Cliente',
+        appt.date,
+        appt.service.name
+      ).catch(e => console.error('Erro WPP Cancelamento Público:', e));
+    }
+
+    return canceledAppt;
   }
 
   async findMine(

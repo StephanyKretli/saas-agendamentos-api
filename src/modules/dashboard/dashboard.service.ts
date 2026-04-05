@@ -5,37 +5,35 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
-  // 👇 FUNÇÃO 1: A matemática do painel blindada por cargo
+  // 👇 FUNÇÃO 1: A matemática do painel blindada por cargo E POR PLANO
   async getDashboardMetrics(userId: string, monthStr?: string) {
-    // 1. Descobre quem é o usuário, incluindo o seu cargo
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { ownerId: true, role: true }, // 👈 Trouxemos o role!
+      select: { ownerId: true, role: true }, 
     });
     
-    // 2. É um administrador se for a Dona (não tem ownerId) OU se o cargo for ADMIN
     const isAdmin = !currentUser?.ownerId || currentUser?.role === 'ADMIN';
-    
-    // 3. O ID do salão é o ID da Dona. Se for Co-Admin, usamos o ownerId.
     const shopId = currentUser?.ownerId || userId;
 
-    // Se não vier mês, pega o mês atual
+    // 👇 Descobrimos qual é o plano da Dona do Salão
+    const shopOwner = await this.prisma.user.findUnique({
+      where: { id: shopId },
+      select: { plan: true }
+    });
+    const isProPlan = shopOwner?.plan === 'PRO';
+
     const today = new Date();
     const targetMonthStr = monthStr || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    
     const [year, month] = targetMonthStr.split('-');
     const startDate = new Date(Number(year), Number(month) - 1, 1);
     const endDate = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
 
-    // Monta a regra de busca baseada no cargo
-    const whereClause: any = {
-      date: { gte: startDate, lte: endDate },
-    };
+    const whereClause: any = { date: { gte: startDate, lte: endDate } };
 
     if (isAdmin) {
-      whereClause.userId = shopId; // Admin vê o faturamento do salão todo
+      whereClause.userId = shopId; 
     } else {
-      whereClause.professionalId = userId; // Profissional vê apenas a si mesmo
+      whereClause.professionalId = userId; 
     }
 
     const appointments = await this.prisma.appointment.findMany({
@@ -51,7 +49,6 @@ export class DashboardService {
     
     let canceledCount = 0;
     let totalValidAppointments = 0;
-
     const serviceCountMap: Record<string, { name: string; count: number }> = {};
 
     for (const apt of appointments) {
@@ -59,12 +56,10 @@ export class DashboardService {
 
       if (apt.status !== 'CANCELED') {
         totalValidAppointments++;
-        
         if (!serviceCountMap[apt.serviceId]) {
           serviceCountMap[apt.serviceId] = { name: apt.service.name, count: 0 };
         }
         serviceCountMap[apt.serviceId].count++;
-        
         expectedRevenueCents += price;
       } else {
         canceledCount++;
@@ -72,10 +67,10 @@ export class DashboardService {
 
       if (apt.status === 'COMPLETED') {
         realizedRevenueCents += price; 
-        teamCommissionsCents += apt.commissionValueCents || 0; 
         
-        // Blindagem: Somente a dona e o Co-admin calculam e veem o Lucro Líquido
-        if (isAdmin) {
+        // 👇 Apenas calcula as finanças detalhadas se for ADMIN e tiver plano PRO
+        if (isAdmin && isProPlan) {
+          teamCommissionsCents += apt.commissionValueCents || 0; 
           pixFeesCents += apt.pixFeeCents || 0;
           
           if (apt.netRevenueCents !== null) {
@@ -105,14 +100,18 @@ export class DashboardService {
 
     return {
       month: targetMonthStr,
-      // 🌟 O Front-end espera a variável "isOwner", então passamos o isAdmin nela!
       isOwner: isAdmin, 
+      isPro: isProPlan, // 👈 Enviamos esta flag para o Front-end bloquear os cards visuais!
+      
+      // Métricas Básicas (Liberadas para todos)
       expectedRevenueCents,
       expectedRevenueFormatted: formatBRL(expectedRevenueCents),
       realizedRevenueCents,
       realizedRevenueFormatted: formatBRL(realizedRevenueCents),
       cancelRate,
       mostBookedService,
+      
+      // Métricas Premium (Vêm zeradas se não for PRO)
       teamCommissionsCents,
       teamCommissionsFormatted: formatBRL(teamCommissionsCents),
       pixFeesCents,

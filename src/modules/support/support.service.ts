@@ -39,7 +39,7 @@ export class SupportService {
       // 3. Monta e envia o e-mail via Resend
       const result = await this.resend.emails.send({
        from: 'Feedback Painel <nao-responda@stephanykretli.com.br>', 
-       to: 'stephanykretli@gmail.com', 
+       to: 'suporte@stephanykretli.com.br', 
        subject: `${typeLabels[data.type]}: ${data.subject}`,
         html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">

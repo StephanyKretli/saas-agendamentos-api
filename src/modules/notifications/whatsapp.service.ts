@@ -1,89 +1,131 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common'; 
 
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
   
-  // Aqui vão entrar as credenciais da sua API de WhatsApp no futuro
-  private readonly apiUrl = process.env.WHATSAPP_API_URL || '';
-  private readonly apiToken = process.env.WHATSAPP_API_TOKEN || '';
+  private readonly apiUrl = process.env.WHATSAPP_API_URL || 'http://127.0.0.1:8080';
+  private readonly apiKey = process.env.WHATSAPP_API_KEY || 'senha-secreta-do-saas-123';
 
-  /**
-   * Função genérica para disparar mensagens
-   */
-  async sendMessage(phone: string, text: string) {
-    const cleanPhone = phone.replace(/\D/g, ''); // Garante que só vão números
-    
-    // Se o telefone não tiver o código do país (55), adicionamos
-    const finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+  // Prefixo limpo para a nova base de dados!
+  private getInstanceName(salonId: string) {
+    return `evo_${salonId}`; 
+  }
+
+  async getQRCode(salonId: string) {
+    const instanceName = this.getInstanceName(salonId);
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': this.apiKey, 
+    };
 
     try {
-      this.logger.log(`A enviar WhatsApp para ${finalPhone}...`);
+      // 1. Verifica se já está conectada
+      const stateRes = await fetch(`${this.apiUrl}/instance/connectionState/${instanceName}`, { headers }).catch(() => null);
+      if (stateRes && stateRes.ok) {
+         const stateData = await stateRes.json();
+         if (stateData?.instance?.state === 'open') {
+             return { instanceName, status: 'open', qrCodeBase64: null };
+         }
+      }
 
-      // 👇 Aqui é onde o seu sistema vai fazer o disparo real quando tiver a API
-      /*
-      await fetch(`${this.apiUrl}/message/sendText`, {
+      // 2. Manda criar a instância (A Evolution delega a criação ao Baileys)
+      this.logger.log(`Criando a instância ${instanceName}...`);
+      await fetch(`${this.apiUrl}/instance/create`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiToken}`
-        },
-        body: JSON.stringify({
-          number: finalPhone,
-          text: text
-        })
+        headers,
+        body: JSON.stringify({ instanceName, qrcode: true, integration: "WHATSAPP-BAILEYS" }),
+      }).catch(() => {});
+
+      // 3. SMART POLLING (O segredo para a Evolution v2)
+      // O motor Baileys demora uns 4 a 6 segundos a desenhar a imagem Base64.
+      // Vamos tentar buscá-la 4 vezes, com intervalos de 3 segundos.
+      this.logger.log(`Aguardando o motor Baileys gerar a imagem Base64...`);
+      
+      for (let tentativa = 1; tentativa <= 4; tentativa++) {
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Espera 3s
+        
+        const connectRes = await fetch(`${this.apiUrl}/instance/connect/${instanceName}`, { method: 'GET', headers });
+        if (connectRes.ok) {
+          const connectData = await connectRes.json();
+          const qrCodeFinal = connectData?.base64 || connectData?.qrcode?.base64 || connectData?.code;
+          
+          if (qrCodeFinal) {
+            this.logger.log(`✅ Imagem Base64 capturada com sucesso na tentativa ${tentativa}!`);
+            return { instanceName, status: 'qrcode', qrCodeBase64: qrCodeFinal };
+          }
+        }
+        this.logger.log(`Tentativa ${tentativa}: A imagem ainda não está pronta...`);
+      }
+
+      // Se passou o tempo todo e não devolveu, damos o erro
+      throw new Error('A Evolution não gerou a imagem Base64 a tempo.');
+
+    } catch (error: any) {
+      this.logger.error(`Erro crítico no WhatsAppService: ${error.message}`);
+      throw new BadRequestException(error.message || 'Erro ao comunicar com a API.');
+    }
+  }
+
+  async getConnectionStatus(salonId: string) {
+    const instanceName = this.getInstanceName(salonId);
+    try {
+      const response = await fetch(`${this.apiUrl}/instance/connectionState/${instanceName}`, {
+        method: 'GET',
+        headers: { 'apikey': this.apiKey }
       });
-      */
-
-      // Simulador para vermos a funcionar no terminal enquanto não ligamos a API real:
-      console.log('=========================================');
-      console.log(`📱 MENSAGEM PARA: ${finalPhone}`);
-      console.log(`💬 TEXTO:\n${text}`);
-      console.log('=========================================');
-
-      return true;
+      const data = await response.json();
+      return { status: data.instance?.state || 'DISCONNECTED' };
     } catch (error) {
-      this.logger.error(`Erro ao enviar WhatsApp para ${finalPhone}`, error);
+      return { status: 'DISCONNECTED' };
+    }
+  }
+
+  async sendMessage(salonId: string, phone: string, text: string) {
+    const cleanPhone = phone.replace(/\D/g, ''); 
+    const finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+    const instanceName = this.getInstanceName(salonId);
+
+    try {
+      const response = await fetch(`${this.apiUrl}/message/sendText/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': this.apiKey },
+        body: JSON.stringify({ number: finalPhone, text: text })
+      });
+      return response.ok;
+    } catch (error) {
       return false;
     }
   }
 
-  /**
-   * Templates de Mensagens Prontos
-   */
   async sendAppointmentConfirmation(
-    clientName: string, 
-    clientPhone: string, 
-    serviceName: string, 
-    date: Date,
-    professionalName: string
+    salonId: string, clientName: string, clientPhone: string, 
+    serviceName: string, date: Date, professionalName: string, manageLink: string
   ) {
-    const formattedDate = new Intl.DateTimeFormat('pt-BR', { 
-      day: '2-digit', month: '2-digit', year: 'numeric' 
-    }).format(date);
-    
-    const formattedTime = new Intl.DateTimeFormat('pt-BR', { 
-      hour: '2-digit', minute: '2-digit' 
-    }).format(date);
-
-    const message = `Olá, *${clientName}*! 👋\n\nO seu agendamento foi confirmado com sucesso!\n\n✂️ *Serviço:* ${serviceName}\n📅 *Data:* ${formattedDate}\n⏰ *Horário:* ${formattedTime}\n👨‍💼 *Profissional:* ${professionalName}\n\nAguardamos por si! Se precisar de reagendar, acesse o link no seu e-mail.`;
-
-    return this.sendMessage(clientPhone, message);
+    const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
+    const message = `Olá, *${clientName}*! 👋\n\nO seu agendamento foi confirmado!\n\n✂️ *Serviço:* ${serviceName}\n📅 *Data:* ${formattedDate}\n⏰ *Horário:* ${formattedTime}\n👨‍💼 *Profissional:* ${professionalName}\n\n🔗 ${manageLink}`;
+    return this.sendMessage(salonId, clientPhone, message);
   }
 
   async sendAppointmentReminder(
-    clientName: string, 
-    clientPhone: string, 
-    serviceName: string, 
-    date: Date,
-    professionalName: string
+    salonId: string, clientName: string, clientPhone: string, 
+    serviceName: string, date: Date, professionalName: string
   ) {
-    const formattedTime = new Intl.DateTimeFormat('pt-BR', { 
-      hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo'
-    }).format(date);
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
+    const message = `Olá, *${clientName}*! Lembrete do seu horário amanhã às *${formattedTime}* para *${serviceName}* com ${professionalName}. ✨`;
+    return this.sendMessage(salonId, clientPhone, message);
+  }
 
-    const message = `Olá, *${clientName}*! Passando para lembrar do seu horário amanhã às *${formattedTime}* para o serviço de *${serviceName}* com ${professionalName}. Nos vemos lá! ✂️`;
+  async notifyProfessionalNewAppointment(salonId: string, professionalPhone: string, clientName: string, date: Date, serviceName: string) {
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
+    const message = `*Novo Agendamento!* 📅\n\n👤 *Cliente:* ${clientName}\n✂️ *Serviço:* ${serviceName}\n🕒 *Hora:* ${formattedTime}`;
+    return this.sendMessage(salonId, professionalPhone, message);
+  }
 
-    return this.sendMessage(clientPhone, message);
+  async notifyProfessionalCanceledAppointment(salonId: string, professionalPhone: string, clientName: string, date: Date, serviceName: string) {
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
+    const message = `*Agendamento Cancelado* ❌\n\n👤 *Cliente:* ${clientName}\n✂️ *Serviço:* ${serviceName}\n🕒 *Hora:* ${formattedTime}`;
+    return this.sendMessage(salonId, professionalPhone, message);
   }
 }

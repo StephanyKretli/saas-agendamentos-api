@@ -54,4 +54,16 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsBoolean()
   centralizePayments?: boolean;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  bio?: string;
+
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
 }

@@ -133,4 +133,21 @@ export class AppointmentsController {
   ) {
     return this.appointmentsService.getDayTimeline(req.user.id, date, professionalId);
   }
+
+  // =========================================================
+  // ROTAS PÚBLICAS (Para a página da cliente gerenciar via WhatsApp)
+  // =========================================================
+
+  // 1. Busca os dados para mostrar na tela pública
+  @Get('public/:token')
+  async getByPublicToken(@Param('token') token: string) {
+    const appointment = await this.appointmentsService.findByPublicToken(token);
+    return appointment;
+  }
+
+  // 2. Ação do botão "Cancelar Agendamento" da tela pública
+  @Post('public/:token/cancel')
+  async cancelByPublicToken(@Param('token') token: string) {
+    return this.appointmentsService.cancelByPublicToken(token);
+  }
 }

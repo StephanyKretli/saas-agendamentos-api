@@ -31,8 +31,12 @@ export class SettingsService {
     // 3. Devolvemos o "Frankenstein" perfeito para o Front-end
     return {
       // --- DADOS PESSOAIS (De quem está logado) ---
+      id: currentUser.id,
       name: currentUser.name,
       username: currentUser.username,
+      email: currentUser.email,  
+      phone: currentUser.phone,   
+      bio: currentUser.bio,      
       avatarUrl: currentUser.avatarUrl,
       role: currentUser.role,
       plan: currentUser.plan,
@@ -69,6 +73,11 @@ export class SettingsService {
     const personalData: any = {};
     if (data.name !== undefined) personalData.name = data.name;
     if (data.username !== undefined) personalData.username = data.username;
+    
+    // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
+    if (data.phone !== undefined) personalData.phone = data.phone;
+    if (data.bio !== undefined) personalData.bio = data.bio;
+    if (data.avatarUrl !== undefined) personalData.avatarUrl = data.avatarUrl;
     
     if (Object.keys(personalData).length > 0) {
       await this.prisma.user.update({
@@ -119,6 +128,8 @@ export class SettingsService {
       id: currentUser.id,
       name: currentUser.name,
       email: currentUser.email,
+      phone: currentUser.phone,   
+      bio: currentUser.bio,     
       username: currentUser.username,
       avatarUrl: currentUser.avatarUrl,
       plan: currentUser.plan,       

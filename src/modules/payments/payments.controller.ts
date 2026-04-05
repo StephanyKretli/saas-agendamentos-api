@@ -36,7 +36,9 @@ export class PaymentsController {
           include: {
             client: true,
             service: true,
-            professional: { select: { name: true } }
+            professional: { select: { name: true } },
+            // 👇 PRECISAMOS DISTO PARA SABER QUAL INSTÂNCIA USAR
+            user: { select: { ownerId: true } } 
           }
         });
 
@@ -51,12 +53,22 @@ export class PaymentsController {
 
           // 4. A GRANDE MÁGICA: Só agora enviamos o WhatsApp a confirmar o horário!
           if (appointment.client?.phone) {
+            
+            // Descobre o ID real do salão
+            const salonOwnerId = appointment.user?.ownerId ? appointment.user.ownerId : appointment.userId;
+            
+            // Monta o link de gestão
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+            const manageLink = `${frontendUrl}/agendamento/${appointment.publicCancelToken}`;
+
             await this.whatsappService.sendAppointmentConfirmation(
+              salonOwnerId, // 1º argumento novo
               appointment.client.name,
               appointment.client.phone,
               appointment.service.name,
               appointment.date,
-              appointment.professional.name
+              appointment.professional?.name || 'Equipe',
+              manageLink    // 7º argumento novo
             );
           }
         }
@@ -69,13 +81,11 @@ export class PaymentsController {
   }
 
   // 🌟 ROTA DE TESTE (Modo Sandbox)
-  // Permite simular que o cliente pagou o PIX acessando um URL no navegador
   @Get('sandbox/simulate-pay/:transactionId')
   @ApiOperation({ summary: 'Simula o pagamento de um PIX (Apenas Desenvolvimento)' })
   async simulatePayment(@Param('transactionId') transactionId: string) {
     this.logger.log(`A simular pagamento para a transação ${transactionId}...`);
     
-    // Chamamos a nossa própria função de webhook fingindo ser o Mercado Pago
     await this.handleWebhook({ data: { id: transactionId } });
     
     return { 

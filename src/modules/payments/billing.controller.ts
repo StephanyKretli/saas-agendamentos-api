@@ -1,8 +1,7 @@
-import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BillingService } from './billing.service';
-
 @Controller('billing')
 // 🚨 AVISO: NÃO coloque @UseGuards(JwtAuthGuard) aqui, ou o Asaas será bloqueado!
 export class BillingController {
@@ -120,5 +119,23 @@ export class BillingController {
     // Se for ADMIN, cancela a assinatura da Dona
     const targetUserId = user.ownerId ? user.ownerId : user.id;
     return this.billingService.cancelSubscription(targetUserId);
+  }
+
+  // 🔒 ROTA PROTEGIDA: Retorna o link para a cliente alterar o cartão/forma de pagamento
+  @Get('manage')
+  @UseGuards(JwtAuthGuard)
+  async getManageUrl(@Request() req) {
+    const userId = req.user.id || req.user.sub;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user) throw new BadRequestException('Usuário não encontrado');
+    
+    // Mesma trava de segurança: só a Dona ou um Admin podem aceder aos pagamentos
+    if (user.ownerId && user.role !== 'ADMIN') {
+      throw new BadRequestException('Apenas a administração do salão pode gerir o pagamento.');
+    }
+
+    const targetUserId = user.ownerId ? user.ownerId : user.id;
+    return this.billingService.getManageSubscriptionUrl(targetUserId);
   }
 }

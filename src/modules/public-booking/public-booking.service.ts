@@ -28,23 +28,36 @@ export class PublicBookingService {
 
     const tenantId = user.ownerId ? user.ownerId : user.id;
 
+    // 👇 1. Buscamos o Admin e as regras do plano dele
     const adminUser = await this.prisma.user.findUnique({
       where: { id: tenantId },
-      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
+      select: { id: true, name: true, username: true, avatarUrl: true, role: true, plan: true, maxMembers: true }
     });
 
+    // 👇 2. Buscamos a equipe, mas ordenamos por quem entrou primeiro (os mais antigos têm prioridade)
     const teamMembers = await this.prisma.user.findMany({
       where: { ownerId: tenantId },
+      orderBy: { createdAt: 'asc' }, 
       select: { id: true, name: true, username: true, avatarUrl: true, role: true },
     });
 
-    const allProfessionals = [adminUser, ...teamMembers].filter(Boolean);
+    // 🚀 O CORTE SECRETO (A TRAVA DO PLANO STARTER) 🚀
+    const isProPlan = adminUser?.plan === 'PRO';
+    const limit = isProPlan ? 9999 : (adminUser?.maxMembers || 3);
+    
+    // Cortamos a array. Os excedentes são sumariamente ignorados.
+    const allowedTeamMembers = teamMembers.slice(0, limit);
+
+    // Junta o dono do salão + apenas os membros permitidos
+    const allProfessionals = [adminUser, ...allowedTeamMembers].filter(Boolean);
+    
+    // Criamos uma "Lista VIP" com os IDs de quem tem permissão para aparecer
+    const allowedProfIds = new Set(allProfessionals.map(p => p!.id));
 
     const services = await this.prisma.service.findMany({
       where: { userId: tenantId },
       select: {
         id: true, name: true, duration: true, priceCents: true, icon: true, userId: true, 
-        // 👇 CORREÇÃO: Passando pela tabela intermediária
         professionals: { 
           select: { 
             professional: {
@@ -56,10 +69,12 @@ export class PublicBookingService {
       orderBy: { name: 'asc' },
     });
 
-    // 🌟 A MÁGICA: Formatando de volta para a tela e lidando com salão de 1 pessoa
+    // 🌟 FORMATANDO E LIMPANDO OS SERVIÇOS
     const servicesWithFallback = services.map(service => {
-      // Extrai os profissionais de dentro da tabela intermediária
-      const mappedProfessionals = service.professionals.map(p => p.professional);
+      // Extrai os profissionais E filtra para garantir que o 4º/5º membro não apareça escondido aqui
+      const mappedProfessionals = service.professionals
+        .map(p => p.professional)
+        .filter(p => allowedProfIds.has(p.id)); // 👈 Proteção Extra
       
       return {
         ...service,
@@ -76,7 +91,7 @@ export class PublicBookingService {
     return {
       user,
       services: servicesWithFallback, 
-      professionals: allProfessionals, 
+      professionals: allProfessionals, // 👈 Agora envia a lista rigorosamente cortada
     };
   }
 

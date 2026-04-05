@@ -36,6 +36,8 @@ export class NotificationsCron {
       include: {
         client: true,
         service: true,
+        // 👇 ADICIONADO AQUI PARA DESCOBRIR A INSTÂNCIA DO WPP
+        user: { select: { ownerId: true } }
       },
     });
 
@@ -55,7 +57,11 @@ export class NotificationsCron {
           ? await this.prisma.user.findUnique({ where: { id: apt.professionalId }, select: { name: true } })
           : null;
 
+        // Descobre quem é a dona da instância para o disparo
+        const salonOwnerId = apt.user?.ownerId ? apt.user.ownerId : apt.userId;
+
         await this.whatsappService.sendAppointmentReminder(
+          salonOwnerId, // 👈 O PARÂMETRO QUE FALTAVA
           apt.client.name,
           apt.client.phone,
           apt.service?.name || 'Serviço',

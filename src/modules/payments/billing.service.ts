@@ -29,23 +29,33 @@ export class BillingService {
   // 2. Cria uma Assinatura no Asaas usando Payment Links (Checkout Profissional)
   async createSubscription(customerId: string, value: number, planName: string) {
     try {
+      // Define para onde a cliente volta (puxa do .env ou usa o localhost por padrão)
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
       const response = await axios.post(`${this.asaasApiUrl}/paymentLinks`, {
         customer: customerId,
-        billingType: "UNDEFINED", // Deixa a Dona do salão escolher PIX, Cartão ou Boleto
-        chargeType: "RECURRENT",  // 🌟 Esta é a mágica que transforma o link numa assinatura!
+        billingType: "UNDEFINED", 
+        chargeType: "RECURRENT",  
         value: value,
         subscriptionCycle: "MONTHLY",
         name: `Assinatura Plano ${planName} - SaaS Agendamentos`,
         description: `Acesso completo às ferramentas do plano ${planName}.`,
         maxInstallmentCount: 1,
-        dueDateLimitDays: 3 // O link expira em 3 dias se ela não pagar
+        dueDateLimitDays: 3,
+        
+        // 👇 O SEGREDO DO REDIRECIONAMENTO 👇
+        callback: {
+          successUrl: `${frontendUrl}/dashboard?payment=success`,
+          autoRedirect: true
+        }
+
       }, { 
         headers: { access_token: this.asaasApiKey } 
       });
       
       return {
-        subscriptionId: response.data.id, // ID do link gerado
-        invoiceUrl: response.data.url     // URL da tela de checkout bonita do Asaas
+        subscriptionId: response.data.id, 
+        invoiceUrl: response.data.url     
       };
     } catch (error: any) {
       console.error('Erro Asaas (PaymentLink):', JSON.stringify(error.response?.data, null, 2) || error.message);
@@ -79,6 +89,40 @@ export class BillingService {
     } catch (error: any) {
       console.error('Erro Asaas (Cancel):', error.response?.data || error.message);
       throw new BadRequestException('Não foi possível cancelar a assinatura no Asaas no momento.');
+    }
+  }
+
+  // 4. Busca o link de gestão (fatura) da assinatura ativa no Asaas
+  async getManageSubscriptionUrl(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+    
+    // Se o status for PENDING, ela ainda não concluiu o checkout inicial
+    if (user.subscriptionStatus === 'PENDING') {
+      throw new BadRequestException('Você ainda tem um pagamento pendente. Conclua o primeiro pagamento para poder gerir a forma de cobrança.');
+    }
+
+    try {
+      const response = await axios.get(`${this.asaasApiUrl}/subscriptions?customer=${user.asaasCustomerId}`, {
+        headers: { access_token: this.asaasApiKey }
+      });
+
+      const subscriptions = response.data.data;
+      
+      // Filtra apenas por assinaturas que NÃO foram canceladas
+      const activeSub = subscriptions.find((s: any) => s.status === 'ACTIVE' || s.status === 'OVERDUE');
+
+      if (activeSub) {
+        return { manageUrl: activeSub.invoiceUrl };
+      }
+
+      throw new BadRequestException('Nenhuma assinatura ativa encontrada. Assine um plano primeiro.');
+    } catch (error: any) {
+      if (error instanceof BadRequestException) throw error;
+      
+      console.error('Erro Asaas (Manage):', error.response?.data || error.message);
+      throw new BadRequestException('Não foi possível acessar o portal de gestão agora.');
     }
   }
 }

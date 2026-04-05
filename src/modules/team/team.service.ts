@@ -11,10 +11,10 @@ export class TeamService {
     const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) throw new NotFoundException('Usuário não encontrado.');
 
-    // 2. Trava de segurança: Apenas a Dona ou Co-Admins podem gerir a equipa
+    // 2. Trava de segurança: Apenas a Dona ou Co-Admins podem gerir a equipe
     const isAdmin = !currentUser.ownerId || currentUser.role === 'ADMIN';
     if (!isAdmin) {
-      throw new ForbiddenException('Apenas administradores podem gerir a equipa.');
+      throw new ForbiddenException('Apenas administradores podem gerir a equipe.');
     }
 
     // 3. Define quem é o "Dono do Salão" para buscar os limites e planos corretos
@@ -35,9 +35,12 @@ export class TeamService {
     // O nosso plano ilimitado oficial
     const isUnlimitedPlan = admin.plan === 'PRO';
 
-    if (!isUnlimitedPlan && admin._count.teamMembers >= admin.maxMembers) {
+    // 👇 BLINDAGEM DUPLA: Usa o valor do banco, mas se falhar, assume 3 para o Starter
+    const limitOfMembers = admin.maxMembers || 3;
+
+    if (!isUnlimitedPlan && admin._count.teamMembers >= limitOfMembers) {
       throw new BadRequestException(
-        `Limite de membros atingido para o plano ${admin.plan}. Faça upgrade para adicionar mais.`
+        `Limite de membros atingido. O plano Starter permite até 3 profissionais. Faça upgrade para o PRO para ter uma equipe ilimitada.`
       );
     }
 
@@ -82,17 +85,29 @@ export class TeamService {
     // Encontra o ID do cofre principal (Dona)
     const targetShopId = currentUser.ownerId || currentUser.id;
 
-    // Busca a equipa debaixo do guarda-chuva do salão principal
-    return this.prisma.user.findMany({
-      where: { ownerId: targetShopId }, // 👈 Procura pela Dona, não pelo Co-Admin
+    // 👇 A MÁGICA: Busca a Dona E a sua equipa!
+    const members = await this.prisma.user.findMany({
+      where: { 
+        OR: [
+          { id: targetShopId },       // 👈 A própria Dona
+          { ownerId: targetShopId }   // 👈 Os funcionários dela
+        ]
+      }, 
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
         avatarUrl: true,
-      }
+      },
+      orderBy: { createdAt: 'asc' } // A Dona costuma ser a primeira a ter sido criada
     });
+
+    // Envia para o Front-end uma flag para não confundirmos a Dona com um funcionário
+    return members.map(member => ({
+      ...member,
+      isOwner: member.id === targetShopId
+    }));
   }
 
   async removeMember(userId: string, memberId: string) {
@@ -101,7 +116,7 @@ export class TeamService {
 
     const isAdmin = !currentUser.ownerId || currentUser.role === 'ADMIN';
     if (!isAdmin) {
-      throw new ForbiddenException('Apenas administradores podem gerir a equipa.');
+      throw new ForbiddenException('Apenas administradores podem gerir a equipe.');
     }
 
     const targetShopId = currentUser.ownerId || currentUser.id;
@@ -114,7 +129,7 @@ export class TeamService {
     });
 
     if (!member) {
-      throw new NotFoundException('Profissional não encontrado ou não pertence à sua equipa.');
+      throw new NotFoundException('Profissional não encontrado ou não pertence à sua equipe.');
     }
 
     await this.prisma.user.delete({

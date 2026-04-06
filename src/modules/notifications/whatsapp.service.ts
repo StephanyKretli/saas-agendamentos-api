@@ -4,73 +4,69 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
   
-  private readonly apiUrl = process.env.WHATSAPP_API_URL || 'http://127.0.0.1:8080';
-  private readonly apiKey = process.env.WHATSAPP_API_KEY || 'senha-secreta-do-saas-123';
+  private readonly apiUrl = process.env.WHATSAPP_API_URL || 'http://127.0.0.1:8081';
+  private readonly apiKey = process.env.WHATSAPP_API_KEY || 'xxvcFp52rdBtlkjMMz7alkIyhqA3rggo';
 
-  // Prefixo limpo para a nova base de dados!
+  private get baseUrl() {
+    return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;
+  }
+
   private getInstanceName(salonId: string) {
-    return `evo_${salonId}`; 
+    // Mudamos o prefixo para 'v2_'. Isso cria uma identidade totalmente nova na API.
+    return `v2_${salonId}`; 
   }
 
   async getQRCode(salonId: string) {
-    const instanceName = this.getInstanceName(salonId);
-    const headers = {
-      'Content-Type': 'application/json',
-      'apikey': this.apiKey, 
-    };
+  const instanceName = this.getInstanceName(salonId);
+  const headers = { 'apikey': this.apiKey, 'Content-Type': 'application/json' };
 
-    try {
-      // 1. Verifica se já está conectada
-      const stateRes = await fetch(`${this.apiUrl}/instance/connectionState/${instanceName}`, { headers }).catch(() => null);
-      if (stateRes && stateRes.ok) {
-         const stateData = await stateRes.json();
-         if (stateData?.instance?.state === 'open') {
-             return { instanceName, status: 'open', qrCodeBase64: null };
-         }
-      }
+  try {
+    this.logger.log(`[1] Verificando/Criando: ${instanceName}`);
+    
+    // 1. Cria a instância (silenciosamente se já existir)
+    await fetch(`${this.baseUrl}/instance/create`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ instanceName, integration: "WHATSAPP-BAILEYS" }),
+    }).catch(() => null);
 
-      // 2. Manda criar a instância (A Evolution delega a criação ao Baileys)
-      this.logger.log(`Criando a instância ${instanceName}...`);
-      await fetch(`${this.apiUrl}/instance/create`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ instanceName, qrcode: true, integration: "WHATSAPP-BAILEYS" }),
-      }).catch(() => {});
-
-      // 3. SMART POLLING (O segredo para a Evolution v2)
-      // O motor Baileys demora uns 4 a 6 segundos a desenhar a imagem Base64.
-      // Vamos tentar buscá-la 4 vezes, com intervalos de 3 segundos.
-      this.logger.log(`Aguardando o motor Baileys gerar a imagem Base64...`);
+    // 2. Loop de tentativas (3 tentativas com 7 segundos de intervalo)
+    for (let i = 1; i <= 3; i++) {
+      this.logger.log(`[Tentativa ${i}] Aguardando o QR Code de ${instanceName}...`);
       
-      for (let tentativa = 1; tentativa <= 4; tentativa++) {
-        await new Promise(resolve => setTimeout(resolve, 3000)); // Espera 3s
-        
-        const connectRes = await fetch(`${this.apiUrl}/instance/connect/${instanceName}`, { method: 'GET', headers });
-        if (connectRes.ok) {
-          const connectData = await connectRes.json();
-          const qrCodeFinal = connectData?.base64 || connectData?.qrcode?.base64 || connectData?.code;
-          
-          if (qrCodeFinal) {
-            this.logger.log(`✅ Imagem Base64 capturada com sucesso na tentativa ${tentativa}!`);
-            return { instanceName, status: 'qrcode', qrCodeBase64: qrCodeFinal };
-          }
-        }
-        this.logger.log(`Tentativa ${tentativa}: A imagem ainda não está pronta...`);
+      // Espera 7 segundos para a Evolution respirar
+      await new Promise(resolve => setTimeout(resolve, 7000));
+
+      const response = await fetch(`${this.baseUrl}/instance/connect/${instanceName}`, { 
+        method: 'GET', 
+        headers 
+      });
+
+      const data = await response.json();
+      const qrCode = data?.base64 || data?.qrcode?.base64 || data?.code;
+
+      if (qrCode && typeof qrCode === 'string' && qrCode.length > 50) {
+        this.logger.log(`✅ SUCESSO! QR Code gerado.`);
+        return { instanceName, status: 'qrcode', qrCodeBase64: qrCode };
       }
-
-      // Se passou o tempo todo e não devolveu, damos o erro
-      throw new Error('A Evolution não gerou a imagem Base64 a tempo.');
-
-    } catch (error: any) {
-      this.logger.error(`Erro crítico no WhatsAppService: ${error.message}`);
-      throw new BadRequestException(error.message || 'Erro ao comunicar com a API.');
+      
+      this.logger.warn(`A Evolution ainda está processando (Status: ${data?.status || 'Iniciando'})...`);
     }
-  }
 
+    // 3. Se após 3 tentativas não foi, pedimos para a usuária clicar no botão
+    throw new Error('O motor está demorando a iniciar. Por favor, clique em "Atualizar QR Code" em alguns segundos.');
+
+  } catch (error: any) {
+    this.logger.error(`Aviso: ${error.message}`);
+    throw new BadRequestException(error.message);
+  }
+}
+
+  // ... (o resto das funções getConnectionStatus e sendMessage mantêm-se iguais)
   async getConnectionStatus(salonId: string) {
     const instanceName = this.getInstanceName(salonId);
     try {
-      const response = await fetch(`${this.apiUrl}/instance/connectionState/${instanceName}`, {
+      const response = await fetch(`${this.baseUrl}/instance/connectionState/${instanceName}`, {
         method: 'GET',
         headers: { 'apikey': this.apiKey }
       });
@@ -87,7 +83,7 @@ export class WhatsappService {
     const instanceName = this.getInstanceName(salonId);
 
     try {
-      const response = await fetch(`${this.apiUrl}/message/sendText/${instanceName}`, {
+      const response = await fetch(`${this.baseUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': this.apiKey },
         body: JSON.stringify({ number: finalPhone, text: text })
@@ -98,20 +94,14 @@ export class WhatsappService {
     }
   }
 
-  async sendAppointmentConfirmation(
-    salonId: string, clientName: string, clientPhone: string, 
-    serviceName: string, date: Date, professionalName: string, manageLink: string
-  ) {
+  async sendAppointmentConfirmation(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string, manageLink: string) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
     const message = `Olá, *${clientName}*! 👋\n\nO seu agendamento foi confirmado!\n\n✂️ *Serviço:* ${serviceName}\n📅 *Data:* ${formattedDate}\n⏰ *Horário:* ${formattedTime}\n👨‍💼 *Profissional:* ${professionalName}\n\n🔗 ${manageLink}`;
     return this.sendMessage(salonId, clientPhone, message);
   }
 
-  async sendAppointmentReminder(
-    salonId: string, clientName: string, clientPhone: string, 
-    serviceName: string, date: Date, professionalName: string
-  ) {
+  async sendAppointmentReminder(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string) {
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
     const message = `Olá, *${clientName}*! Lembrete do seu horário amanhã às *${formattedTime}* para *${serviceName}* com ${professionalName}. ✨`;
     return this.sendMessage(salonId, clientPhone, message);

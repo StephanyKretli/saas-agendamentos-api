@@ -54,7 +54,10 @@ export class AuthService {
       console.error('Aviso: Falha ao pré-criar cliente no Asaas durante o registo.', error);
     }
 
-    // 🌟 3. O Cofre: Salva no Prisma com o Trial ativado
+    // 👇 LÊ O PLANO QUE VEIO DO FRONT-END (Se não vier nada, assume 'STARTER')
+    const selectedPlan = dto.plan?.toLowerCase() === 'pro' ? 'PRO' : 'STARTER';
+
+    // 🌟 3. O Cofre: Salva no Prisma com o Trial ativado e o PLANO escolhido
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
@@ -62,9 +65,10 @@ export class AuthService {
         password: passwordHash,
         username: dto.username,
         
-        // 👇 A CATRACA VIP ENTRA AQUI!
+        // 👇 A CATRACA VIP ENTRA AQUI COM O PLANO CORRETO!
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'TRIAL',
+        plan: selectedPlan, // ⚠️ NOTA: Se o seu campo no Prisma se chamar 'subscriptionPlan' ou outra coisa, mude este nome aqui!
         asaasCustomerId: asaasCustomerId,
       },
       select: {
@@ -233,6 +237,7 @@ export class AuthService {
           username: baseUsername, 
           trialEndsAt: trialEndsAt,
           subscriptionStatus: 'TRIAL',
+          plan: 'PRO', // 👈 Adicionamos o plano PRO aqui também!
           asaasCustomerId: asaasCustomerId,
         }
       });

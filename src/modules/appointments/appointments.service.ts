@@ -200,6 +200,12 @@ export class AppointmentsService {
 
       if (!resolvedClientId && dto.client) {
         const normalizedPhone = dto.client.phone.replace(/\D/g, '');
+        
+        // ✅ EXIGE ESTritamente 11 NÚMEROS (DDD + 9 + 8 números)
+        if (normalizedPhone.length !== 11) {
+          throw new BadRequestException('Número de WhatsApp inválido. O número deve conter exatamente 11 dígitos, incluindo o DDD e o 9 à frente (Ex: 11999999999).');
+        }
+
         const existingClient = await tx.client.findFirst({ where: { userId, phone: normalizedPhone } });
 
         if (existingClient) {

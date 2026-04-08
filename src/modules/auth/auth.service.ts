@@ -55,7 +55,7 @@ export class AuthService {
     }
 
     // 👇 LÊ O PLANO QUE VEIO DO FRONT-END (Se não vier nada, assume 'STARTER')
-    const selectedPlan = dto.plan?.toLowerCase() === 'pro' ? 'PRO' : 'STARTER';
+    const selectedPlan = 'PRO';
 
     // 🌟 3. O Cofre: Salva no Prisma com o Trial ativado e o PLANO escolhido
     const user = await this.prisma.user.create({

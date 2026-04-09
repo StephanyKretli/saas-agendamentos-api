@@ -302,7 +302,7 @@ export class AppointmentsService {
       try {
         if (finalAppointment.client?.phone) {
           // 1. Pega a URL base do seu Front-end (Coloque FRONTEND_URL=http://localhost:3000 no seu .env)
-          const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+          const frontendUrl = process.env.APP_WEB_URL || 'https://meusyncro.com.br';
           
           // 2. Monta o link mágico usando o token que já foi salvo no banco de dados!
           const manageLink = `${frontendUrl}/agendamento/${finalAppointment.publicCancelToken}`;

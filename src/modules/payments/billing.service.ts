@@ -22,16 +22,18 @@ export class BillingService {
     }
   }
 
-  // 2. Cria Assinatura e extrai o Link de Pagamento (CORRIGIDO)
+  // 2. Cria Assinatura e extrai o Link de Pagamento (CORRIGIDO PARA O ASAAS SANDBOX)
   async createSubscription(customerId: string, value: number, planName: string) {
     try {
+      // 🌟 CORREÇÃO 1: Jogamos o vencimento para amanhã para evitar o bloqueio de horário
       const today = new Date();
-      const nextDueDate = today.toISOString().split('T')[0]; // Cobrança para hoje
+      today.setDate(today.getDate() + 1); 
+      const nextDueDate = today.toISOString().split('T')[0]; 
 
       // Passo A: Cria o contrato de assinatura
       const subResponse = await axios.post(`${this.asaasApiUrl}/subscriptions`, {
         customer: customerId,
-        billingType: 'UNDEFINED', // O cliente escolhe como quer pagar (Pix, Cartão, Boleto)
+        billingType: 'BOLETO', // 🌟 CORREÇÃO 2: Definimos como BOLETO (O link continuará aceitando PIX)
         value: value,
         nextDueDate: nextDueDate,
         cycle: 'MONTHLY',

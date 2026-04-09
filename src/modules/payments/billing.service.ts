@@ -30,7 +30,7 @@ export class BillingService {
   async createSubscription(customerId: string, value: number, planName: string) {
     try {
       // Define para onde a cliente volta (puxa do .env ou usa o localhost por padrão)
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const frontendUrl = process.env.APP_WEB_URL || 'https://meusyncro.com.br';
 
       const response = await axios.post(`${this.asaasApiUrl}/paymentLinks`, {
         customer: customerId,
@@ -98,26 +98,52 @@ export class BillingService {
     
     if (!user) throw new NotFoundException('Usuário não encontrado.');
     
-    // Se o status for PENDING, ela ainda não concluiu o checkout inicial
-    if (user.subscriptionStatus === 'PENDING') {
-      throw new BadRequestException('Você ainda tem um pagamento pendente. Conclua o primeiro pagamento para poder gerir a forma de cobrança.');
+    let customerId = user.asaasCustomerId;
+    
+    // 1. Garante que o cliente existe no Asaas antes de fazer qualquer coisa
+    if (!customerId) {
+      // 🐛 Bônus: Consertamos o bug do "undefined" aqui!
+      const userName = user.name ? user.name.replace('undefined', '').trim() : 'Cliente';
+      const newCustomer = await this.createCustomer(userName, user.email);
+      
+      customerId = newCustomer.id;
+      await this.prisma.user.update({ where: { id: userId }, data: { asaasCustomerId: customerId } });
     }
 
     try {
-      const response = await axios.get(`${this.asaasApiUrl}/subscriptions?customer=${user.asaasCustomerId}`, {
+      // 👇 A MÁGICA PARA O TYPESCRIPT: Forçamos a garantia de que é uma string!
+      const safeCustomerId = customerId as string;
+
+      const response = await axios.get(`${this.asaasApiUrl}/subscriptions?customer=${safeCustomerId}`, {
         headers: { access_token: this.asaasApiKey }
       });
 
       const subscriptions = response.data.data;
-      
-      // Filtra apenas por assinaturas que NÃO foram canceladas
       const activeSub = subscriptions.find((s: any) => s.status === 'ACTIVE' || s.status === 'OVERDUE');
 
+      // 3. Cenário A: Tem assinatura! Manda para a fatura do Asaas para gerir o cartão
       if (activeSub) {
         return { manageUrl: activeSub.invoiceUrl };
       }
 
-      throw new BadRequestException('Nenhuma assinatura ativa encontrada. Assine um plano primeiro.');
+      // 🌟 4. Cenário B: Não tem assinatura (Gera o checkout)
+      const planToCharge = user.plan === 'PRO' ? 'PRO' : 'STARTER';
+      const valueToCharge = planToCharge === 'PRO' ? 99.00 : 49.00;
+      
+      // 👇 Usamos a variável segura "safeCustomerId" aqui, o TypeScript vai parar de reclamar
+      const newSub = await this.createSubscription(safeCustomerId, valueToCharge, planToCharge);
+
+      // Salva a intenção de compra no banco de dados
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { 
+          asaasSubscriptionId: newSub.subscriptionId,
+          subscriptionStatus: 'PENDING'
+        }
+      });
+
+      return { manageUrl: newSub.invoiceUrl };
+
     } catch (error: any) {
       if (error instanceof BadRequestException) throw error;
       

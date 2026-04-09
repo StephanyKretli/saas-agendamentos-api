@@ -35,7 +35,7 @@ export class UpdateSettingsDto {
   @Min(0)
   maxBookingDays?: number;
 
- @ApiPropertyOptional()
+  @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
   requirePixDeposit?: boolean;
@@ -58,6 +58,12 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  // 👇 NOVO CAMPO ADICIONADO AQUI 👇
+  @ApiPropertyOptional({ example: '12345678909' })
+  @IsOptional()
+  @IsString()
+  document?: string;
 
   @IsOptional()
   @IsString()

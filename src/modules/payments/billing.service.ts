@@ -9,10 +9,13 @@ export class BillingService {
 
   constructor(private prisma: PrismaService) {}
 
-  // 1. Cria um Cliente no Asaas
-  async createCustomer(name: string, email: string) {
+  // 1. Cria um Cliente no Asaas (Agora aceita o CPF na criação)
+  async createCustomer(name: string, email: string, cpfCnpj?: string | null) {
     try {
-      const response = await axios.post(`${this.asaasApiUrl}/customers`, { name, email }, {
+      const payload: any = { name, email };
+      if (cpfCnpj) payload.cpfCnpj = cpfCnpj; // Se tiver CPF, já manda logo no cadastro
+
+      const response = await axios.post(`${this.asaasApiUrl}/customers`, payload, {
         headers: { access_token: this.asaasApiKey }
       });
       return response.data;
@@ -58,7 +61,6 @@ export class BillingService {
         invoiceUrl: firstPayment.invoiceUrl
       };
     } catch (error: any) {
-      // 🚨 SUPER RADAR: Agora ele cospe o erro real e exato no seu terminal!
       console.error('\n❌ --- ERRO DETALHADO ASAAS --- ❌');
       console.error('Payload Enviado:', payload);
       console.error('Resposta do Asaas:', JSON.stringify(error.response?.data, null, 2));
@@ -98,7 +100,7 @@ export class BillingService {
     let customerId = user.asaasCustomerId;
     if (!customerId) {
       const userName = user.name ? user.name.replace('undefined', '').trim() : 'Cliente';
-      const newCustomer = await this.createCustomer(userName, user.email);
+      const newCustomer = await this.createCustomer(userName, user.email, user.document);
       customerId = newCustomer.id;
       await this.prisma.user.update({ where: { id: userId }, data: { asaasCustomerId: customerId } });
     }
@@ -121,23 +123,31 @@ export class BillingService {
         return { manageUrl: invoiceUrl, hasActiveSubscription: true, currentPlan: user.plan };
       }
 
+      // ===== GERAÇÃO DE NOVO CHECKOUT =====
+
+      // 🚨 TRAVA DE SEGURANÇA: Exige o CPF Real para gerar o link
+      if (!user.document) {
+        throw new BadRequestException('Preencha seu CPF ou CNPJ na aba de "Perfil" para acessar o portal de pagamentos.');
+      }
+
       const planToCharge = user.plan === 'PRO' ? 'PRO' : 'STARTER';
       const valueToCharge = planToCharge === 'PRO' ? 99.00 : 49.00;
       
-      // 🌟 TRUQUE ANTIBLOQUEIO: Injetamos um CPF válido de teste na marra antes de cobrar!
+      // 🌟 ATUALIZA COM O CPF REAL NO ASAAS ANTES DE COBRAR
       try {
         await axios.post(`${this.asaasApiUrl}/customers/${safeCustomerId}`, {
-          cpfCnpj: '12345678909' // CPF gerado apenas para satisfazer o validador Sandbox
+          cpfCnpj: user.document 
         }, { headers: { access_token: this.asaasApiKey } });
       } catch (e) {
-        // Ignora, pois o cliente já pode ter CPF
+         // Ignora se o asaas disser que o CPF já tá lá
       }
 
       const newSub = await this.createSubscription(safeCustomerId, valueToCharge, planToCharge);
 
+      // 🌟 CORREÇÃO DO BLOQUEIO: Salva no banco, mas não muda o status para PENDING (Assim você não fica presa)
       await this.prisma.user.update({
         where: { id: userId },
-        data: { asaasSubscriptionId: newSub.subscriptionId, subscriptionStatus: 'PENDING' }
+        data: { asaasSubscriptionId: newSub.subscriptionId } 
       });
 
       return { manageUrl: newSub.invoiceUrl, hasActiveSubscription: false };

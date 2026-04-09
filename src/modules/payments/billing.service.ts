@@ -29,37 +29,28 @@ export class BillingService {
   // 2. Cria uma Assinatura no Asaas usando Payment Links (Checkout Profissional)
   async createSubscription(customerId: string, value: number, planName: string) {
     try {
-      // Define para onde a cliente volta (puxa do .env ou usa o localhost por padrão)
-      const frontendUrl = process.env.APP_WEB_URL || 'https://meusyncro.com.br';
+      const today = new Date();
+      // Define o primeiro vencimento para amanhã para evitar erros de horário
+      const nextDueDate = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      const response = await axios.post(`${this.asaasApiUrl}/paymentLinks`, {
+      const response = await axios.post(`${this.asaasApiUrl}/subscriptions`, {
         customer: customerId,
-        billingType: "UNDEFINED", 
-        chargeType: "RECURRENT",  
+        billingType: 'UNDEFINED', // Permite que o cliente escolha se quer PIX, Boleto ou Cartão no checkout
         value: value,
-        subscriptionCycle: "MONTHLY",
-        name: `Assinatura Plano ${planName} - SaaS Agendamentos`,
-        description: `Acesso completo às ferramentas do plano ${planName}.`,
-        maxInstallmentCount: 1,
-        dueDateLimitDays: 3,
-        
-        // 👇 O SEGREDO DO REDIRECIONAMENTO 👇
-        callback: {
-          successUrl: `${frontendUrl}/dashboard?payment=success`,
-          autoRedirect: true
-        }
-
-      }, { 
-        headers: { access_token: this.asaasApiKey } 
+        nextDueDate: nextDueDate,
+        cycle: 'MONTHLY',
+        description: `Plano ${planName} - Syncro`,
+      }, {
+        headers: { access_token: this.asaasApiKey }
       });
-      
+
       return {
-        subscriptionId: response.data.id, 
-        invoiceUrl: response.data.url     
+        subscriptionId: response.data.id,
+        invoiceUrl: response.data.invoiceUrl // Este é o link de checkout
       };
     } catch (error: any) {
-      console.error('Erro Asaas (PaymentLink):', JSON.stringify(error.response?.data, null, 2) || error.message);
-      throw new BadRequestException('Erro ao gerar página de checkout no Asaas.');
+      console.error('Erro Asaas (Subscription):', error.response?.data || error.message);
+      throw new BadRequestException('Erro ao gerar página de checkout no Asaas. Verifique os dados do cliente.');
     }
   }
 
@@ -95,25 +86,18 @@ export class BillingService {
   // 4. Busca o link de gestão (fatura) da assinatura ativa no Asaas
   async getManageSubscriptionUrl(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    
     if (!user) throw new NotFoundException('Usuário não encontrado.');
-    
+
     let customerId = user.asaasCustomerId;
-    
-    // 1. Garante que o cliente existe no Asaas antes de fazer qualquer coisa
     if (!customerId) {
-      // 🐛 Bônus: Consertamos o bug do "undefined" aqui!
       const userName = user.name ? user.name.replace('undefined', '').trim() : 'Cliente';
       const newCustomer = await this.createCustomer(userName, user.email);
-      
       customerId = newCustomer.id;
       await this.prisma.user.update({ where: { id: userId }, data: { asaasCustomerId: customerId } });
     }
 
     try {
-      // 👇 A MÁGICA PARA O TYPESCRIPT: Forçamos a garantia de que é uma string!
       const safeCustomerId = customerId as string;
-
       const response = await axios.get(`${this.asaasApiUrl}/subscriptions?customer=${safeCustomerId}`, {
         headers: { access_token: this.asaasApiKey }
       });
@@ -121,19 +105,22 @@ export class BillingService {
       const subscriptions = response.data.data;
       const activeSub = subscriptions.find((s: any) => s.status === 'ACTIVE' || s.status === 'OVERDUE');
 
-      // 3. Cenário A: Tem assinatura! Manda para a fatura do Asaas para gerir o cartão
+      // Se já tem assinatura ativa, devolvemos o link de gestão (fatura)
+      // E o Frontend pode usar essa info para mostrar o botão de "Mudar de Plano"
       if (activeSub) {
-        return { manageUrl: activeSub.invoiceUrl };
+        return { 
+          manageUrl: activeSub.invoiceUrl,
+          hasActiveSubscription: true,
+          currentPlan: user.plan 
+        };
       }
 
-      // 🌟 4. Cenário B: Não tem assinatura (Gera o checkout)
+      // Se não tem, gera um novo checkout
       const planToCharge = user.plan === 'PRO' ? 'PRO' : 'STARTER';
       const valueToCharge = planToCharge === 'PRO' ? 99.00 : 49.00;
       
-      // 👇 Usamos a variável segura "safeCustomerId" aqui, o TypeScript vai parar de reclamar
       const newSub = await this.createSubscription(safeCustomerId, valueToCharge, planToCharge);
 
-      // Salva a intenção de compra no banco de dados
       await this.prisma.user.update({
         where: { id: userId },
         data: { 
@@ -142,13 +129,14 @@ export class BillingService {
         }
       });
 
-      return { manageUrl: newSub.invoiceUrl };
+      return { 
+        manageUrl: newSub.invoiceUrl,
+        hasActiveSubscription: false 
+      };
 
     } catch (error: any) {
-      if (error instanceof BadRequestException) throw error;
-      
       console.error('Erro Asaas (Manage):', error.response?.data || error.message);
-      throw new BadRequestException('Não foi possível acessar o portal de gestão agora.');
+      throw new BadRequestException('Não foi possível processar a gestão da assinatura.');
     }
   }
 }

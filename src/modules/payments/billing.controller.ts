@@ -138,4 +138,27 @@ export class BillingController {
     const targetUserId = user.ownerId ? user.ownerId : user.id;
     return this.billingService.getManageSubscriptionUrl(targetUserId);
   }
+
+  // 🔒 ROTA PROTEGIDA: Alterar plano (Upgrade/Downgrade)
+  @Post('plan')
+  @UseGuards(JwtAuthGuard)
+  async changePlan(@Request() req, @Body() body: { plan: 'STARTER' | 'PRO' }) {
+    const userId = req.user.id || req.user.sub;
+    const { plan } = body;
+
+    if (plan !== 'STARTER' && plan !== 'PRO') {
+      throw new BadRequestException('Plano inválido.');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('Usuário não encontrado');
+
+    // Apenas donas do salão ou admins podem mexer no dinheiro
+    if (user.ownerId && user.role !== 'ADMIN') {
+      throw new BadRequestException('Apenas a administração do salão pode alterar o plano.');
+    }
+
+    const targetUserId = user.ownerId ? user.ownerId : user.id;
+    return this.billingService.changePlan(targetUserId, plan);
+  }
 }

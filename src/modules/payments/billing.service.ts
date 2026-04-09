@@ -159,4 +159,36 @@ export class BillingService {
       throw new BadRequestException('Não foi possível processar a gestão da assinatura.');
     }
   }
+
+  // 5. Altera o Plano (Upgrade e Downgrade de Valores)
+  async changePlan(userId: string, newPlan: 'STARTER' | 'PRO') {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+    if (user.plan === newPlan) throw new BadRequestException(`Você já está no plano ${newPlan}.`);
+
+    // Se tem assinatura no Asaas, atualiza o valor e a descrição lá no gateway
+    if (user.asaasSubscriptionId) {
+      const newValue = newPlan === 'PRO' ? 99.00 : 49.00;
+      try {
+        await axios.post(`${this.asaasApiUrl}/subscriptions/${user.asaasSubscriptionId}`, {
+          value: newValue,
+          description: `Assinatura Syncro - Plano ${newPlan}`,
+          updatePendingPayments: true // 🌟 MÁGICA: Atualiza o valor das faturas que ainda vão vencer
+        }, {
+          headers: { access_token: this.asaasApiKey }
+        });
+      } catch (error: any) {
+        console.error('Erro Asaas (Change Plan):', error.response?.data || error.message);
+        throw new BadRequestException('Erro ao atualizar o valor da assinatura no Asaas.');
+      }
+    }
+
+    // Por fim, atualiza o plano no banco de dados para liberar/bloquear recursos na hora
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { plan: newPlan }
+    });
+
+    return { message: `Plano alterado para ${newPlan} com sucesso!` };
+  }
 }

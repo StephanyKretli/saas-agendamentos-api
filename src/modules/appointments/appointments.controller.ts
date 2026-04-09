@@ -27,73 +27,34 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 @ApiTags('Appointments')
 @ApiBearerAuth('jwt')
 @Controller('appointments')
-@UseGuards(JwtAuthGuard, SubscriptionGuard)
+// 🛑 TIREI O @UseGuards DAQUI DE CIMA!
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
   @Post()
-  @ApiOperation({
-    summary: 'Create appointment',
-    description: 'Creates a new appointment for the authenticated user.',
-  })
-  @ApiBody({
-    type: CreateAppointmentDto,
-    description: 'Appointment creation payload',
-  })
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
+  @ApiOperation({ summary: 'Create appointment' })
   create(@Req() req: any, @Body() dto: CreateAppointmentDto) {
     return this.appointmentsService.create(req.user.id, dto);
   }
 
   @Get('me')
-  @ApiOperation({
-    summary: 'List my appointments',
-    description: 'Returns paginated appointments for the authenticated user.',
-  })
-  @ApiQuery({ name: 'page', required: false, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, example: 10 })
-  @ApiQuery({ name: 'from', required: false, example: '2026-03-01' })
-  @ApiQuery({ name: 'to', required: false, example: '2026-03-31' })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    example: 'SCHEDULED',
-    enum: ['SCHEDULED', 'CANCELED', 'COMPLETED'],
-  })
-  @ApiQuery({ name: 'clientId', required: false, example: 'client_123' })
-  @ApiQuery({ name: 'serviceId', required: false, example: 'service_123' })
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
+  @ApiOperation({ summary: 'List my appointments' })
   findMine(@Req() req: any, @Query() query: ListAppointmentsQueryDto) {
     return this.appointmentsService.findMine(req.user.id, query);
   }
 
   @Patch(':id/cancel')
-  @ApiOperation({
-    summary: 'Cancel appointment',
-    description: 'Cancels an active appointment.',
-  })
-  @ApiParam({
-    name: 'id',
-    example: 'appt_123',
-    description: 'Appointment ID',
-  })
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
+  @ApiOperation({ summary: 'Cancel appointment' })
   cancel(@Req() req: any, @Param('id') id: string) {
     return this.appointmentsService.cancel(req.user.id, id);
   }
 
   @Patch(':id/reschedule')
-  @ApiOperation({
-    summary: 'Reschedule appointment',
-    description: 'Reschedules an active appointment to a new date.',
-  })
-  @ApiParam({
-    name: 'id',
-    example: 'appt_123',
-    description: 'Appointment ID',
-  })
-
-  @ApiBody({
-    type: RescheduleAppointmentDto,
-    description: 'New appointment date payload',
-  })
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
+  @ApiOperation({ summary: 'Reschedule appointment' })
   reschedule(
     @Req() req: any,
     @Param('id') id: string,
@@ -103,29 +64,20 @@ export class AppointmentsController {
   }
 
   @Patch(':id/complete')
-  @ApiOperation({
-    summary: 'Complete appointment',
-    description: 'Marks an appointment as completed.',
-  })
-
-  @ApiParam({
-    name: 'id',
-    example: 'appt_123',
-    description: 'Appointment ID',
-  })
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
+  @ApiOperation({ summary: 'Complete appointment' })
   complete(@Req() req: any, @Param('id') id: string) {
     return this.appointmentsService.complete(req.user.id, id);
   }
 
   @Get('day')
-  getDayAppointments(
-    @Req() req,
-    @Query('date') date: string
-  ) {
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
+  getDayAppointments(@Req() req: any, @Query('date') date: string) {
     return this.appointmentsService.getDayAppointments(req.user.id, date)
   }
 
   @Get('day-timeline')
+  @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ Coloquei aqui
   getDayTimeline(
     @Req() req: any, 
     @Query('date') date: string,
@@ -135,17 +87,15 @@ export class AppointmentsController {
   }
 
   // =========================================================
-  // ROTAS PÚBLICAS (Para a página da cliente gerenciar via WhatsApp)
+  // ROTAS PÚBLICAS (TOTALMENTE LIVRES DE GUARDS) 🔓
   // =========================================================
 
-  // 1. Busca os dados para mostrar na tela pública
   @Get('public/:token')
   async getByPublicToken(@Param('token') token: string) {
     const appointment = await this.appointmentsService.findByPublicToken(token);
     return appointment;
   }
 
-  // 2. Ação do botão "Cancelar Agendamento" da tela pública
   @Post('public/:token/cancel')
   async cancelByPublicToken(@Param('token') token: string) {
     return this.appointmentsService.cancelByPublicToken(token);

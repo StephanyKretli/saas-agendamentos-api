@@ -29,7 +29,7 @@ export class BillingService {
 
     const payload = {
       customer: customerId,
-      billingType: 'BOLETO', // Mantemos BOLETO por segurança (o link permite pagar com PIX/Cartão)
+      billingType: 'UNDEFINED',
       value: value,
       nextDueDate: today.toISOString().split('T')[0],
       cycle: 'MONTHLY',

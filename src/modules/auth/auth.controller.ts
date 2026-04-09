@@ -4,17 +4,17 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { Body, Controller, Get, Post, Req, Res, UseGuards, Injectable } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards, Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 
 // 👇 Nova classe que força a escolha da conta para não dar erro no TypeScript
 @Injectable()
 export class GoogleOAuthGuard extends AuthGuard('google') {
-  constructor() {
-    super({
+  getAuthenticateOptions(context: ExecutionContext) {
+    return {
       prompt: 'select_account',
-    });
+    };
   }
 }
 

@@ -161,4 +161,10 @@ export class BillingController {
     const targetUserId = user.ownerId ? user.ownerId : user.id;
     return this.billingService.changePlan(targetUserId, plan);
   }
+
+  // 🔓 ROTA PÚBLICA: Webhook do Asaas (Radar de Pagamentos)
+  @Post('webhook')
+  async asaasWebhook(@Body() body: any) {
+    return this.billingService.handleAsaasWebhook(body);
+  }
 }

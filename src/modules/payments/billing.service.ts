@@ -76,16 +76,18 @@ export class BillingService {
     if (!user.asaasSubscriptionId) throw new BadRequestException('Nenhuma assinatura ativa.');
 
     try {
+      // 1. Apaga a assinatura no Asaas para cancelar cobranças futuras
       await axios.delete(`${this.asaasApiUrl}/subscriptions/${user.asaasSubscriptionId}`, {
         headers: { access_token: this.asaasApiKey }
       });
 
+      // 2. MÁGICA: Muda o status para CANCELED, mas NÃO tira a palavra 'PRO' do plano!
       await this.prisma.user.update({
         where: { id: userId },
-        data: { plan: 'STARTER', asaasSubscriptionId: null, subscriptionStatus: 'CANCELED' }
+        data: { subscriptionStatus: 'CANCELED' }
       });
 
-      return { message: 'Assinatura cancelada com sucesso.' };
+      return { message: 'Assinatura cancelada. Terá acesso PRO até ao final do ciclo pago.' };
     } catch (error: any) {
       console.error('Erro Asaas (Cancel):', error.response?.data || error.message);
       throw new BadRequestException('Não foi possível cancelar a assinatura no Asaas no momento.');
@@ -190,5 +192,33 @@ export class BillingService {
     });
 
     return { message: `Plano alterado para ${newPlan} com sucesso!` };
+  }
+
+  // 6. Webhook do Asaas (O Radar Automático de Inadimplência)
+  async handleAsaasWebhook(payload: any) {
+    console.log('🔔 Webhook recebido do Asaas:', payload.event);
+
+    // Se o cliente não pagar a renovação (cartão recusado ou boleto vencido)
+    if (payload.event === 'PAYMENT_OVERDUE' || payload.event === 'PAYMENT_REFUNDED') {
+      const customerId = payload.payment?.customer;
+      
+      if (customerId) {
+        const user = await this.prisma.user.findFirst({ where: { asaasCustomerId: customerId } });
+        
+        if (user && user.plan === 'PRO') {
+          // Rebaixa automaticamente a cliente de volta para o plano gratuito
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { 
+              plan: 'STARTER', 
+              subscriptionStatus: 'INACTIVE',
+              asaasSubscriptionId: null
+            }
+          });
+          console.log(`❌ Downgrade automático: O utilizador ${user.email} perdeu o acesso PRO por falta de pagamento.`);
+        }
+      }
+    }
+    return { received: true };
   }
 }

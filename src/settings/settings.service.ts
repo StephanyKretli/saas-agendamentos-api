@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { UploadsService } from '../modules/uploads/uploads.service';
 import { UpdateFinancialSettingsDto } from './dto/update-financial-settings.dto';
+import 'multer';
 
 @Injectable()
 export class SettingsService {
@@ -12,7 +13,6 @@ export class SettingsService {
   ) {}
 
   async getSettings(userId: string) {
-    // 1. Busca quem está logado e traz os dados do "chefe" (owner) junto
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { owner: true }
@@ -22,20 +22,17 @@ export class SettingsService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    // 2. Define de onde vêm os dados do Salão/Negócio
     const isCoAdmin = currentUser.role === 'ADMIN' && currentUser.ownerId !== null;
-    
-    // 👇 Usamos o "!" para garantir ao TypeScript que o owner existe se for CoAdmin
     const businessData = isCoAdmin ? currentUser.owner! : currentUser;
 
-    // 3. Devolvemos o "Frankenstein" perfeito para o Front-end
     return {
-      // --- DADOS PESSOAIS (De quem está logado) ---
+      // --- DADOS PESSOAIS ---
       id: currentUser.id,
       name: currentUser.name,
       username: currentUser.username,
       email: currentUser.email,  
-      phone: currentUser.phone,   
+      phone: currentUser.phone,
+      document: currentUser.document, // 👈 AGORA O FRONTEND RECEBE O CPF
       bio: currentUser.bio,      
       avatarUrl: currentUser.avatarUrl,
       role: currentUser.role,
@@ -43,7 +40,7 @@ export class SettingsService {
       maxMembers: currentUser.maxMembers,
       ownerId: currentUser.ownerId,
 
-      // --- DADOS DO NEGÓCIO/FINANCEIRO (Vêm do Dono do salão) ---
+      // --- DADOS DO NEGÓCIO/FINANCEIRO ---
       timezone: businessData.timezone,
       bufferMinutes: businessData.bufferMinutes,
       minBookingNoticeMinutes: businessData.minBookingNoticeMinutes,
@@ -64,18 +61,16 @@ export class SettingsService {
       throw new NotFoundException('Usuário não encontrado.');
     }
     
-    // Identifica quem é o Dono do salão (targetShopId)
     const targetShopId = currentUser.ownerId || currentUser.id;
     const isCoAdmin = currentUser.role === 'ADMIN' && currentUser.ownerId !== null;
     const isOwner = !currentUser.ownerId;
 
-    // 1. ATUALIZA DADOS PESSOAIS (Sempre atualiza de quem clicou em Salvar)
+    // 1. ATUALIZA DADOS PESSOAIS
     const personalData: any = {};
     if (data.name !== undefined) personalData.name = data.name;
     if (data.username !== undefined) personalData.username = data.username;
-    
-    // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
     if (data.phone !== undefined) personalData.phone = data.phone;
+    if (data.document !== undefined) personalData.document = data.document; // 👈 AGORA A API SALVA O CPF!
     if (data.bio !== undefined) personalData.bio = data.bio;
     if (data.avatarUrl !== undefined) personalData.avatarUrl = data.avatarUrl;
     
@@ -86,7 +81,7 @@ export class SettingsService {
       });
     }
 
-    // 2. ATUALIZA DADOS DO NEGÓCIO (Vai sempre para a conta da Dona!)
+    // 2. ATUALIZA DADOS DO NEGÓCIO
     const businessData: any = {};
     if (data.timezone !== undefined) businessData.timezone = data.timezone;
     if (data.bufferMinutes !== undefined) businessData.bufferMinutes = data.bufferMinutes;
@@ -98,10 +93,9 @@ export class SettingsService {
     if (data.centralizePayments !== undefined) businessData.centralizePayments = data.centralizePayments;
 
     if (Object.keys(businessData).length > 0) {
-      // Trava de segurança extra
       if (isOwner || isCoAdmin) {
         await this.prisma.user.update({
-          where: { id: targetShopId }, // Salva no ID da Dona.
+          where: { id: targetShopId },
           data: businessData
         });
       }
@@ -123,12 +117,12 @@ export class SettingsService {
     const isCoAdmin = currentUser.role === 'ADMIN' && currentUser.ownerId !== null;
     const businessData = isCoAdmin ? currentUser.owner! : currentUser;
 
-    // 👇 Aplicamos a mesma lógica de "Frankenstein" no Profile para garantir sincronia!
     return {
       id: currentUser.id,
       name: currentUser.name,
       email: currentUser.email,
-      phone: currentUser.phone,   
+      phone: currentUser.phone,
+      document: currentUser.document, // 👈 PERFIL TAMBÉM RECEBE O CPF
       bio: currentUser.bio,     
       username: currentUser.username,
       avatarUrl: currentUser.avatarUrl,
@@ -136,7 +130,6 @@ export class SettingsService {
       maxMembers: currentUser.maxMembers, 
       ownerId: currentUser.ownerId,
       
-      // Dados Financeiros puxados do dono
       timezone: businessData.timezone,
       requirePixDeposit: businessData.requirePixDeposit,
       pixDepositPercentage: businessData.pixDepositPercentage,
@@ -177,7 +170,6 @@ export class SettingsService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    // 👇 Nova Lógica de Redirecionamento de Salão aplicada aqui também!
     const targetShopId = currentUser.ownerId || currentUser.id;
     const isCoAdmin = currentUser.role === 'ADMIN' && currentUser.ownerId !== null;
     const isOwner = !currentUser.ownerId;
@@ -186,9 +178,8 @@ export class SettingsService {
       throw new ForbiddenException('Apenas proprietários e administradores podem alterar regras financeiras.');
     }
 
-    // Atualiza apenas os campos que vieram preenchidos na requisição, mas salvando no Dono!
     const updatedUser = await this.prisma.user.update({
-      where: { id: targetShopId }, // 👈 Salva na base da Dona!
+      where: { id: targetShopId },
       data: {
         ...(dto.absorbPixFee !== undefined && { absorbPixFee: dto.absorbPixFee }),
         ...(dto.defaultCommissionRate !== undefined && { defaultCommissionRate: dto.defaultCommissionRate }),

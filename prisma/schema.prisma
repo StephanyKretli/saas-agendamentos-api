@@ -35,6 +35,7 @@ model User {
   avatarUrl               String?
   bio                     String?
   phone                   String?
+  document                String?
   resetToken              String?
   resetTokenExpires       DateTime?
 

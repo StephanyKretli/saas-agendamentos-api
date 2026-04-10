@@ -23,7 +23,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SupportModule } from './modules/support/support.module'; 
 import { AppController } from './app.controller';
-
+import { WebhooksController } from './app.controller'; 
 
 @Module({
   imports: [
@@ -45,7 +45,6 @@ import { AppController } from './app.controller';
     TeamModule,
     NotificationsModule, 
     PaymentsModule,
-    // 👇 2. Registo do módulo aqui
     SupportModule, 
     ThrottlerModule.forRoot([
       {
@@ -54,7 +53,7 @@ import { AppController } from './app.controller';
       },
     ]),
   ],
-  controllers: [HealthController, AppController], 
+  controllers: [HealthController, AppController, WebhooksController], 
   providers: [
     {
       provide: APP_GUARD,

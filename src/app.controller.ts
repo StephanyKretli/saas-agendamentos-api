@@ -9,4 +9,13 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  @Get()
+  getHealthCheck() {
+    return {
+      status: 'online',
+      message: 'Syncro API is running! 🚀',
+      timestamp: new Date().toISOString()
+    };
+  }
 }

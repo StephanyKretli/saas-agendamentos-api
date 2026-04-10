@@ -21,10 +21,19 @@ export class WebhooksController {
 
     return { status: 'Alerta recebido com sucesso' };
   }
+}
 
-  // 💥 Rota temporária para testar o alerta no Discord
+@Controller()
+export class AppController {
+  
+  @Get()
+  getHealthCheck() {
+    return { status: 'online', message: 'Syncro API is running! 🚀' };
+  }
+
+  // 💥 O botão de autodestruição voltou!
   @Get('boom')
   triggerError() {
-    throw new InternalServerErrorException('💥 ERRO CRÍTICO: Teste de integração com o Discord!');
+    throw new InternalServerErrorException('💥 ERRO CRÍTICO: Teste do Webhook para o WhatsApp da Diretoria!');
   }
 }

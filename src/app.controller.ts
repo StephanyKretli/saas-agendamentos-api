@@ -1,4 +1,4 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, Get, InternalServerErrorException } from '@nestjs/common';
 import { WhatsappService } from './modules/notifications/whatsapp.service';
 
 @Controller('webhooks')
@@ -20,5 +20,11 @@ export class WebhooksController {
     await this.whatsapp.sendMessage(idDaSuaInstancia, meuNumeroDaDiretoria, mensagem);
 
     return { status: 'Alerta recebido com sucesso' };
+  }
+
+  // 💥 Rota temporária para testar o alerta no Discord
+  @Get('boom')
+  triggerError() {
+    throw new InternalServerErrorException('💥 ERRO CRÍTICO: Teste de integração com o Discord!');
   }
 }

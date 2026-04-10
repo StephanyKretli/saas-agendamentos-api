@@ -1,11 +1,34 @@
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, HttpAdapterHost } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common'; 
+import { ValidationPipe, Catch, ArgumentsHost } from '@nestjs/common'; 
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import * as Sentry from '@sentry/nestjs';
+import { nodeProfilingIntegration } from '@sentry/profiling-node';
+import { BaseExceptionFilter } from '@nestjs/core';
+
+// 🛡️ 1. O nosso Escudo Customizado que envia os erros para o Sentry
+@Catch()
+export class SentryFilter extends BaseExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    Sentry.captureException(exception);
+    super.catch(exception, host);
+  }
+}
 
 async function bootstrap() {
+  // 2. Inicialização do Sentry
+  Sentry.init({
+    dsn: 'https://32dd4ef87b23f8c5eae472459ebb6e05@o4511197891067904.ingest.us.sentry.io/4511197892640768', 
+    integrations: [
+      nodeProfilingIntegration(),
+    ],
+    // Captura 100% dos erros e da performance
+    tracesSampleRate: 1.0, 
+    profilesSampleRate: 1.0,
+  });
+
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
@@ -23,12 +46,16 @@ async function bootstrap() {
   );
 
   app.useGlobalInterceptors(new TransformInterceptor());
-  app.useGlobalFilters(new AllExceptionsFilter());
 
+  // 🛡️ 3. Ativamos os dois filtros: O do Sentry e o seu filtro padrão
+  const { httpAdapter } = app.get(HttpAdapterHost);
+  app.useGlobalFilters(
+    new SentryFilter(httpAdapter), 
+    new AllExceptionsFilter()
+  );
 
   // Swagger somente fora de produção
   if (process.env.NODE_ENV !== 'production') {
-
     const config = new DocumentBuilder()
       .setTitle('SaaS Agendamentos API')
       .setDescription('Documentação e testes da API')
@@ -46,9 +73,7 @@ async function bootstrap() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
-
     SwaggerModule.setup('docs', app, document);
-
   }
 
   await app.listen(process.env.PORT || 3333, '0.0.0.0');

@@ -22,6 +22,7 @@ import { TeamModule } from './modules/team/team.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SupportModule } from './modules/support/support.module'; 
+import { AppController } from './app.controller';
 
 
 @Module({
@@ -53,7 +54,7 @@ import { SupportModule } from './modules/support/support.module';
       },
     ]),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, AppController], 
   providers: [
     {
       provide: APP_GUARD,

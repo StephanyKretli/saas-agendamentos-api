@@ -21,8 +21,9 @@ export class WhatsappController {
         // 👇 Forçamos o envio para o campo 'qrCode' que o Front espera
         qrCode: data.qrCodeBase64 
       };
-    } catch (error) {
-      throw new BadRequestException('Erro ao gerar QR Code. Verifique se a API está online.');
+    } catch (error: any) {
+      // Devolve a mensagem real em vez de mascarar!
+      throw new BadRequestException(error.message || 'Erro ao gerar QR Code da Evolution API.');
     }
   }
 

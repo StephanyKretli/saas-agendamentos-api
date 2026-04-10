@@ -21,52 +21,61 @@ export class WhatsappService {
     const headers = { 'apikey': this.apiKey, 'Content-Type': 'application/json' };
 
     try {
-      this.logger.log(`[1] Limpando conexão antiga e preparando: ${instanceName}`);
+      this.logger.log(`[1] Preparando instância: ${instanceName}`);
       
-      // 🌟 O NOVO COMANDO: Desloga a instância zumbi à força antes de começar
+      // 1. Limpa a conexão antiga apenas se houver lixo na memória
       await fetch(`${this.baseUrl}/instance/logout/${instanceName}`, {
         method: 'DELETE',
         headers
-      }).catch(() => null); // Ignora se der erro (ex: se a instância já estiver fechada)
-
-      // Dá um segundo para a Evolution respirar após o logout
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // 1. Cria a instância (silenciosamente se já existir)
-      await fetch(`${this.baseUrl}/instance/create`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ instanceName, integration: "WHATSAPP-BAILEYS" }),
       }).catch(() => null);
 
-      // 2. Loop de tentativas (3 tentativas com 7 segundos de intervalo)
-      for (let i = 1; i <= 3; i++) {
-        this.logger.log(`[Tentativa ${i}] Aguardando o QR Code de ${instanceName}...`);
-        
-        // Espera 7 segundos para a Evolution respirar
-        await new Promise(resolve => setTimeout(resolve, 7000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-        const response = await fetch(`${this.baseUrl}/instance/connect/${instanceName}`, { 
+      // 2. Cria a instância e JÁ PEDE O QR CODE NA HORA! (Isso resolve contas novas na hora)
+      this.logger.log(`[2] Criando sessão e solicitando QR Code...`);
+      const createResponse = await fetch(`${this.baseUrl}/instance/create`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ 
+          instanceName, 
+          integration: "WHATSAPP-BAILEYS",
+          qrcode: true // 🌟 Dica de Ouro: Pede à Evolution para enviar o QR Code já na criação!
+        }),
+      });
+
+      let data = await createResponse.json().catch(() => null);
+      let qrCode = data?.qrcode?.base64 || data?.base64;
+
+      // Se a Evolution devolveu o QR Code logo de cara (perfeito para contas novas)
+      if (qrCode && typeof qrCode === 'string' && qrCode.length > 50) {
+        this.logger.log(`✅ SUCESSO INSTANTÂNEO! QR Code gerado na criação.`);
+        return { instanceName, status: 'qrcode', qrCodeBase64: qrCode };
+      }
+
+      // 3. Loop de emergência: se a Evolution estiver lenta (máx 3 tentativas rápidas)
+      this.logger.log(`[3] Evolution a processar... tentando buscar manualmente.`);
+      for (let i = 1; i <= 3; i++) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Espera 5 segundos
+
+        const connectResponse = await fetch(`${this.baseUrl}/instance/connect/${instanceName}`, { 
           method: 'GET', 
           headers 
         });
 
-        const data = await response.json();
-        const qrCode = data?.base64 || data?.qrcode?.base64 || data?.code;
+        data = await connectResponse.json().catch(() => null);
+        qrCode = data?.base64 || data?.qrcode?.base64 || data?.code;
 
         if (qrCode && typeof qrCode === 'string' && qrCode.length > 50) {
-          this.logger.log(`✅ SUCESSO! QR Code gerado.`);
+          this.logger.log(`✅ SUCESSO! QR Code recuperado na tentativa ${i}.`);
           return { instanceName, status: 'qrcode', qrCodeBase64: qrCode };
         }
-        
-        this.logger.warn(`A Evolution ainda está processando (Status: ${data?.status || 'Iniciando'})...`);
       }
 
-      // 3. Se após 3 tentativas não foi, pedimos para a usuária clicar no botão
-      throw new Error('O motor está demorando a iniciar. Por favor, clique em "Atualizar QR Code" em alguns segundos.');
+      throw new Error('A Evolution API demorou muito a responder. Clique em "Atualizar" novamente.');
 
     } catch (error: any) {
       this.logger.error(`Aviso: ${error.message}`);
+      // Lança o erro real para o Frontend saber o que se passou
       throw new BadRequestException(error.message);
     }
   }

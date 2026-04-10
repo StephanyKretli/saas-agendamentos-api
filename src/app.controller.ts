@@ -17,8 +17,8 @@ export class WebhooksController {
 
     const mensagem = `🚨 *Alerta Syncro [${ambiente}]*\n\nUm novo erro acabou de acontecer na API:\n\n*Detalhe:* ${tituloErro}\n\n*Investigar:* ${linkSentry}`;
 
-    const idDaSuaInstancia = 'COLE_AQUI_O_ID_DO_SEU_SALAO_ADMIN'; // Confirme se este ID está correto
-    const meuNumeroDaDiretoria = '5511999999999'; // Confirme o seu número
+    const idDaSuaInstancia = 'Alerta API'; 
+    const meuNumeroDaDiretoria = '5531992096310'; // Confirme o seu número
     
     // 2. Sensor de tentativa
     console.log(`📱 [WEBHOOK SENTRY] A tentar disparar WhatsApp pela instância [${idDaSuaInstancia}] para o número [${meuNumeroDaDiretoria}]...`);

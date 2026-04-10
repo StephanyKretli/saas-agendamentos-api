@@ -17,50 +17,59 @@ export class WhatsappService {
   }
 
   async getQRCode(salonId: string) {
-  const instanceName = this.getInstanceName(salonId);
-  const headers = { 'apikey': this.apiKey, 'Content-Type': 'application/json' };
+    const instanceName = this.getInstanceName(salonId);
+    const headers = { 'apikey': this.apiKey, 'Content-Type': 'application/json' };
 
-  try {
-    this.logger.log(`[1] Verificando/Criando: ${instanceName}`);
-    
-    // 1. Cria a instância (silenciosamente se já existir)
-    await fetch(`${this.baseUrl}/instance/create`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ instanceName, integration: "WHATSAPP-BAILEYS" }),
-    }).catch(() => null);
-
-    // 2. Loop de tentativas (3 tentativas com 7 segundos de intervalo)
-    for (let i = 1; i <= 3; i++) {
-      this.logger.log(`[Tentativa ${i}] Aguardando o QR Code de ${instanceName}...`);
+    try {
+      this.logger.log(`[1] Limpando conexão antiga e preparando: ${instanceName}`);
       
-      // Espera 7 segundos para a Evolution respirar
-      await new Promise(resolve => setTimeout(resolve, 7000));
+      // 🌟 O NOVO COMANDO: Desloga a instância zumbi à força antes de começar
+      await fetch(`${this.baseUrl}/instance/logout/${instanceName}`, {
+        method: 'DELETE',
+        headers
+      }).catch(() => null); // Ignora se der erro (ex: se a instância já estiver fechada)
 
-      const response = await fetch(`${this.baseUrl}/instance/connect/${instanceName}`, { 
-        method: 'GET', 
-        headers 
-      });
+      // Dá um segundo para a Evolution respirar após o logout
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const data = await response.json();
-      const qrCode = data?.base64 || data?.qrcode?.base64 || data?.code;
+      // 1. Cria a instância (silenciosamente se já existir)
+      await fetch(`${this.baseUrl}/instance/create`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ instanceName, integration: "WHATSAPP-BAILEYS" }),
+      }).catch(() => null);
 
-      if (qrCode && typeof qrCode === 'string' && qrCode.length > 50) {
-        this.logger.log(`✅ SUCESSO! QR Code gerado.`);
-        return { instanceName, status: 'qrcode', qrCodeBase64: qrCode };
+      // 2. Loop de tentativas (3 tentativas com 7 segundos de intervalo)
+      for (let i = 1; i <= 3; i++) {
+        this.logger.log(`[Tentativa ${i}] Aguardando o QR Code de ${instanceName}...`);
+        
+        // Espera 7 segundos para a Evolution respirar
+        await new Promise(resolve => setTimeout(resolve, 7000));
+
+        const response = await fetch(`${this.baseUrl}/instance/connect/${instanceName}`, { 
+          method: 'GET', 
+          headers 
+        });
+
+        const data = await response.json();
+        const qrCode = data?.base64 || data?.qrcode?.base64 || data?.code;
+
+        if (qrCode && typeof qrCode === 'string' && qrCode.length > 50) {
+          this.logger.log(`✅ SUCESSO! QR Code gerado.`);
+          return { instanceName, status: 'qrcode', qrCodeBase64: qrCode };
+        }
+        
+        this.logger.warn(`A Evolution ainda está processando (Status: ${data?.status || 'Iniciando'})...`);
       }
-      
-      this.logger.warn(`A Evolution ainda está processando (Status: ${data?.status || 'Iniciando'})...`);
+
+      // 3. Se após 3 tentativas não foi, pedimos para a usuária clicar no botão
+      throw new Error('O motor está demorando a iniciar. Por favor, clique em "Atualizar QR Code" em alguns segundos.');
+
+    } catch (error: any) {
+      this.logger.error(`Aviso: ${error.message}`);
+      throw new BadRequestException(error.message);
     }
-
-    // 3. Se após 3 tentativas não foi, pedimos para a usuária clicar no botão
-    throw new Error('O motor está demorando a iniciar. Por favor, clique em "Atualizar QR Code" em alguns segundos.');
-
-  } catch (error: any) {
-    this.logger.error(`Aviso: ${error.message}`);
-    throw new BadRequestException(error.message);
   }
-}
 
   // ... (o resto das funções getConnectionStatus e sendMessage mantêm-se iguais)
   async getConnectionStatus(salonId: string) {

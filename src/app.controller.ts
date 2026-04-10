@@ -12,9 +12,4 @@ export class AppController {
     };
   }
 
-  // 💥 Rota temporária para testar o alerta no Discord
-  @Get('boom')
-  triggerError() {
-    throw new InternalServerErrorException('💥 ERRO CRÍTICO: Teste de integração com o Discord!');
-  }
 }

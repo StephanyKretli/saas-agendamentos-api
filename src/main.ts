@@ -1,24 +1,14 @@
-import { NestFactory, HttpAdapterHost } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe, Catch, ArgumentsHost } from '@nestjs/common'; 
+import { ValidationPipe } from '@nestjs/common'; 
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import * as Sentry from '@sentry/nestjs';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
-import { BaseExceptionFilter } from '@nestjs/core';
-
-// 🛡️ 1. O nosso Escudo Customizado que envia os erros para o Sentry
-@Catch()
-export class SentryFilter extends BaseExceptionFilter {
-  catch(exception: unknown, host: ArgumentsHost) {
-    Sentry.captureException(exception);
-    super.catch(exception, host);
-  }
-}
 
 async function bootstrap() {
-  // 2. Inicialização do Sentry
+  // 1. Inicialização do Sentry
   Sentry.init({
     dsn: 'https://32dd4ef87b23f8c5eae472459ebb6e05@o4511197891067904.ingest.us.sentry.io/4511197892640768', 
     integrations: [
@@ -47,12 +37,8 @@ async function bootstrap() {
 
   app.useGlobalInterceptors(new TransformInterceptor());
 
-  // 🛡️ 3. Ativamos os dois filtros: O do Sentry e o seu filtro padrão
-  const { httpAdapter } = app.get(HttpAdapterHost);
-  app.useGlobalFilters(
-    new SentryFilter(httpAdapter), 
-    new AllExceptionsFilter()
-  );
+  // 🛡️ 2. Ativamos APENAS o seu filtro padrão (que agora tem o Sentry embutido nele!)
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   // Swagger somente fora de produção
   if (process.env.NODE_ENV !== 'production') {

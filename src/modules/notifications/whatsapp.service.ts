@@ -106,6 +106,14 @@ export class WhatsappService {
         headers: { 'Content-Type': 'application/json', 'apikey': this.apiKey },
         body: JSON.stringify({ number: finalPhone, text: text })
       });
+
+      if (!response.ok) {
+        const errorDetail = await response.json();
+        console.error(`❌ [EVOLUTION ERROR] Instância: ${instanceName}`);
+        console.error(`❌ [EVOLUTION ERROR] Status: ${response.status}`);
+        console.error(`❌ [EVOLUTION ERROR] Detalhe:`, JSON.stringify(errorDetail));
+      }
+
       return response.ok;
     } catch (error) {
       return false;

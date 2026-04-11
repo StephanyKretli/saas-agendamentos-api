@@ -30,7 +30,7 @@ export class AppController {
     const mensagem = `🚨 *Alerta Syncro [${ambiente}]*\n\nUm novo erro aconteceu na API:\n\n*Detalhe:* ${tituloErro}\n\n*Investigar:* ${linkSentry}`;
 
     // 💡 AQUI: Coloque o ID do salão que você criou para você (o que você escaneou o QR Code)
-    const idDaSuaInstancia = 'v2_cmnktjp460000ood8is3k20gw'; 
+    const idDaSuaInstancia = 'cmns5c80m0000s101l3bzhssq'; 
     const meuNumeroDaDiretoria = '5531992096310'; 
     
     console.log(`📱 [WEBHOOK SENTRY] Tentando disparar WhatsApp via instância [${idDaSuaInstancia}]...`);

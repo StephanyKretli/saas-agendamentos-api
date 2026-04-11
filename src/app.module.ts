@@ -23,7 +23,6 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SupportModule } from './modules/support/support.module'; 
 import { AppController } from './app.controller';
-import { WebhooksController } from './app.controller'; 
 
 @Module({
   imports: [
@@ -53,7 +52,7 @@ import { WebhooksController } from './app.controller';
       },
     ]),
   ],
-  controllers: [HealthController, AppController, WebhooksController], 
+  controllers: [HealthController, AppController], 
   providers: [
     {
       provide: APP_GUARD,

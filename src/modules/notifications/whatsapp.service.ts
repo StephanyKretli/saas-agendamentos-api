@@ -95,10 +95,18 @@ export class WhatsappService {
     }
   }
 
-  async sendMessage(salonId: string, phone: string, text: string) {
-    const cleanPhone = phone.replace(/\D/g, ''); 
-    const finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    const instanceName = this.getInstanceName(salonId);
+  async sendMessage(salonId: string, phoneOrGroupId: string, text: string) {
+    let finalPhone = phoneOrGroupId;
+
+    // 💡 A MÁGICA DOS GRUPOS: Se não tiver o '@g.us', é um número normal.
+    // Então nós limpamos os caracteres e colocamos o 55.
+    if (!phoneOrGroupId.includes('@g.us')) {
+      const cleanPhone = phoneOrGroupId.replace(/\D/g, ''); 
+      finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+    }
+
+    // Mantemos a trava de segurança caso o salonId já venha com o prefixo do Evolution
+    const instanceName = salonId.startsWith('v2_') ? salonId : this.getInstanceName(salonId);
 
     try {
       const response = await fetch(`${this.baseUrl}/message/sendText/${instanceName}`, {
@@ -116,6 +124,7 @@ export class WhatsappService {
 
       return response.ok;
     } catch (error) {
+      console.error('❌ [WHATSAPP SERVICE] Erro de rede:', error);
       return false;
     }
   }

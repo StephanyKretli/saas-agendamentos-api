@@ -22,11 +22,15 @@ export class AppController {
 
     const mensagem = `🚨 *Alerta Syncro [${ambiente}]*\n\nUm novo erro aconteceu na API:\n\n*Detalhe:* ${tituloErro}\n\n*Investigar:* ${linkSentry}`;
 
-    // 💡 AQUI: Coloque o ID do salão que você criou para você (o que você escaneou o QR Code)
     const idDaSuaInstancia = 'cmns5c80m0000s101l3bzhssq'; 
-    const meuNumeroDaDiretoria = '5531992096310'; 
+    
+    // 💡 AQUI: O ID exato do seu grupo "Alerta Syncro 🚨"
+    const idDoGrupoDaDiretoria = '120363408755711747@g.us'; 
 
-    const sucesso = await this.whatsapp.sendMessage(idDaSuaInstancia, meuNumeroDaDiretoria, mensagem);
+    console.log(`📱 [WEBHOOK SENTRY] Disparando para o grupo Alerta Syncro...`);
+
+    // Passamos a variável idDoGrupoDaDiretoria no lugar do seu número
+    const sucesso = await this.whatsapp.sendMessage(idDaSuaInstancia, idDoGrupoDaDiretoria, mensagem);
 
     return { status: 'Alerta processado' };
   }

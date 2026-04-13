@@ -7,6 +7,7 @@ export class TeamService {
   constructor(private prisma: PrismaService) {}
 
   async createMember(userId: string, data: any) {
+    console.log('👀 DADOS RECEBIDOS DO FRONT-END: ', data);
     // 1. Descobre quem está a tentar criar
     const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) throw new NotFoundException('Usuário não encontrado.');

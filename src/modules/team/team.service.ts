@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import * as bcrypt from 'bcrypt'; 
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class TeamService {
@@ -137,5 +137,47 @@ export class TeamService {
     });
 
     return { message: 'Profissional removido com sucesso.' };
+  }
+
+  async updateMember(userId: string, memberId: string, data: any) {
+    const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) throw new NotFoundException('Usuário não encontrado.');
+
+    // Verifica se quem está a tentar editar é o dono ou admin
+    const isAdmin = !currentUser.ownerId || currentUser.role === 'ADMIN';
+    if (!isAdmin) {
+      throw new ForbiddenException('Apenas administradores podem gerir a equipe.');
+    }
+
+    const targetShopId = currentUser.ownerId || currentUser.id;
+
+    // Verifica se o funcionário existe e pertence mesmo a este salão
+    const member = await this.prisma.user.findFirst({
+      where: { 
+        id: memberId,
+        ownerId: targetShopId 
+      }
+    });
+
+    if (!member) {
+      throw new NotFoundException('Profissional não encontrado ou não pertence à sua equipe.');
+    }
+
+    // Prepara os dados que vão ser atualizados
+    const updateData: any = {};
+    if (data.name) updateData.name = data.name;
+    if (data.role) updateData.role = data.role;
+    
+    // 💡 O PULO DO GATO: Se vier uma senha nova, encripta usando bcryptjs!
+    if (data.password && data.password.trim() !== '') {
+      updateData.password = await bcrypt.hash(data.password, 10);
+    }
+
+    await this.prisma.user.update({
+      where: { id: memberId },
+      data: updateData,
+    });
+
+    return { message: 'Dados do profissional atualizados com sucesso!' };
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Body, UseGuards, Request, Patch } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody, ApiParam } from '@nestjs/swagger';
 import { TeamService } from './team.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -30,5 +30,16 @@ export default class TeamController {
   @ApiParam({ name: 'id', description: 'ID do profissional a ser removido' })
   async removeMember(@Request() req, @Param('id') memberId: string) {
     return this.teamService.removeMember(req.user.id, memberId);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Atualizar dados/senha de um membro da equipe' })
+  @ApiParam({ name: 'id', description: 'ID do profissional a ser editado' })
+  async updateMember(
+    @Request() req, 
+    @Param('id') memberId: string, 
+    @Body() body: any
+  ) {
+    return this.teamService.updateMember(req.user.id, memberId, body);
   }
 }

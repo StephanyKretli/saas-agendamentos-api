@@ -123,56 +123,41 @@ export class DashboardService {
 
   // 👇 FUNÇÃO 2: Agenda do dia blindada por cargo
   async getTodayAgenda(userId: string) {
-    const currentUser = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { ownerId: true, role: true },
-    });
-    
-    const isAdmin = !currentUser?.ownerId || currentUser?.role === 'ADMIN';
-    const shopId = currentUser?.ownerId || userId;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
 
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const whereClause: any = {
+  const appointments = await this.prisma.appointment.findMany({
+    where: {
+      professionalId: userId, // ✅ Sempre filtra pelo usuário logado
       date: {
         gte: todayStart,
         lte: todayEnd,
       },
+    },
+    include: {
+      service: true,
+      client: true,
+    },
+    orderBy: {
+      date: 'asc',
+    },
+  });
+
+  return appointments.map(apt => {
+    const startTime = new Date(apt.date);
+    const endTime = new Date(startTime.getTime() + apt.service.duration * 60000);
+
+    return {
+      id: apt.id,
+      status: apt.status,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      clientName: apt.client?.name || 'Cliente Avulso',
+      serviceName: apt.service.name,
     };
-
-    if (isAdmin) {
-      whereClause.userId = shopId; // Admin vê a agenda de todo o mundo
-    } else {
-      whereClause.professionalId = userId; // Equipe comum só vê a si mesma
-    }
-
-    const appointments = await this.prisma.appointment.findMany({
-      where: whereClause,
-      include: {
-        service: true,
-        client: true,
-      },
-      orderBy: {
-        date: 'asc',
-      },
-    });
-
-    return appointments.map(apt => {
-      const startTime = new Date(apt.date);
-      const endTime = new Date(startTime.getTime() + apt.service.duration * 60000);
-
-      return {
-        id: apt.id,
-        status: apt.status,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-        clientName: apt.client?.name || 'Cliente Avulso',
-        serviceName: apt.service.name,
-      };
-    });
-  }
+  });
+}
 }

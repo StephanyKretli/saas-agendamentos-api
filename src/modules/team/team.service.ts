@@ -164,10 +164,22 @@ export class TeamService {
       throw new NotFoundException('Profissional não encontrado ou não pertence à sua equipe.');
     }
 
+    // 🌟 A MÁGICA DO EMAIL ACONTECE AQUI:
+    if (data.email) {
+      const emailExists = await this.prisma.user.findUnique({
+        where: { email: data.email }
+      });
+      // Se achou alguém com esse email e NÃO é o membro atual -> Bloqueia!
+      if (emailExists && emailExists.id !== memberId) {
+        throw new BadRequestException("Este e-mail já está em uso por outro profissional.");
+      }
+    }
+
     // Prepara os dados que vão ser atualizados
     const updateData: any = {};
     if (data.name) updateData.name = data.name;
     if (data.role) updateData.role = data.role;
+    if (data.email) updateData.email = data.email; // 👈 O campo que estava faltando!
     
     // 💡 O PULO DO GATO: Se vier uma senha nova, encripta usando bcryptjs!
     if (data.password && data.password.trim() !== '') {

@@ -6,6 +6,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import * as Sentry from '@sentry/nestjs';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
+import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 
 async function bootstrap() {
   // 1. Inicialização do Sentry
@@ -61,6 +62,8 @@ async function bootstrap() {
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('docs', app, document);
   }
+
+  app.useGlobalFilters(new PrismaExceptionFilter());
 
   await app.listen(process.env.PORT || 3333, '0.0.0.0');
 }

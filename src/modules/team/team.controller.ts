@@ -38,8 +38,11 @@ export default class TeamController {
   async updateMember(
     @Request() req, 
     @Param('id') memberId: string, 
-    @Body() body: any
+    @Body() body: any // Deixamos o any aqui para não bloquear nada
   ) {
+    // 🌟 O NOSSO ESPIÃO: Vai imprimir no terminal da VPS o que chegou do React
+    console.log('🔥 CHEGOU NO CONTROLLER DE UPDATE:', body); 
+    
     return this.teamService.updateMember(req.user.id, memberId, body);
   }
 }

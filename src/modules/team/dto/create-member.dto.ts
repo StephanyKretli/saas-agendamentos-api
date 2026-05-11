@@ -5,11 +5,11 @@ export class CreateMemberDto {
   @ApiProperty({ example: 'Carlos Barbeiro', description: 'Nome do profissional' })
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name!: string; // 🌟 Adicionamos o ! aqui
 
   @ApiProperty({ example: 'carlos@demo.com', description: 'E-mail de acesso' })
   @IsEmail()
-  email: string;
+  email!: string; // 🌟 Adicionamos o ! aqui
 
   @ApiPropertyOptional({ description: 'Gerado automaticamente se não enviado' })
   @IsOptional()
@@ -20,10 +20,10 @@ export class CreateMemberDto {
   @IsOptional()
   @IsString()
   @MinLength(6)
-  password?: string;
+  password?: string; // Como tem o ?, o TypeScript não reclama
 
   @IsOptional()
   @IsString()
   @IsIn(['PROFESSIONAL', 'ADMIN'])
-  role?: string;
+  role?: string; // Como tem o ?, o TypeScript não reclama
 }

@@ -115,16 +115,22 @@ export class AppointmentsService {
   }
 
   async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string }) {
-    const start = parseLocalISO(dto.date);
+    // 1. Validação e extração inicial (Garante que serviceId é string)
+    const { serviceId, date, professionalId, clientId, notes, client } = dto;
     
-    const targetUserId = (dto.professionalId && dto.professionalId !== 'undefined' && dto.professionalId !== 'null') 
-      ? dto.professionalId 
-      : userId;
+    if (!serviceId) throw new BadRequestException('O ID do serviço é obrigatório.');
+    if (!date) throw new BadRequestException('A data é obrigatória.');
 
+    const start = parseLocalISO(date);
     if (Number.isNaN(start.getTime())) throw new BadRequestException('Data inválida.');
     
     const now = new Date();
     if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível agendar no passado.');
+
+    // 2. Definição do profissional (Garante que targetUserId é string)
+    const targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
+      ? professionalId 
+      : userId;
 
     const settings = await this.getUserBookingSettings(targetUserId);
     const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
@@ -143,10 +149,11 @@ export class AppointmentsService {
       throw new BadRequestException(`O agendamento só pode ser feito com até ${maxBookingDays} dias de antecedência.`);
     }
 
-    // 🌟 PASSO 1: Guardar no banco de dados
+    // 🌟 INÍCIO DA TRANSAÇÃO
     const newAppointment = await this.prisma.$transaction(async (tx) => {
+      // Aqui usamos a constante 'serviceId' que o TS já sabe que é string
       const service = await tx.service.findFirst({
-        where: { id: dto.serviceId },
+        where: { id: serviceId },
         select: { id: true, duration: true, priceCents: true, name: true },
       });
 
@@ -190,20 +197,23 @@ export class AppointmentsService {
 
       if (hasConflict) throw new BadRequestException('Conflito de horário na agenda.');
 
-      let resolvedClientId: string | undefined = dto.clientId;
-      if (dto.clientId && dto.client) throw new BadRequestException('Informe apenas clientId ou client, não os dois.');
+      let resolvedClientId: string | undefined = clientId;
+      if (clientId && client) throw new BadRequestException('Informe apenas clientId ou client, não os dois.');
 
       if (resolvedClientId) {
         const existingClientById = await tx.client.findFirst({ where: { id: resolvedClientId }, select: { id: true } });
         if (!existingClientById) throw new BadRequestException('Cliente inválido.');
       }
 
-      if (!resolvedClientId && dto.client) {
-        const normalizedPhone = dto.client.phone.replace(/\D/g, '');
-        
-        // ✅ EXIGE ESTritamente 11 NÚMEROS (DDD + 9 + 8 números)
+      // Validação do objeto 'client' para evitar erro de 'possibly undefined'
+      if (!resolvedClientId && client) {
+        if (!client.phone || !client.name) {
+          throw new BadRequestException('Nome e telefone do cliente são obrigatórios.');
+        }
+
+        const normalizedPhone = client.phone.replace(/\D/g, '');
         if (normalizedPhone.length !== 11) {
-          throw new BadRequestException('Número de WhatsApp inválido. O número deve conter exatamente 11 dígitos, incluindo o DDD e o 9 à frente (Ex: 11999999999).');
+          throw new BadRequestException('Número de WhatsApp inválido.');
         }
 
         const existingClient = await tx.client.findFirst({ where: { userId, phone: normalizedPhone } });
@@ -212,26 +222,17 @@ export class AppointmentsService {
           resolvedClientId = existingClient.id;
           await tx.client.update({
             where: { id: existingClient.id },
-            data: { name: dto.client.name, email: dto.client.email },
+            data: { name: client.name, email: client.email || null },
           });
         } else {
           const createdClient = await tx.client.create({
-            data: { userId, name: dto.client.name, phone: normalizedPhone, email: dto.client.email },
+            data: { userId, name: client.name, phone: normalizedPhone, email: client.email || null },
           });
           resolvedClientId = createdClient.id;
         }
       }
 
-      console.log('\n--- 🕵️‍♂️ DEBUG DO PIX ---');
-      console.log('1. ID do Profissional Alvo:', targetUserId);
-      console.log('2. Exige PIX nas configs?', settings.requirePixDeposit);
-      console.log('3. Preço do Serviço (cents):', service.priceCents);
-      console.log('4. Tem Token do MP salvo?', !!settings.mercadoPagoAccessToken);
-      console.log('------------------------\n');
-
- // 💰 1. LÓGICA DE COBRANÇA (Obedecendo ao Roteamento)
       let depositCents = 0;
-      
       if (settings.plan === 'PRO' && settings.requirePixDeposit && service.priceCents > 0) {
         const percentage = settings.pixDepositPercentage / 100;
         depositCents = Math.round(service.priceCents * percentage);
@@ -239,15 +240,15 @@ export class AppointmentsService {
 
       const paymentStatus = depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED';
 
-      // 💾 2. SALVAR NO BANCO DE DADOS
+      // Criação final usando as constantes garantidas
       return tx.appointment.create({
         data: {
           userId,
           professionalId: targetUserId,
-          serviceId: dto.serviceId,
-          clientId: resolvedClientId,
+          serviceId: serviceId, // TS agora confia que é string
+          clientId: resolvedClientId || '', // Fallback para string vazia caso resolvedClientId falhe
           date: start,
-          notes: dto.notes,
+          notes: notes || null,
           status: 'SCHEDULED', 
           paymentStatus,       
           depositCents: depositCents > 0 ? depositCents : null,
@@ -260,67 +261,52 @@ export class AppointmentsService {
           professional: { select: { name: true, phone: true } }
         }
       });
-    }); // 👈 FIM DA TRANSAÇÃO PRISMA
+    });
 
-    // 🚀 3. GERAR O PIX COM A CHAVE VENCEDORA (Fora da transação)
-    let finalAppointment = newAppointment;
+    // Lógica pós-transação (PIX e WhatsApp)
+    let finalAppointment = newAppointment as any;
 
     if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
       try {
         const pixData = await this.mercadoPagoService.createPixPayment(
           newAppointment.id,
           newAppointment.depositCents!,
-          newAppointment.client?.name || 'Cliente',
-          newAppointment.client?.email || undefined,
-          settings.mercadoPagoAccessToken // 👈 A mágica acontece aqui!
+          finalAppointment.client?.name || 'Cliente',
+          finalAppointment.client?.email || undefined,
+          settings.mercadoPagoAccessToken
         );
 
-        console.log('\n💳 === PIX GERADO COM SUCESSO === 💳');
-
-        // Atualiza a marcação com o código do PIX gerado
         finalAppointment = await this.prisma.appointment.update({
           where: { id: newAppointment.id },
           data: {
             transactionId: pixData.transactionId,
             pixPayload: pixData.qrCodePayload,
           },
-          include: { service: true, client: true, professional: { select: { name: true, phone: true } } } // ✅ CORRIGIDO
+          include: { service: true, client: true, professional: { select: { name: true, phone: true } } }
         });
       } catch (error) {
-        console.error('Erro ao gerar PIX no Mercado Pago:', error);
-        
-        // 💥 DESTRÓI O AGENDAMENTO FANTASMA
-        await this.prisma.appointment.delete({
-          where: { id: newAppointment.id }
-        });
-
-        // 🛑 BLOQUEIA A TELA DO CLIENTE COM O ERRO
-        throw new BadRequestException('Erro na conta do salão: Não foi possível gerar a cobrança PIX. Tente novamente mais tarde.');
+        await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
+        throw new BadRequestException('Erro ao gerar cobrança PIX.');
       }
     } else if (newAppointment.paymentStatus === 'NOT_REQUIRED') {
-      // 🌟 PASSO 4: Enviar WhatsApp IMEDIATO apenas se não precisar de PIX
       try {
         if (finalAppointment.client?.phone) {
-          // 1. Pega a URL base do seu Front-end (Coloque FRONTEND_URL=http://localhost:3000 no seu .env)
           const frontendUrl = process.env.APP_WEB_URL || 'https://meusyncro.com.br';
-          
-          // 2. Monta o link mágico usando o token que já foi salvo no banco de dados!
           const manageLink = `${frontendUrl}/agendamento/${finalAppointment.publicCancelToken}`;
 
-          // 3. Envia o WhatsApp
-          this.whatsappService.sendAppointmentConfirmation(
+          await this.whatsappService.sendAppointmentConfirmation(
             settings.salonOwnerId, 
             finalAppointment.client.name,
             finalAppointment.client.phone,
             finalAppointment.service.name,
             finalAppointment.date,
             finalAppointment.professional?.name || 'Equipe',
-            manageLink // 👈 Passamos o link gerado aqui!
+            manageLink
           );
         }
         if (settings.plan === 'PRO' && finalAppointment.professional?.phone) {
-          this.whatsappService.notifyProfessionalNewAppointment(
-            settings.salonOwnerId, // 👈 1º Parâmetro: ID do Salão
+          await this.whatsappService.notifyProfessionalNewAppointment(
+            settings.salonOwnerId,
             finalAppointment.professional.phone,
             finalAppointment.client?.name || 'Cliente',
             finalAppointment.date,
@@ -328,9 +314,10 @@ export class AppointmentsService {
           ).catch(e => console.error('Erro WPP Profissional:', e));
         }
       } catch (error) {
-        console.error('Erro ao engatilhar WhatsApp:', error);
+        console.error('Erro ao enviar notificações:', error);
       }
     }
+
     return finalAppointment;
   }
 

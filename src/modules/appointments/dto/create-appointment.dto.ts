@@ -13,12 +13,12 @@ class CreateAppointmentClientDto {
   @ApiProperty({ example: 'João Silva' })
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name?: string;
 
   @ApiProperty({ example: '31999999999' })
   @IsString()
   @IsNotEmpty()
-  phone: string;
+  phone?: string;
 
   @ApiPropertyOptional({ example: 'joao@email.com' })
   @IsOptional()
@@ -30,14 +30,14 @@ export class CreateAppointmentDto {
   @ApiProperty({ example: 'clx123abc' })
   @IsString()
   @IsNotEmpty()
-  serviceId: string;
+  serviceId?: string;
 
   @ApiProperty({
     example: '2026-03-10T09:00:00',
     description: 'Appointment date in ISO format',
   })
   @IsISO8601()
-  date: string;
+  date?: string;
 
   @ApiPropertyOptional({ example: 'client_123' })
   @IsOptional()
@@ -57,4 +57,9 @@ export class CreateAppointmentDto {
   @ValidateNested()
   @Type(() => CreateAppointmentClientDto)
   client?: CreateAppointmentClientDto;
+
+  @ApiPropertyOptional({ example: 'user_id_do_profissional' })
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
 }

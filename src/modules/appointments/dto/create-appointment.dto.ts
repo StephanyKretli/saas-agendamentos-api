@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import {
+import { 
   IsEmail,
   IsISO8601,
   IsNotEmpty,

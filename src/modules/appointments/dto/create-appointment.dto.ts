@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-class CreateAppointmentClientDto {
+export class CreateAppointmentClientDto {
   @ApiProperty({ example: 'João Silva' })
   @IsString()
   @IsNotEmpty()
@@ -36,6 +36,7 @@ export class CreateAppointmentDto {
     example: '2026-03-10T09:00:00',
     description: 'Appointment date in ISO format',
   })
+  @IsNotEmpty()
   @IsISO8601()
   date?: string;
 
@@ -44,21 +45,19 @@ export class CreateAppointmentDto {
   @IsString()
   clientId?: string;
 
-  @ApiPropertyOptional({ example: 'Primeira visita' })
-  @IsOptional()
-  @IsString()
-  notes?: string;
-
-  @ApiPropertyOptional({
-    description: 'Client data used when clientId is not provided',
-    type: CreateAppointmentClientDto,
-  })
+  @ApiPropertyOptional({ type: CreateAppointmentClientDto })
   @IsOptional()
   @ValidateNested()
   @Type(() => CreateAppointmentClientDto)
   client?: CreateAppointmentClientDto;
 
-  @ApiPropertyOptional({ example: 'user_id_do_profissional' })
+  @ApiPropertyOptional({ example: 'Observações...' })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  // 🌟 O CONVITE VIP: Isto é o que impede o erro "should not exist"
+  @ApiPropertyOptional({ example: 'prof_123' })
   @IsOptional()
   @IsString()
   professionalId?: string;

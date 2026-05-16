@@ -114,9 +114,10 @@ export class AppointmentsService {
     };
   }
 
-  async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string }) {
+  async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean }) {
     // 1. Validação e extração inicial (Garante que serviceId é string)
-    const { serviceId, date, professionalId, clientId, notes, client } = dto;
+    // 🌟 Adicionado o 'isMaintenance' na desestruturação
+    const { serviceId, date, professionalId, clientId, notes, client, isMaintenance } = dto;
     
     if (!serviceId) throw new BadRequestException('O ID do serviço é obrigatório.');
     if (!date) throw new BadRequestException('A data é obrigatória.');
@@ -151,15 +152,36 @@ export class AppointmentsService {
 
     // 🌟 INÍCIO DA TRANSAÇÃO
     const newAppointment = await this.prisma.$transaction(async (tx) => {
-      // Aqui usamos a constante 'serviceId' que o TS já sabe que é string
+      
       const service = await tx.service.findFirst({
         where: { id: serviceId },
-        select: { id: true, duration: true, priceCents: true, name: true },
+        select: { 
+          id: true, 
+          duration: true, 
+          priceCents: true, 
+          name: true,
+          // 🌟 Buscando os campos de manutenção que você criou no Prisma
+          hasMaintenance: true,
+          maintenanceDurationMinutes: true,
+          maintenancePriceCents: true
+        },
       });
 
       if (!service) throw new BadRequestException('Serviço inválido.');
 
-      const totalMinutes = getAppointmentTotalMinutes(service.duration, settings.bufferMinutes);
+      // 🌟 Lógica de Decisão: Base ou Manutenção?
+      const isMaintenanceBooking = isMaintenance && service.hasMaintenance;
+
+      const finalDuration = isMaintenanceBooking && service.maintenanceDurationMinutes 
+        ? service.maintenanceDurationMinutes 
+        : service.duration;
+
+      const finalPriceCents = isMaintenanceBooking && service.maintenancePriceCents !== null 
+        ? service.maintenancePriceCents 
+        : service.priceCents;
+
+      // 🌟 Usa a duração calculada (finalDuration) para checar o tempo do expediente
+      const totalMinutes = getAppointmentTotalMinutes(finalDuration, settings.bufferMinutes);
       const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
 
       if (!ok) throw new BadRequestException('O horário escolhido não cabe dentro do expediente do profissional.');
@@ -233,9 +255,10 @@ export class AppointmentsService {
       }
 
       let depositCents = 0;
-      if (settings.plan === 'PRO' && settings.requirePixDeposit && service.priceCents > 0) {
+      // 🌟 Usa o preço calculado (finalPriceCents) para gerar o depósito PIX proporcional
+      if (settings.plan === 'PRO' && settings.requirePixDeposit && finalPriceCents > 0) {
         const percentage = settings.pixDepositPercentage / 100;
-        depositCents = Math.round(service.priceCents * percentage);
+        depositCents = Math.round(finalPriceCents * percentage);
       }
 
       const paymentStatus = depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED';
@@ -245,8 +268,8 @@ export class AppointmentsService {
         data: {
           userId,
           professionalId: targetUserId,
-          serviceId: serviceId, // TS agora confia que é string
-          clientId: resolvedClientId || '', // Fallback para string vazia caso resolvedClientId falhe
+          serviceId: serviceId,
+          clientId: resolvedClientId || '', 
           date: start,
           notes: notes || null,
           status: 'SCHEDULED', 

@@ -96,13 +96,19 @@ model Service {
   duration      Int
   priceCents    Int
   imageUrl      String?
-
   user          User                  @relation("UserOwnedServices", fields: [userId], references: [id]) 
-  
-  // 👇 RELAÇÃO ATUALIZADA: Agora aponta para a tabela intermediária
   professionals ProfessionalService[] @relation("ServiceToProfessional")                                 
-  
   appointments  Appointment[]
+
+  hasMaintenance             Boolean  @default(false)
+  maintenancePriceCents      Int?     // Preço opcional para manutenção
+  maintenanceDurationMinutes Int?     // Duração opcional para manutenção
+
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([userId])
+
 }
 
 // 👇 NOVO MODELO: Tabela intermediária para definir a comissão de cada profissional por serviço

@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   ValidateNested,
+  IsBoolean
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -61,4 +62,8 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   professionalId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isMaintenance?: boolean;
 }

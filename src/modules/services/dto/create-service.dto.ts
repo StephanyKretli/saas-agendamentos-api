@@ -1,21 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsString, Min, IsOptional, IsIn, IsArray } from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, Min, IsOptional, IsArray, IsBoolean, IsNumber } from 'class-validator';
 
 export class CreateServiceDto {
   @ApiProperty({ example: 'Corte feminino' })
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name: string; 
 
   @ApiProperty({ example: 60, description: 'Duration in minutes' })
   @IsInt()
   @Min(1)
-  duration: number;
+  duration: number; 
 
   @ApiProperty({ example: 8000, description: 'Price in cents' })
   @IsInt()
   @Min(0)
-  priceCents: number;
+  priceCents: number; 
 
   @ApiPropertyOptional({ example: 'scissors' })
   @IsOptional()
@@ -27,4 +27,16 @@ export class CreateServiceDto {
   @IsArray()
   @IsString({ each: true })
   professionalIds?: string[];
+
+  @IsBoolean()
+  @IsOptional()
+  hasMaintenance?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  maintenanceDurationMinutes?: number;
+
+  @IsNumber()
+  @IsOptional()
+  maintenancePriceCents?: number;
 }

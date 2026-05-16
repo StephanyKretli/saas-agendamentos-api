@@ -28,12 +28,18 @@ export class ServicesService {
 
     const rawService = await this.prisma.service.create({
       data: {
-        userId: targetShopId, // 👈 Salva o serviço SEMPRE no cofre da Dona
-        name: dto.name,
-        duration: dto.duration,
-        priceCents: dto.priceCents,
+        userId: targetShopId, // Salva o serviço SEMPRE no cofre da Dona
+        
+        // 🌟 SOLUÇÃO DE FORÇA BRUTA: Força o tipo para o Prisma aceitar sem chiar
+        name: dto.name as string,       
+        duration: dto.duration as number,
+        priceCents: dto.priceCents as number,
+        
         icon: dto.icon || 'scissors', 
         professionals: professionalsData, 
+        hasMaintenance: (dto as any).hasMaintenance ?? false,
+        maintenanceDurationMinutes: (dto as any).hasMaintenance ? Number((dto as any).maintenanceDurationMinutes) : null,
+        maintenancePriceCents: (dto as any).hasMaintenance ? Number((dto as any).maintenancePriceCents) : null,
       },
       select: this.serviceSelect(),
     });
@@ -70,7 +76,7 @@ export class ServicesService {
   }
 
   async update(userId: string, id: string, dto: UpdateServiceDto & { professionalIds?: string[] }) {
-    await this.ensureOwnership(userId, id); // Já faz a validação de Admin e Salão!
+    await this.ensureOwnership(userId, id);
 
     let professionalsData;
     if (dto.professionalIds) {
@@ -86,11 +92,14 @@ export class ServicesService {
     const rawService = await this.prisma.service.update({
       where: { id },
       data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.duration !== undefined && { duration: dto.duration }),
-        ...(dto.priceCents !== undefined && { priceCents: dto.priceCents }),
-        ...(dto.icon !== undefined && { icon: dto.icon }), 
-        ...(professionalsData !== undefined && { professionals: professionalsData }), 
+        name: dto.name,               // 🌟 Se for undefined, o Prisma ignora automaticamente
+        duration: dto.duration,       // 🌟 Se for undefined, o Prisma ignora automaticamente
+        priceCents: dto.priceCents,   // 🌟 Se for undefined, o Prisma ignora automaticamente
+        icon: dto.icon,
+        professionals: professionalsData, 
+        hasMaintenance: dto.hasMaintenance,
+        maintenanceDurationMinutes: dto.hasMaintenance === false ? null : dto.maintenanceDurationMinutes,
+        maintenancePriceCents: dto.hasMaintenance === false ? null : dto.maintenancePriceCents,
       },
       select: this.serviceSelect(),
     });
@@ -123,12 +132,10 @@ export class ServicesService {
     return { success: true };
   }
 
-  // 👇 Esta é a função que protege a edição, exclusão e imagens
   private async ensureOwnership(userId: string, id: string) {
     const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) throw new NotFoundException('Usuário não encontrado.');
 
-    // Bloqueia qualquer tentativa maliciosa de membros comuns
     const isAdmin = !currentUser.ownerId || currentUser.role === 'ADMIN';
     if (!isAdmin) {
       throw new ForbiddenException('Apenas administradores podem modificar serviços.');
@@ -136,7 +143,6 @@ export class ServicesService {
 
     const targetShopId = currentUser.ownerId || currentUser.id;
 
-    // Busca garantindo que o serviço pertence ao salão correto
     const service = await this.prisma.service.findFirst({
       where: { id, userId: targetShopId },
       select: { id: true },
@@ -157,6 +163,10 @@ export class ServicesService {
       priceCents: true,
       imageUrl: true,
       icon: true, 
+      // 🌟 ADICIONADO: Garante que o Prisma traga esses dados do Postgres para o Front-end
+      hasMaintenance: true,
+      maintenanceDurationMinutes: true,
+      maintenancePriceCents: true,
       professionals: {
         select: {
           professional: {

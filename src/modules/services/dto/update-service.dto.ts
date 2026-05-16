@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Min, IsArray, IsIn } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min, IsArray, IsBoolean, IsNumber } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateServiceDto {
@@ -26,4 +26,16 @@ export class UpdateServiceDto {
   @IsArray()
   @IsString({ each: true })
   professionalIds?: string[];
+
+  @IsBoolean()
+  @IsOptional()
+  hasMaintenance?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  maintenanceDurationMinutes?: number;
+
+  @IsNumber()
+  @IsOptional()
+  maintenancePriceCents?: number;
 }

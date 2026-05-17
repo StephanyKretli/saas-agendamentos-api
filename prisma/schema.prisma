@@ -27,102 +27,101 @@ enum AppointmentStatus {
 }
 
 model User {
-  id                      String         @id @default(cuid())
-  email                   String         @unique
-  name                    String
-  password                String
-  username                String         @unique
-  avatarUrl               String?
-  bio                     String?
-  phone                   String?
-  document                String?
-  resetToken              String?
-  resetTokenExpires       DateTime?
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  password          String
+  username          String    @unique
+  avatarUrl         String?
+  bio               String?
+  phone             String?
+  document          String?
+  resetToken        String?
+  resetTokenExpires DateTime?
 
   // Configurações de SaaS
-  role                    Role           @default(USER)
-  plan                    Plan           @default(STARTER)
-  maxMembers              Int            @default(3)
+  role       Role @default(USER)
+  plan       Plan @default(STARTER)
+  maxMembers Int  @default(3)
 
-  trialEndsAt             DateTime?      // Quando acabam os 14 dias grátis?
-  subscriptionStatus      String         @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, CANCELED
-  asaasCustomerId         String?        // ID do cliente lá no painel do Asaas (cus_xxxx)
-  asaasSubscriptionId     String?        // ID da assinatura lá no Asaas (sub_xxxx)
-  
+  trialEndsAt         DateTime? // Quando acabam os 14 dias grátis?
+  subscriptionStatus  String    @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, CANCELED
+  asaasCustomerId     String? // ID do cliente lá no painel do Asaas (cus_xxxx)
+  asaasSubscriptionId String? // ID da assinatura lá no Asaas (sub_xxxx)
+
   // Hierarquia de Equipe
-  ownerId                 String?
-  owner                   User?          @relation("TeamHierarchy", fields: [ownerId], references: [id])
-  teamMembers             User[]         @relation("TeamHierarchy")
+  ownerId     String?
+  owner       User?   @relation("TeamHierarchy", fields: [ownerId], references: [id])
+  teamMembers User[]  @relation("TeamHierarchy")
 
   // Configurações de Agendamento
-  timezone                String         @default("America/Sao_Paulo")
-  bufferMinutes           Int            @default(0)
-  minBookingNoticeMinutes Int            @default(0)
-  maxBookingDays          Int            @default(30)
-  
+  timezone                String @default("America/Sao_Paulo")
+  bufferMinutes           Int    @default(0)
+  minBookingNoticeMinutes Int    @default(0)
+  maxBookingDays          Int    @default(30)
+
   // 👇 NOVAS REGRAS FINANCEIRAS (Configuradas pelo Admin/Dona do Salão)
-  absorbPixFee            Boolean        @default(true) // true = Salão absorve a taxa PIX | false = Abate do valor antes da comissão
-  defaultCommissionRate   Float?         // Porcentagem padrão do profissional (ex: 50.0). Usado se o serviço específico não tiver taxa.
-  commissionType          String         @default("PERCENTAGE") // "PERCENTAGE" (Porcentagem) ou "FIXED" (Valor Fixo)
-  
-  createdAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
-  requirePixDeposit       Boolean        @default(false) // Desligado por padrão
-  pixDepositPercentage    Int            @default(20)    // 20% por padrão
-  mercadoPagoAccessToken  String?
-  centralizePayments      Boolean        @default(true) // true = Cai pro Dono | false = Cai pro Funcionário
+  absorbPixFee          Boolean @default(true) // true = Salão absorve a taxa PIX | false = Abate do valor antes da comissão
+  defaultCommissionRate Float? // Porcentagem padrão do profissional (ex: 50.0). Usado se o serviço específico não tiver taxa.
+  commissionType        String  @default("PERCENTAGE") // "PERCENTAGE" (Porcentagem) ou "FIXED" (Valor Fixo)
+
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  requirePixDeposit      Boolean  @default(false) // Desligado por padrão
+  pixDepositPercentage   Int      @default(20) // 20% por padrão
+  mercadoPagoAccessToken String?
+  centralizePayments     Boolean  @default(true) // true = Cai pro Dono | false = Cai pro Funcionário
 
   // Relações de Serviços
-  ownedServices           Service[]             @relation("UserOwnedServices")     
-  
+  ownedServices Service[] @relation("UserOwnedServices")
+
   // 👇 RELAÇÃO ATUALIZADA: Agora aponta para a tabela intermediária com as comissões específicas
-  services                ProfessionalService[] @relation("ProfessionalToService")
+  services ProfessionalService[] @relation("ProfessionalToService")
 
   // Outras Relações
-  clients                 Client[]
-  businessHours           BusinessHour[]
-  blockedDates            BlockedDate[]
-  blockedSlots            BlockedSlot[]
-  
-  appointments            Appointment[]  @relation("ProfessionalAppointments")
-  ownedAppointments       Appointment[]  @relation("AccountAppointments")
+  clients       Client[]
+  businessHours BusinessHour[]
+  blockedDates  BlockedDate[]
+  blockedSlots  BlockedSlot[]
+
+  appointments      Appointment[] @relation("ProfessionalAppointments")
+  ownedAppointments Appointment[] @relation("AccountAppointments")
 }
 
 model Service {
-  id            String        @id @default(cuid())
-  userId        String        // ID do dono da conta (Admin) que criou o serviço
+  id            String                @id @default(cuid())
+  userId        String // ID do dono da conta (Admin) que criou o serviço
   name          String
-  icon          String        @default("scissors")
+  icon          String                @default("scissors")
   duration      Int
   priceCents    Int
   imageUrl      String?
-  user          User                  @relation("UserOwnedServices", fields: [userId], references: [id]) 
-  professionals ProfessionalService[] @relation("ServiceToProfessional")                                 
+  user          User                  @relation("UserOwnedServices", fields: [userId], references: [id])
+  professionals ProfessionalService[] @relation("ServiceToProfessional")
 
-  appointments     AppointmentService[]
+  appointments AppointmentService[]
 
-  hasMaintenance             Boolean  @default(false)
-  maintenancePriceCents      Int?     // Preço opcional para manutenção
-  maintenanceDurationMinutes Int?     // Duração opcional para manutenção
+  hasMaintenance             Boolean @default(false)
+  maintenancePriceCents      Int? // Preço opcional para manutenção
+  maintenanceDurationMinutes Int? // Duração opcional para manutenção
 
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([userId])
-
 }
 
 // 👇 NOVO MODELO: Tabela intermediária para definir a comissão de cada profissional por serviço
 model ProfessionalService {
-  professionalId  String
-  serviceId       String
-  
-  // Regras específicas para esta combinação (Profissional x Serviço)
-  commissionRate  Float?    // Se nulo, o sistema vai usar o 'defaultCommissionRate' do User
-  commissionType  String?   // "PERCENTAGE" ou "FIXED". Se nulo, usa o tipo padrão do User
+  professionalId String
+  serviceId      String
 
-  professional    User      @relation("ProfessionalToService", fields: [professionalId], references: [id], onDelete: Cascade)
-  service         Service   @relation("ServiceToProfessional", fields: [serviceId], references: [id], onDelete: Cascade)
+  // Regras específicas para esta combinação (Profissional x Serviço)
+  commissionRate Float? // Se nulo, o sistema vai usar o 'defaultCommissionRate' do User
+  commissionType String? // "PERCENTAGE" ou "FIXED". Se nulo, usa o tipo padrão do User
+
+  professional User    @relation("ProfessionalToService", fields: [professionalId], references: [id], onDelete: Cascade)
+  service      Service @relation("ServiceToProfessional", fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@id([professionalId, serviceId]) // Garante que não haja duplicatas do mesmo serviço para o mesmo profissional
   @@index([professionalId])
@@ -130,42 +129,42 @@ model ProfessionalService {
 }
 
 model Appointment {
-  id                        String             @id @default(uuid())
-  date                      DateTime
-  status                    AppointmentStatus
-  notes                     String?
+  id             String            @id @default(uuid())
+  date           DateTime
+  status         AppointmentStatus
+  notes          String?
+  professionalId String
+  professional   User              @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
 
-  professionalId            String
-  professional              User               @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
-  
-  userId                    String
-  user                      User               @relation("AccountAppointments", fields: [userId], references: [id])
-  
-  clientId                  String?
-  client                    Client?            @relation(fields: [clientId], references: [id])
+  userId String
+  user   User   @relation("AccountAppointments", fields: [userId], references: [id])
 
-  publicCancelToken         String?            @unique
-  publicCancelTokenExpiresAt  DateTime?
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
 
-  dayReminderSentAt         DateTime?
-  dayReminderProcessingAt   DateTime?
-
-  hourReminderSentAt        DateTime?
-  hourReminderProcessingAt  DateTime?
-
-  createdAt                 DateTime           @default(now())
+  publicCancelToken          String?   @unique
+  publicCancelTokenExpiresAt DateTime?
+  dayReminderSentAt          DateTime?
+  dayReminderProcessingAt    DateTime?
+  hourReminderSentAt         DateTime?
+  hourReminderProcessingAt   DateTime?
+  createdAt                  DateTime  @default(now())
 
   // Dados de Pagamento e PIX
-  paymentStatus             String             @default("NOT_REQUIRED") // NOT_REQUIRED, PENDING, PAID, REFUNDED
-  transactionId             String?            @unique                  
-  depositCents              Int?               
-  pixPayload                String?            @db.Text                 
+  paymentStatus String  @default("NOT_REQUIRED")
+  transactionId String? @unique
+  depositCents  Int?
+  pixPayload    String? @db.Text
 
-  // 👇 NOVOS CAMPOS: Fotografia Financeira do Agendamento
-  // Valores "congelados" no momento da conclusão para manter os relatórios imutáveis
-  commissionValueCents      Int?               // Valor exato da comissão que o profissional ganhou
-  pixFeeCents               Int?               // Taxa exata cobrada pelo Mercado Pago neste agendamento
-  netRevenueCents           Int?               // Valor líquido que sobrou para o salão (Preço - Comissão - Taxa)
+  // Dados Financeiros do Agendamento
+  commissionValueCents Int?
+  pixFeeCents          Int?
+  netRevenueCents      Int?
+
+  // 🌟 A LINHA QUE FALTAVA ADICIONAR ESTÁ AQUI:
+  services AppointmentService[]
+
+  @@map("appointments")
 }
 
 model BlockedDate {
@@ -222,22 +221,22 @@ model Client {
   user         User          @relation(fields: [userId], references: [id])
   appointments Appointment[]
 
-  @@index([userId])
   @@unique([userId, phone])
+  @@index([userId])
 }
 
 model AppointmentService {
-  id             String      @id @default(uuid())
-  
-  appointmentId  String
-  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  
-  serviceId      String
-  service        Service     @relation(fields: [serviceId], references: [id])
-  
-  isMaintenance  Boolean     @default(false)
-  priceCents     Int         // Salva o valor pago na hora (Normal ou Manutenção)
-  duration       Int         // Salva o tempo do serviço na hora
+  id String @id @default(uuid())
+
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  isMaintenance Boolean @default(false)
+  priceCents    Int // Salva o valor pago na hora (Normal ou Manutenção)
+  duration      Int // Salva o tempo do serviço na hora
 
   @@map("appointment_services")
 }

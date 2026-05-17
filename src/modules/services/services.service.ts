@@ -28,13 +28,10 @@ export class ServicesService {
 
     const rawService = await this.prisma.service.create({
       data: {
-        userId: targetShopId, // Salva o serviço SEMPRE no cofre da Dona
-        
-        // 🌟 SOLUÇÃO DE FORÇA BRUTA: Força o tipo para o Prisma aceitar sem chiar
+        userId: targetShopId,
         name: dto.name as string,       
         duration: dto.duration as number,
         priceCents: dto.priceCents as number,
-        
         icon: dto.icon || 'scissors', 
         professionals: professionalsData, 
         hasMaintenance: (dto as any).hasMaintenance ?? false,
@@ -58,11 +55,11 @@ export class ServicesService {
     
     // 3. Filtro inteligente: Admins veem tudo, equipe vê só o que executa
     if (isAdmin) {
-      whereClause = { userId: targetShopId }; // Vê todos os serviços do salão
+      whereClause = { userId: targetShopId }; 
     } else {
       whereClause = {
         userId: targetShopId,
-        professionals: { some: { professionalId: userId } } // Vê só os serviços em que foi marcado
+        professionals: { some: { professionalId: userId } } 
       };
     }
 
@@ -76,7 +73,7 @@ export class ServicesService {
   }
 
   async update(userId: string, id: string, dto: UpdateServiceDto & { professionalIds?: string[] }) {
-    await this.ensureOwnership(userId, id);
+    await this.ensureOwnership(userId, id); 
 
     let professionalsData;
     if (dto.professionalIds) {
@@ -92,14 +89,16 @@ export class ServicesService {
     const rawService = await this.prisma.service.update({
       where: { id },
       data: {
-        name: dto.name,               // 🌟 Se for undefined, o Prisma ignora automaticamente
-        duration: dto.duration,       // 🌟 Se for undefined, o Prisma ignora automaticamente
-        priceCents: dto.priceCents,   // 🌟 Se for undefined, o Prisma ignora automaticamente
-        icon: dto.icon,
-        professionals: professionalsData, 
-        hasMaintenance: dto.hasMaintenance,
-        maintenanceDurationMinutes: dto.hasMaintenance === false ? null : dto.maintenanceDurationMinutes,
-        maintenancePriceCents: dto.hasMaintenance === false ? null : dto.maintenancePriceCents,
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.duration !== undefined && { duration: dto.duration }),
+        ...(dto.priceCents !== undefined && { priceCents: dto.priceCents }),
+        ...(dto.icon !== undefined && { icon: dto.icon }), 
+        ...(professionalsData !== undefined && { professionals: professionalsData }), 
+        ...(dto.hasMaintenance !== undefined && { hasMaintenance: dto.hasMaintenance }),
+        ...(dto.hasMaintenance === false ? { maintenanceDurationMinutes: null, maintenancePriceCents: null } : {
+          ...(dto.maintenanceDurationMinutes !== undefined && { maintenanceDurationMinutes: dto.maintenanceDurationMinutes ?? null }),
+          ...(dto.maintenancePriceCents !== undefined && { maintenancePriceCents: dto.maintenancePriceCents ?? null }),
+        }),
       },
       select: this.serviceSelect(),
     });
@@ -128,6 +127,12 @@ export class ServicesService {
 
   async remove(userId: string, id: string) {
     await this.ensureOwnership(userId, id);
+
+    // 🌟 CORREÇÃO: Limpa os vínculos na tabela pivô primeiro para não quebrar a FK do Postgres
+    await this.prisma.professionalService.deleteMany({
+      where: { serviceId: id }
+    });
+
     await this.prisma.service.delete({ where: { id } });
     return { success: true };
   }
@@ -163,7 +168,6 @@ export class ServicesService {
       priceCents: true,
       imageUrl: true,
       icon: true, 
-      // 🌟 ADICIONADO: Garante que o Prisma traga esses dados do Postgres para o Front-end
       hasMaintenance: true,
       maintenanceDurationMinutes: true,
       maintenancePriceCents: true,

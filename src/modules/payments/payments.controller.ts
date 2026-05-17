@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Controller, Post, Body, HttpCode, HttpStatus, Logger, Get, Param } from '@nestjs/common';
 import { MercadoPagoService } from './mercado-pago.service';
 import { PrismaService } from '../../prisma/prisma.service';

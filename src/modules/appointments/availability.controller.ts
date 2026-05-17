@@ -31,6 +31,7 @@ export class AvailabilityController {
       serviceId,      // 2. serviceId
       date,           // 3. date
       targetId,       // 4. professionalId
+      undefined,       
       stepMinutes     // 5. stepMinutes
     );
   }
@@ -40,7 +41,7 @@ export class AvailabilityController {
     @Req() req: any,
     @Query('serviceId') serviceId: string,
     @Query('startDate') startDate?: string,
-    @Query('professionalId') professionalId?: string, // Adicionado para manter a consistência
+    @Query('professionalId') professionalId?: string, 
     @Query('days') days?: string,
     @Query('step') step?: string,
   ) {

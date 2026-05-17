@@ -1050,7 +1050,6 @@ export class AppointmentsService {
 
     // 6. Calcula o Lucro Líquido Real do Salão
     const netRevenueCents = priceCents - commissionValueCents - pixFeeCents;
-    // --- FIM DA MATEMÁTICA ---
 
     // 7. Atualiza o agendamento no banco de dados "congelando" a fotografia financeira
     return this.prisma.appointment.update({
@@ -1067,7 +1066,7 @@ export class AppointmentsService {
         notes: true,
         status: true,
         createdAt: true,
-        service: { select: { id: true, name: true, duration: true, priceCents: true } },
+        services: { include: { service: true } },
         client: { select: { id: true, name: true, phone: true, email: true } },
       },
     });

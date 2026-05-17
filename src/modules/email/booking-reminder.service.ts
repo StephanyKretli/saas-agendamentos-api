@@ -15,116 +15,45 @@ export class BookingReminderService {
   @Cron(CronExpression.EVERY_30_MINUTES)
   async handleDayBeforeReminders() {
     const now = new Date();
-
     const from = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const to = new Date(now.getTime() + 24.5 * 60 * 60 * 1000);
 
-    this.logger.log(
-      `Checking day-before reminders between ${from.toISOString()} and ${to.toISOString()}`,
-    );
-
     const appointments = await this.prisma.appointment.findMany({
       where: {
-        status: 'SCHEDULED',
-        dayReminderSentAt: null,
-        dayReminderProcessingAt: null,
-        date: {
-          gte: from,
-          lte: to,
-        },
-        client: {
-          is: {
-            email: {
-              not: null,
-            },
-          },
-        },
+        status: 'SCHEDULED', dayReminderSentAt: null, dayReminderProcessingAt: null,
+        date: { gte: from, lte: to },
+        client: { is: { email: { not: null } } },
       },
       select: {
-        id: true,
-        date: true,
-        client: {
-          select: {
-            name: true,
-            email: true,
-          },
-        },
-        service: {
-          select: {
-            name: true,
-          },
-        },
+        id: true, date: true,
+        client: { select: { name: true, email: true } },
+        services: { include: { service: { select: { name: true } } } }, 
       },
     });
 
-    this.logger.log(
-      `Found ${appointments.length} appointment(s) for day-before reminder.`,
-    );
-
     for (const appointment of appointments) {
       const reserved = await this.prisma.appointment.updateMany({
-        where: {
-          id: appointment.id,
-          dayReminderSentAt: null,
-          dayReminderProcessingAt: null,
-        },
-        data: {
-          dayReminderProcessingAt: new Date(),
-        },
+        where: { id: appointment.id, dayReminderSentAt: null, dayReminderProcessingAt: null },
+        data: { dayReminderProcessingAt: new Date() },
       });
 
-      if (reserved.count === 0) {
-        this.logger.warn(
-          `Skipping appointment ${appointment.id} because it is already being processed for day-before reminder.`,
-        );
-        continue;
-      }
+      if (reserved.count === 0) continue;
 
-      const email = appointment.client?.email;
-      const clientName = appointment.client?.name;
+      const email = (appointment as any).client?.email;
+      const clientName = (appointment as any).client?.name;
 
       if (!email || !clientName) {
-        await this.prisma.appointment.update({
-          where: { id: appointment.id },
-          data: {
-            dayReminderProcessingAt: null,
-          },
-        });
+        await this.prisma.appointment.update({ where: { id: appointment.id }, data: { dayReminderProcessingAt: null } });
         continue;
       }
 
+      const comboNames = (appointment as any).services?.map((s: any) => s.service?.name || 'Serviço').join(' + ') || 'Serviço';
+
       try {
-        await this.emailService.sendDayBeforeReminder({
-          to: email,
-          clientName,
-          serviceName: appointment.service.name,
-          appointmentDate: appointment.date,
-        });
-
-        await this.prisma.appointment.update({
-          where: { id: appointment.id },
-          data: {
-            dayReminderSentAt: new Date(),
-            dayReminderProcessingAt: null,
-          },
-        });
-
-        this.logger.log(
-          `Day-before reminder sent for appointment ${appointment.id}`,
-        );
+        await this.emailService.sendDayBeforeReminder({ to: email, clientName, serviceName: comboNames, appointmentDate: appointment.date });
+        await this.prisma.appointment.update({ where: { id: appointment.id }, data: { dayReminderSentAt: new Date(), dayReminderProcessingAt: null } });
       } catch (error) {
-        await this.prisma.appointment.update({
-          where: { id: appointment.id },
-          data: {
-            dayReminderProcessingAt: null,
-          },
-        });
-
-        this.logger.error(
-          `Failed to send day-before reminder for appointment ${appointment.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+        await this.prisma.appointment.update({ where: { id: appointment.id }, data: { dayReminderProcessingAt: null } });
       }
     }
   }
@@ -132,117 +61,47 @@ export class BookingReminderService {
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handleHourBeforeReminders() {
     const now = new Date();
-
     const from = new Date(now.getTime() + 60 * 60 * 1000);
     const to = new Date(now.getTime() + 70 * 60 * 1000);
 
-    this.logger.log(
-      `Checking hour-before reminders between ${from.toISOString()} and ${to.toISOString()}`,
-    );
-
     const appointments = await this.prisma.appointment.findMany({
       where: {
-        status: 'SCHEDULED',
-        hourReminderSentAt: null,
-        hourReminderProcessingAt: null,
-        date: {
-          gte: from,
-          lte: to,
-        },
-        client: {
-          is: {
-            email: {
-              not: null,
-            },
-          },
-        },
+        status: 'SCHEDULED', hourReminderSentAt: null, hourReminderProcessingAt: null,
+        date: { gte: from, lte: to },
+        client: { is: { email: { not: null } } },
       },
       select: {
-        id: true,
-        date: true,
-        client: {
-          select: {
-            name: true,
-            email: true,
-          },
-        },
-        service: {
-          select: {
-            name: true,
-          },
-        },
+        id: true, date: true,
+        client: { select: { name: true, email: true } },
+        services: { include: { service: { select: { name: true } } } },
       },
     });
 
-    this.logger.log(
-      `Found ${appointments.length} appointment(s) for hour-before reminder.`,
-    );
-
     for (const appointment of appointments) {
       const reserved = await this.prisma.appointment.updateMany({
-        where: {
-          id: appointment.id,
-          hourReminderSentAt: null,
-          hourReminderProcessingAt: null,
-        },
-        data: {
-          hourReminderProcessingAt: new Date(),
-        },
+        where: { id: appointment.id, hourReminderSentAt: null, hourReminderProcessingAt: null },
+        data: { hourReminderProcessingAt: new Date() },
       });
 
-      if (reserved.count === 0) {
-        this.logger.warn(
-          `Skipping appointment ${appointment.id} because it is already being processed for hour-before reminder.`,
-        );
-        continue;
-      }
+      
+      if (reserved.count === 0) continue;
 
-      const email = appointment.client?.email;
-      const clientName = appointment.client?.name;
+      const email = (appointment as any).client?.email;
+      const clientName = (appointment as any).client?.name;
 
       if (!email || !clientName) {
-        await this.prisma.appointment.update({
-          where: { id: appointment.id },
-          data: {
-            hourReminderProcessingAt: null,
-          },
-        });
+        await this.prisma.appointment.update({ where: { id: appointment.id }, data: { hourReminderProcessingAt: null } });
         continue;
       }
 
+      const comboNames = (appointment as any).services?.map((s: any) => s.service?.name || 'Serviço').join(' + ') || 'Serviço';
+
       try {
-        await this.emailService.sendHourBeforeReminder({
-          to: email,
-          clientName,
-          serviceName: appointment.service.name,
-          appointmentDate: appointment.date,
-        });
-
-        await this.prisma.appointment.update({
-          where: { id: appointment.id },
-          data: {
-            hourReminderSentAt: new Date(),
-            hourReminderProcessingAt: null,
-          },
-        });
-
-        this.logger.log(
-          `Hour-before reminder sent for appointment ${appointment.id}`,
-        );
+        await this.emailService.sendHourBeforeReminder({ to: email, clientName, serviceName: comboNames, appointmentDate: appointment.date });
+        await this.prisma.appointment.update({ where: { id: appointment.id }, data: { hourReminderSentAt: new Date(), hourReminderProcessingAt: null } });
       } catch (error) {
-        await this.prisma.appointment.update({
-          where: { id: appointment.id },
-          data: {
-            hourReminderProcessingAt: null,
-          },
-        });
-
-        this.logger.error(
-          `Failed to send hour-before reminder for appointment ${appointment.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+        await this.prisma.appointment.update({ where: { id: appointment.id }, data: { hourReminderProcessingAt: null } });
       }
     }
-  }
+  } 
 }

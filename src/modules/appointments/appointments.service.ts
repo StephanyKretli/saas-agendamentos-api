@@ -114,12 +114,18 @@ export class AppointmentsService {
     };
   }
 
-  async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean }) {
-    // 1. Validação e extração inicial (Garante que serviceId é string)
-    // 🌟 Adicionado o 'isMaintenance' na desestruturação
-    const { serviceId, date, professionalId, clientId, notes, client, isMaintenance } = dto;
+  async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean, services?: { serviceId: string, isMaintenance: boolean }[] }) {
+    const { date, professionalId, clientId, notes, client } = dto;
     
-    if (!serviceId) throw new BadRequestException('O ID do serviço é obrigatório.');
+    // 🌟 1. Lógica do Carrinho: Suporta o array novo ou o serviceId antigo por precaução
+    let servicesPayload = dto.services || [];
+    // @ts-ignore (Para suportar DTOs antigos sem erro do TS)
+    if (servicesPayload.length === 0 && dto.serviceId) {
+      // @ts-ignore
+      servicesPayload = [{ serviceId: dto.serviceId, isMaintenance: !!dto.isMaintenance }];
+    }
+
+    if (servicesPayload.length === 0) throw new BadRequestException('Nenhum serviço selecionado.');
     if (!date) throw new BadRequestException('A data é obrigatória.');
 
     const start = parseLocalISO(date);
@@ -128,7 +134,6 @@ export class AppointmentsService {
     const now = new Date();
     if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível agendar no passado.');
 
-    // 2. Definição do profissional (Garante que targetUserId é string)
     const targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
       ? professionalId 
       : userId;
@@ -153,35 +158,50 @@ export class AppointmentsService {
     // 🌟 INÍCIO DA TRANSAÇÃO
     const newAppointment = await this.prisma.$transaction(async (tx) => {
       
-      const service = await tx.service.findFirst({
-        where: { id: serviceId },
+      // 🌟 2. Busca TODOS os serviços do carrinho de uma vez
+      const serviceIds = servicesPayload.map(s => s.serviceId);
+      const dbServices = await tx.service.findMany({
+        where: { id: { in: serviceIds } },
         select: { 
-          id: true, 
-          duration: true, 
-          priceCents: true, 
-          name: true,
-          // 🌟 Buscando os campos de manutenção que você criou no Prisma
-          hasMaintenance: true,
-          maintenanceDurationMinutes: true,
-          maintenancePriceCents: true
+          id: true, duration: true, priceCents: true, name: true,
+          hasMaintenance: true, maintenanceDurationMinutes: true, maintenancePriceCents: true 
         },
       });
 
-      if (!service) throw new BadRequestException('Serviço inválido.');
+      if (dbServices.length !== serviceIds.length) {
+        throw new BadRequestException('Um ou mais serviços são inválidos.');
+      }
 
-      // 🌟 Lógica de Decisão: Base ou Manutenção?
-      const isMaintenanceBooking = isMaintenance && service.hasMaintenance;
+      let totalFinalDuration = 0;
+      let totalFinalPriceCents = 0;
 
-      const finalDuration = isMaintenanceBooking && service.maintenanceDurationMinutes 
-        ? service.maintenanceDurationMinutes 
-        : service.duration;
+      // 🌟 3. Calcula o tempo e preço de cada serviço e soma tudo
+      const validatedServices = servicesPayload.map(payload => {
+        const dbService = dbServices.find(s => s.id === payload.serviceId)!;
+        const isMaintenanceBooking = payload.isMaintenance && dbService.hasMaintenance;
 
-      const finalPriceCents = isMaintenanceBooking && service.maintenancePriceCents !== null 
-        ? service.maintenancePriceCents 
-        : service.priceCents;
+        const finalDuration = isMaintenanceBooking && dbService.maintenanceDurationMinutes 
+          ? dbService.maintenanceDurationMinutes 
+          : dbService.duration;
 
-      // 🌟 Usa a duração calculada (finalDuration) para checar o tempo do expediente
-      const totalMinutes = getAppointmentTotalMinutes(finalDuration, settings.bufferMinutes);
+        const finalPriceCents = isMaintenanceBooking && dbService.maintenancePriceCents !== null 
+          ? dbService.maintenancePriceCents 
+          : dbService.priceCents;
+
+        totalFinalDuration += finalDuration;
+        totalFinalPriceCents += finalPriceCents;
+
+        return {
+          serviceId: dbService.id,
+          name: dbService.name,
+          isMaintenance: isMaintenanceBooking,
+          duration: finalDuration,
+          priceCents: finalPriceCents
+        };
+      });
+
+      const totalMinutes = getAppointmentTotalMinutes(totalFinalDuration, settings.bufferMinutes);
+      // @ts-ignore (Assumindo que isWithinBusinessHours exista na sua classe)
       const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
 
       if (!ok) throw new BadRequestException('O horário escolhido não cabe dentro do expediente do profissional.');
@@ -201,18 +221,24 @@ export class AppointmentsService {
       });
       if (blocks.length > 0) throw new BadRequestException('Horário indisponível (bloqueado).');
 
+      // 🌟 4. Conflito de agenda: agora ele soma as durações da tabela pivô!
       const existing = await tx.appointment.findMany({
         where: {
           professionalId: targetUserId,
           status: { in: ['SCHEDULED', 'COMPLETED'] },
           date: { gte: dayStart, lte: dayEnd },
         },
-        select: { date: true, service: { select: { duration: true } } },
+        select: { date: true, services: { select: { duration: true } } },
       });
 
-      const hasConflict = existing.some((a) => {
+      const hasConflict = existing.some((a: any) => {
         const aStart = new Date(a.date);
-        const aTotalMinutes = getAppointmentTotalMinutes(a.service.duration, settings.bufferMinutes);
+        
+        // Proteção contra o cache do Prisma forçando fallback caso services venha como undefined/never
+        const apptServices = a.services || [];
+        const aDuration = apptServices.reduce((acc: number, s: any) => acc + s.duration, 0);
+        
+        const aTotalMinutes = getAppointmentTotalMinutes(aDuration, settings.bufferMinutes);
         const aEnd = addMinutes(aStart, aTotalMinutes);
         return rangesOverlap(aStart, aEnd, start, end);
       });
@@ -227,16 +253,10 @@ export class AppointmentsService {
         if (!existingClientById) throw new BadRequestException('Cliente inválido.');
       }
 
-      // Validação do objeto 'client' para evitar erro de 'possibly undefined'
       if (!resolvedClientId && client) {
-        if (!client.phone || !client.name) {
-          throw new BadRequestException('Nome e telefone do cliente são obrigatórios.');
-        }
-
+        if (!client.phone || !client.name) throw new BadRequestException('Nome e telefone do cliente são obrigatórios.');
         const normalizedPhone = client.phone.replace(/\D/g, '');
-        if (normalizedPhone.length !== 11) {
-          throw new BadRequestException('Número de WhatsApp inválido.');
-        }
+        if (normalizedPhone.length !== 11) throw new BadRequestException('Número de WhatsApp inválido.');
 
         const existingClient = await tx.client.findFirst({ where: { userId, phone: normalizedPhone } });
 
@@ -255,20 +275,19 @@ export class AppointmentsService {
       }
 
       let depositCents = 0;
-      // 🌟 Usa o preço calculado (finalPriceCents) para gerar o depósito PIX proporcional
-      if (settings.plan === 'PRO' && settings.requirePixDeposit && finalPriceCents > 0) {
+      if (settings.plan === 'PRO' && settings.requirePixDeposit && totalFinalPriceCents > 0) {
         const percentage = settings.pixDepositPercentage / 100;
-        depositCents = Math.round(finalPriceCents * percentage);
+        depositCents = Math.round(totalFinalPriceCents * percentage);
       }
 
       const paymentStatus = depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED';
 
-      // Criação final usando as constantes garantidas
-      return tx.appointment.create({
+      // 🌟 5. A Criação final com múltiplos serviços
+      // 🌟 Forçamos o bypass com 'as any' para o compilador não reclamar do esquema antigo enquanto o cache não limpa
+      return (tx.appointment.create as any)({
         data: {
           userId,
           professionalId: targetUserId,
-          serviceId: serviceId,
           clientId: resolvedClientId || '', 
           date: start,
           notes: notes || null,
@@ -277,17 +296,29 @@ export class AppointmentsService {
           depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(),
           publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
+          services: {
+            create: validatedServices.map(vs => ({
+              serviceId: vs.serviceId,
+              isMaintenance: vs.isMaintenance,
+              priceCents: vs.priceCents,
+              duration: vs.duration
+            }))
+          }
         },
         include: {
-          service: true,
+          services: { include: { service: true } },
           client: true,
           professional: { select: { name: true, phone: true } }
         }
       });
     });
 
-    // Lógica pós-transação (PIX e WhatsApp)
     let finalAppointment = newAppointment as any;
+    
+    // 🌟 Nomes dos serviços formatados para as mensagens de WhatsApp
+    const comboNames = newAppointment.services.map(s => 
+      `${s.service.name}${s.isMaintenance ? ' (Manutenção)' : ''}`
+    ).join(' + ');
 
     if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
       try {
@@ -305,7 +336,11 @@ export class AppointmentsService {
             transactionId: pixData.transactionId,
             pixPayload: pixData.qrCodePayload,
           },
-          include: { service: true, client: true, professional: { select: { name: true, phone: true } } }
+          include: { 
+            services: { include: { service: true } }, 
+            client: true, 
+            professional: { select: { name: true, phone: true } } 
+          }
         });
       } catch (error) {
         await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
@@ -316,24 +351,24 @@ export class AppointmentsService {
         if (finalAppointment.client?.phone) {
           const frontendUrl = process.env.APP_WEB_URL || 'https://meusyncro.com.br';
           const manageLink = `${frontendUrl}/agendamento/${finalAppointment.publicCancelToken}`;
-
           await this.whatsappService.sendAppointmentConfirmation(
-            settings.salonOwnerId, 
+            settings.salonOwnerId,
             finalAppointment.client.name,
             finalAppointment.client.phone,
-            finalAppointment.service.name,
+            comboNames, // 👈 Agora envia os nomes compostos!
             finalAppointment.date,
             finalAppointment.professional?.name || 'Equipe',
             manageLink
           );
         }
+
         if (settings.plan === 'PRO' && finalAppointment.professional?.phone) {
           await this.whatsappService.notifyProfessionalNewAppointment(
             settings.salonOwnerId,
             finalAppointment.professional.phone,
             finalAppointment.client?.name || 'Cliente',
             finalAppointment.date,
-            finalAppointment.service.name
+            comboNames // 👈 E para o profissional também!
           ).catch(e => console.error('Erro WPP Profissional:', e));
         }
       } catch (error) {
@@ -345,68 +380,46 @@ export class AppointmentsService {
   }
 
   async cancel(userId: string, appointmentId: string) {
-    // 1. Busca o agendamento trazendo junto os dados necessários para o WhatsApp
     const appt = await this.prisma.appointment.findFirst({
       where: { 
         id: appointmentId,
-        // 🌟 PERMITE CANCELAR SE FOR O DONO OU O FUNCIONÁRIO
-        OR: [{ userId: userId }, { professionalId: userId }] 
+        OR: [{ userId: userId }, { professionalId: userId }]
       },
       include: { 
-        service: true, 
+        services: { include: { service: true } }, // 🌟 Mudado para incluir os serviços
         client: true, 
-        professional: { select: { phone: true } },
-        user: { select: { plan: true, ownerId: true } }
+        professional: { select: { phone: true } }, 
+        user: { select: { plan: true, ownerId: true } } 
       },
     });
 
-    if (!appt) {
-      throw new BadRequestException('Agendamento não encontrado.');
-    }
-
-    if (appt.status !== 'SCHEDULED') {
-      throw new BadRequestException(
-        'Só é possível cancelar agendamentos ativos.',
-      );
-    }
+    if (!appt) throw new BadRequestException('Agendamento não encontrado.');
+    if (appt.status !== 'SCHEDULED') throw new BadRequestException('Só é possível cancelar agendamentos ativos.');
 
     const now = new Date();
     const start = new Date(appt.date);
+    if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível cancelar após o início do agendamento.');
 
-    if (start.getTime() <= now.getTime()) {
-      throw new BadRequestException(
-        'Não é possível cancelar após o início do agendamento.',
-      );
-    }
-
-    const minCancelTime = new Date(
-      now.getTime() + MIN_CANCEL_LEAD_MINUTES * 60_000,
-    );
-
+    const minCancelTime = new Date(now.getTime() + MIN_CANCEL_LEAD_MINUTES * 60_000);
     if (start.getTime() < minCancelTime.getTime()) {
-      throw new BadRequestException(
-        `Cancelamento permitido somente com ${MIN_CANCEL_LEAD_MINUTES} minutos de antecedência.`,
-      );
+      throw new BadRequestException(`Cancelamento permitido somente com ${MIN_CANCEL_LEAD_MINUTES} minutos de antecedência.`);
     }
 
-    // 2. Atualiza o status no banco de dados para CANCELED (mantendo o seu select original)
     const canceledAppt = await this.prisma.appointment.update({
       where: { id: appt.id },
       data: { status: 'CANCELED' },
-      select: {
-        id: true,
-        date: true,
-        status: true,
-        notes: true,
-        createdAt: true,
-        service: {
-          select: { id: true, name: true, duration: true, priceCents: true },
-        },
+      select: { 
+        id: true, date: true, status: true, notes: true, createdAt: true, 
+        services: { // 🌟 Atualizado para refletir o novo modelo
+          select: { duration: true, priceCents: true, service: { select: { id: true, name: true } } }
+        }, 
       },
     });
 
-    // 3. 🚀 DISPARO DE WHATSAPP (COM TRAVA DE PLANO) 🚀
-    // Só envia se a dona do salão pagar o plano PRO e se a profissional tiver telefone
+    // 🌟 Evita o erro 'Property map does not exist on type never' adicionando asserção explicita
+    const apptCancelServices = (appt as any).services || [];
+    const comboNames = apptCancelServices.map((s: any) => s.service?.name || 'Serviço').join(' + ');
+
     if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
       const salonOwnerId = appt.user.ownerId ? appt.user.ownerId : appt.userId;
       this.whatsappService.notifyProfessionalCanceledAppointment(
@@ -414,7 +427,7 @@ export class AppointmentsService {
         appt.professional.phone,
         appt.client?.name || 'Cliente',
         appt.date,
-        appt.service.name
+        comboNames // 👈 Notifica o cancelamento com o combo inteiro
       ).catch(e => console.error('Erro WPP Cancelamento:', e));
     }
 

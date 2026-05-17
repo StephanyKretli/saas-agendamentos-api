@@ -98,7 +98,8 @@ model Service {
   imageUrl      String?
   user          User                  @relation("UserOwnedServices", fields: [userId], references: [id]) 
   professionals ProfessionalService[] @relation("ServiceToProfessional")                                 
-  appointments  Appointment[]
+
+  appointments     AppointmentService[]
 
   hasMaintenance             Boolean  @default(false)
   maintenancePriceCents      Int?     // Preço opcional para manutenção
@@ -139,9 +140,6 @@ model Appointment {
   
   userId                    String
   user                      User               @relation("AccountAppointments", fields: [userId], references: [id])
-
-  serviceId                 String
-  service                   Service            @relation(fields: [serviceId], references: [id])
   
   clientId                  String?
   client                    Client?            @relation(fields: [clientId], references: [id])
@@ -226,4 +224,20 @@ model Client {
 
   @@index([userId])
   @@unique([userId, phone])
+}
+
+model AppointmentService {
+  id             String      @id @default(uuid())
+  
+  appointmentId  String
+  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  
+  serviceId      String
+  service        Service     @relation(fields: [serviceId], references: [id])
+  
+  isMaintenance  Boolean     @default(false)
+  priceCents     Int         // Salva o valor pago na hora (Normal ou Manutenção)
+  duration       Int         // Salva o tempo do serviço na hora
+
+  @@map("appointment_services")
 }

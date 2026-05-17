@@ -128,11 +128,17 @@ export class ServicesService {
   async remove(userId: string, id: string) {
     await this.ensureOwnership(userId, id);
 
-    // 🌟 CORREÇÃO: Limpa os vínculos na tabela pivô primeiro para não quebrar a FK do Postgres
+    // 1. Limpa os vínculos com a equipe
     await this.prisma.professionalService.deleteMany({
       where: { serviceId: id }
     });
 
+    // 2. 🌟 CORREÇÃO: Limpa os agendamentos vinculados a este serviço (Destrava a FK)
+    await this.prisma.appointment.deleteMany({
+      where: { serviceId: id }
+    });
+
+    // 3. Finalmente, apaga o serviço
     await this.prisma.service.delete({ where: { id } });
     return { success: true };
   }

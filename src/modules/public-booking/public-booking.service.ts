@@ -104,8 +104,7 @@ export class PublicBookingService {
     };
   }
 
-  // ... (o restante do arquivo (getAvailability, createAppointment, getCancelPreview, cancelByToken) continua exatamente igual)
-  async getAvailability(username: string, serviceId: string, date: string, professionalId: string, stepMinutes = 30) {
+  async getAvailability(username: string, serviceId: string, date: string, professionalId: string, cartItemsStr?: string, stepMinutes = 30) {
     const normalizedUsername = username.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
@@ -113,7 +112,7 @@ export class PublicBookingService {
     });
     if (!user) throw new BadRequestException('Página não encontrada.');
     const tenantId = user.ownerId ? user.ownerId : user.id;
-    return this.appointmentsService.getAvailability(tenantId, serviceId, date, professionalId, stepMinutes);
+    return this.appointmentsService.getAvailability(tenantId, serviceId, date, professionalId, cartItemsStr, stepMinutes);
   }
 
   async createAppointment(username: string, dto: CreatePublicAppointmentDto) {

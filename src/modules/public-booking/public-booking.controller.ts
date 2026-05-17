@@ -25,12 +25,12 @@ export class PublicBookingController {
     return this.service.getProfile(username);
   }
 
-@Get(':username/availability')
+  @Get(':username/availability')
   @Throttle({ default: { limit: 40, ttl: 60000 } })
   @ApiOperation({
-    summary: 'Get public availability for a service and date',
+    summary: 'Get public availability for a service/cart and date',
     description:
-      'Returns available time slots for a given professional, service and date.',
+      'Returns available time slots for a given professional, service(s) and date.',
   })
   @ApiParam({
     name: 'username',
@@ -39,8 +39,15 @@ export class PublicBookingController {
   })
   @ApiQuery({
     name: 'serviceId',
+    required: false,
     example: 'clx123abc',
-    description: 'Service ID',
+    description: 'Service ID (Legacy for single service)',
+  })
+  @ApiQuery({
+    name: 'cartItems',
+    required: false,
+    example: '[{"serviceId":"abc","isMaintenance":false}]',
+    description: 'Array of selected services as a JSON string',
   })
   @ApiQuery({
     name: 'date',
@@ -61,9 +68,10 @@ export class PublicBookingController {
   })
   getAvailability(
     @Param('username') username: string,
-    @Query('serviceId') serviceId: string,
     @Query('date') date: string,
+    @Query('serviceId') serviceId?: string,
     @Query('professionalId') professionalId?: string,
+    @Query('cartItems') cartItems?: string, // 🌟 AQUI: Recebendo o carrinho da URL
     @Query('step') step?: string,
   ) {
     const stepMinutes = step ? Number(step) : 30;
@@ -75,9 +83,10 @@ export class PublicBookingController {
 
     return this.service.getAvailability(
       username,
-      serviceId,
+      serviceId || '', // Evita enviar undefined se não existir
       date,
       targetProfId,
+      cartItems, // 🌟 Repassando o carrinho para o service
       stepMinutes,
     );
   }

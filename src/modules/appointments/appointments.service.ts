@@ -728,9 +728,10 @@ export class AppointmentsService {
     serviceId: string,
     date: string,
     professionalId?: string,
+    cartItemsStr?: string, // 🌟 NOVA PROPRIEDADE: Recebe o carrinho
     stepMinutes = 15,
   ) {
-    if (!serviceId) throw new BadRequestException('serviceId é obrigatório.');
+    if (!serviceId && !cartItemsStr) throw new BadRequestException('Serviço ou Carrinho é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
 
     let targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') 
@@ -751,23 +752,49 @@ export class AppointmentsService {
       return { date, slots: [] };
     }
 
-    const service = await this.prisma.service.findFirst({
-      where: { id: serviceId, userId: userId }, 
-      select: { id: true, duration: true },
-    });
+    // 🌟 LÓGICA DO CARRINHO (Calcula o tempo total dos serviços)
+    let totalServiceMinutes = 0;
 
-    if (!service) {
-      throw new BadRequestException('Serviço inválido.');
+    if (cartItemsStr && cartItemsStr.length > 0) {
+      try {
+        const cartItems = JSON.parse(cartItemsStr) as { serviceId: string, isMaintenance: boolean }[];
+        const sIds = cartItems.map(c => c.serviceId);
+        
+        const dbServices = await this.prisma.service.findMany({
+          where: { id: { in: sIds }, userId: userId },
+          select: { id: true, duration: true, hasMaintenance: true, maintenanceDurationMinutes: true }
+        });
+
+        for (const item of cartItems) {
+          const svc = dbServices.find(s => s.id === item.serviceId);
+          if (svc) {
+            if (item.isMaintenance && svc.hasMaintenance && svc.maintenanceDurationMinutes) {
+              totalServiceMinutes += svc.maintenanceDurationMinutes;
+            } else {
+              totalServiceMinutes += svc.duration;
+            }
+          }
+        }
+      } catch (e) {
+        throw new BadRequestException('Formato de carrinho inválido.');
+      }
+    } else if (serviceId && serviceId !== 'undefined' && serviceId !== 'null') {
+      const service = await this.prisma.service.findFirst({
+        where: { id: serviceId, userId: userId }, 
+        select: { id: true, duration: true },
+      });
+      if (!service) throw new BadRequestException('Serviço inválido.');
+      totalServiceMinutes = service.duration;
+    }
+
+    if (totalServiceMinutes === 0) {
+      throw new BadRequestException('Não foi possível calcular a duração dos serviços.');
     }
 
     const bufferMinutes = settings.bufferMinutes ?? 0;
-    const totalMinutes = getAppointmentTotalMinutes(service.duration, bufferMinutes);
+    const totalMinutes = getAppointmentTotalMinutes(totalServiceMinutes, bufferMinutes);
 
-    const minLeadMinutes =
-      settings.minBookingNoticeMinutes > 0
-        ? settings.minBookingNoticeMinutes
-        : MIN_LEAD_MINUTES;
-
+    const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
     const weekday = requestedDay.getDay();
 
     const businessHours = await this.prisma.businessHour.findMany({
@@ -795,15 +822,16 @@ export class AppointmentsService {
       select: { start: true, end: true },
     });
 
+    // 🌟 LÊ A NOVA TABELA PIVÔ
     const existingAppointments = await this.prisma.appointment.findMany({
       where: {
-        professionalId: targetUserId, // <-- Busca bloqueios pelo Profissional
+        professionalId: targetUserId, 
         status: { in: ['SCHEDULED', 'COMPLETED'] }, 
         date: { gte: dayStart, lte: dayEnd },
       },
       select: {
         date: true,
-        service: { select: { duration: true } },
+        services: { select: { duration: true } }, // 🌟 Atualizado para 'services'
       },
     });
 
@@ -834,12 +862,12 @@ export class AppointmentsService {
           continue;
         }
 
-        const hasConflict = existingAppointments.some((appointment) => {
+        const hasConflict = existingAppointments.some((appointment: any) => {
           const appointmentStart = new Date(appointment.date);
-          const appointmentTotalMinutes = getAppointmentTotalMinutes(
-            appointment.service.duration,
-            bufferMinutes,
-          );
+          const apptServices = appointment.services || [];
+          const aDuration = apptServices.reduce((acc: number, s: any) => acc + s.duration, 0); // 🌟 Soma a duração dos agendamentos marcados
+          
+          const appointmentTotalMinutes = getAppointmentTotalMinutes(aDuration, bufferMinutes);
           const appointmentEnd = addMinutes(appointmentStart, appointmentTotalMinutes);
           return rangesOverlap(appointmentStart, appointmentEnd, slotStart, slotEnd);
         });
@@ -887,6 +915,7 @@ export class AppointmentsService {
         serviceId,
         dateStr,
         professionalId,
+        undefined,
         stepMinutes,
       );
 

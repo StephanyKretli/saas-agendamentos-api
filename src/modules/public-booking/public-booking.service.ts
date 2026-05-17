@@ -57,7 +57,16 @@ export class PublicBookingService {
     const services = await this.prisma.service.findMany({
       where: { userId: tenantId },
       select: {
-        id: true, name: true, duration: true, priceCents: true, icon: true, userId: true, 
+        id: true, 
+        name: true, 
+        duration: true, 
+        priceCents: true, 
+        icon: true, 
+        userId: true, 
+        // 🌟 CAMPOS DA MANUTENÇÃO ADICIONADOS AQUI:
+        hasMaintenance: true,
+        maintenanceDurationMinutes: true,
+        maintenancePriceCents: true,
         professionals: { 
           select: { 
             professional: {

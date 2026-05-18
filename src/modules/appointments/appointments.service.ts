@@ -66,7 +66,6 @@ export class AppointmentsService {
     return {
       resolvedUserId: user.id,
       plan: salonOwner.plan,
-      // 🌟 SE NÃO HOUVER BUFFER CONFIGURADO, ASSUME 15 MINUTOS POR PADRÃO:
       bufferMinutes: (user.bufferMinutes !== null && user.bufferMinutes > 0) ? user.bufferMinutes : 15,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
@@ -116,7 +115,7 @@ export class AppointmentsService {
     const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
     const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
 
-    if (start.getTime() < minStart.getTime()) throw new BadRequestException(`Agende com antecedência de ${minLeadMinutes} minutos.`);
+    if (start.getTime() < minStart.getTime()) throw new BadRequestException(`Agende com antecedência de ${minLeadMinutes} minutes.`);
 
     const newAppointment = await this.prisma.$transaction(async (tx) => {
       const serviceIds = servicesPayload.map(s => s.serviceId);
@@ -187,6 +186,12 @@ export class AppointmentsService {
           userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED',
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
+          
+          // 🌟 RETROCOMPATIBILIDADE: Alimenta as colunas raiz para o Dashboard e relatórios antigos funcionarem direto!
+          serviceId: validatedServices[0]?.serviceId || null,
+          priceCents: totalFinalPriceCents,
+          duration: totalFinalDuration,
+
           services: { create: validatedServices.map(vs => ({ serviceId: vs.serviceId, isMaintenance: vs.isMaintenance, priceCents: vs.priceCents, duration: vs.duration })) }
         },
         include: { services: { include: { service: true } }, client: true, professional: { select: { name: true, phone: true } } }
@@ -295,15 +300,21 @@ export class AppointmentsService {
       this.prisma.appointment.count({ where }),
     ]);
 
+    // 🌟 RETROCOMPATIBILIDADE: Garante que tanto as colunas raiz quanto o objeto 'service' unificado cheguem idênticos ao front antigo
     const formattedItems = items.map(item => {
       const sArr = item.services || [];
+      const computedPrice = item.priceCents || sArr.reduce((acc, s) => acc + s.priceCents, 0);
+      const computedDuration = item.duration || sArr.reduce((acc, s) => acc + s.duration, 0);
+      
       return {
         ...item,
+        priceCents: computedPrice,
+        duration: computedDuration,
         service: {
-          id: sArr[0]?.serviceId || '',
-          name: sArr.map(s => s.service?.name).join(' + '),
-          duration: sArr.reduce((acc, s) => acc + s.duration, 0),
-          priceCents: sArr.reduce((acc, s) => acc + s.priceCents, 0)
+          id: sArr[0]?.serviceId || item.serviceId || '',
+          name: sArr.length > 0 ? sArr.map(s => s.service?.name).join(' + ') : 'Serviço',
+          duration: computedDuration,
+          priceCents: computedPrice
         }
       };
     });
@@ -352,9 +363,16 @@ export class AppointmentsService {
 
     const mapped = appointments.map(a => {
       const sArr = a.services || [];
+      const computedPrice = a.priceCents || sArr.reduce((acc, s) => acc + s.priceCents, 0);
+      const computedDuration = a.duration || sArr.reduce((acc, s) => acc + s.duration, 0);
       return {
         ...a,
-        service: { name: sArr.map(s => s.service?.name).join(' + '), duration: sArr.reduce((acc, s) => acc + s.duration, 0) }
+        priceCents: computedPrice,
+        duration: computedDuration,
+        service: { 
+          name: sArr.length > 0 ? sArr.map(s => s.service?.name).join(' + ') : 'Serviço', 
+          duration: computedDuration 
+        }
       };
     });
     return { date, appointments: mapped };
@@ -370,7 +388,7 @@ export class AppointmentsService {
 
     const adminConfig = appt.user;
     const apptServices = appt.services || [];
-    const priceCents = apptServices.reduce((acc, s) => acc + s.priceCents, 0);
+    const priceCents = appt.priceCents || apptServices.reduce((acc, s) => acc + s.priceCents, 0);
 
     let pixFeeCents = 0;
     if (appt.depositCents && appt.depositCents > 0) pixFeeCents = Math.round(appt.depositCents * 0.0099);
@@ -401,7 +419,9 @@ export class AppointmentsService {
   }
 
   async getAvailability(userId: string, serviceId: string, date: string, professionalId?: string, cartItemsStr?: string, stepMinutes = 15) {
+    // 🌟 Mantém a grade travada em 15 minutos estritos para o Smart Clustering
     stepMinutes = 15;
+
     if (!serviceId && !cartItemsStr) throw new BadRequestException('Serviço ou Carrinho é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
 

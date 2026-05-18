@@ -452,7 +452,7 @@ export class AppointmentsService {
     if (cartItemsStr && cartItemsStr.length > 0) {
       try {
         const cartItems = JSON.parse(cartItemsStr);
-        const sIds = cartItems.map(c => c.serviceId);
+        const sIds = cartItems.map((c: any) => c.serviceId);
         const dbServices = await this.prisma.service.findMany({ where: { id: { in: sIds } } });
         for (const item of cartItems) {
           const svc = dbServices.find(s => s.id === item.serviceId);
@@ -477,28 +477,93 @@ export class AppointmentsService {
       include: { services: true }
     });
 
-    const slots: string[] = [];
-    for (const period of businessHours) {
-      let cursor = parseLocalISO(`${date}T${period.start}:00`);
-      const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
-      while (true) {
-        const slotStart = new Date(cursor); const slotEnd = addMinutes(slotStart, totalMinutes);
-        if (slotEnd > periodEnd) break;
+    // 🌟 1. Unificar todos os períodos ocupados (Agendamentos + Bloqueios)
+    const busyIntervals: { start: Date, end: Date }[] = [];
 
-        const hasBlockedSlot = blockedSlots.some(b => rangesOverlap(slotStart, slotEnd, new Date(b.start), new Date(b.end)));
-        if (hasBlockedSlot) { cursor = addMinutes(cursor, stepMinutes); continue; }
+    for (const b of blockedSlots) {
+      busyIntervals.push({ start: new Date(b.start), end: new Date(b.end) });
+    }
 
-        const hasConflict = existingAppointments.some((a: any) => {
-          const aStart = new Date(a.date);
-          const aDuration = (a.services || []).reduce((acc, s) => acc + s.duration, 0);
-          return rangesOverlap(aStart, addMinutes(aStart, getAppointmentTotalMinutes(aDuration, settings.bufferMinutes)), slotStart, slotEnd);
-        });
+    for (const a of existingAppointments) {
+      const aStart = new Date(a.date);
+      const aDuration = (a.services || []).reduce((acc: number, s: any) => acc + s.duration, 0);
+      const aTotalMinutes = getAppointmentTotalMinutes(aDuration, settings.bufferMinutes);
+      busyIntervals.push({ start: aStart, end: addMinutes(aStart, aTotalMinutes) });
+    }
 
-        if (hasConflict) { cursor = addMinutes(cursor, stepMinutes); continue; }
-        slots.push(formatTime(slotStart)); cursor = addMinutes(cursor, stepMinutes);
+    // Fundir intervalos que se sobrepõem
+    busyIntervals.sort((a, b) => a.start.getTime() - b.start.getTime());
+    const mergedBusy: { start: Date, end: Date }[] = [];
+    for (const interval of busyIntervals) {
+      if (mergedBusy.length === 0) {
+        mergedBusy.push(interval);
+      } else {
+        const last = mergedBusy[mergedBusy.length - 1];
+        if (interval.start <= last.end) {
+          if (interval.end > last.end) last.end = interval.end;
+        } else {
+          mergedBusy.push(interval);
+        }
       }
     }
-    return { date, slots };
+
+    const slots = new Set<string>();
+
+    // 🌟 2. Encontrar os Blocos Livres e aplicar o Smart Clustering
+    for (const period of businessHours) {
+      const periodStart = parseLocalISO(`${date}T${period.start}:00`);
+      const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
+
+      let currentStart = new Date(periodStart);
+      const freeBlocks: { start: Date, end: Date }[] = [];
+
+      for (const busy of mergedBusy) {
+        if (busy.end <= currentStart) continue;
+        if (busy.start >= periodEnd) break;
+
+        if (busy.start > currentStart) {
+          freeBlocks.push({ start: new Date(currentStart), end: new Date(busy.start) });
+        }
+        currentStart = new Date(Math.max(currentStart.getTime(), busy.end.getTime()));
+      }
+
+      if (currentStart < periodEnd) {
+        freeBlocks.push({ start: new Date(currentStart), end: new Date(periodEnd) });
+      }
+
+      // 🌟 3. A mágica do Agrupamento Inteligente (Smart Clustering)
+      for (const block of freeBlocks) {
+        const possibleSlots: Date[] = [];
+        let cursor = new Date(block.start);
+
+        // Garante que o cursor inicia alinhado com os minutos de "step" (ex: :00, :15, :30)
+        const remainder = cursor.getMinutes() % stepMinutes;
+        if (remainder !== 0) {
+          cursor = addMinutes(cursor, stepMinutes - remainder);
+        }
+
+        // Descobre todos os horários perfeitamente encaixados neste bloco livre
+        while (true) {
+          const slotEnd = addMinutes(cursor, totalMinutes);
+          if (slotEnd > block.end) break;
+          possibleSlots.push(new Date(cursor));
+          cursor = addMinutes(cursor, stepMinutes);
+        }
+
+        // Aplica a regra restrita: Só libera as bordas do bloco livre!
+        if (possibleSlots.length > 0) {
+          slots.add(formatTime(possibleSlots[0])); // Cola no início do bloco livre
+          if (possibleSlots.length > 1) {
+            slots.add(formatTime(possibleSlots[possibleSlots.length - 1])); // Cola no final do bloco livre
+          }
+        }
+      }
+    }
+
+    // Ordenar os slots cronologicamente antes de enviar para o Frontend
+    const sortedSlots = Array.from(slots).sort();
+    
+    return { date, slots: sortedSlots };
   }
 
   async getWeekAvailability(userId: string, serviceId: string, startDate?: string, professionalId?: string, days = 7, stepMinutes = 30) {

@@ -32,7 +32,7 @@ export class SettingsService {
       username: currentUser.username,
       email: currentUser.email,  
       phone: currentUser.phone,
-      document: currentUser.document, // 👈 AGORA O FRONTEND RECEBE O CPF
+      document: currentUser.document, 
       bio: currentUser.bio,      
       avatarUrl: currentUser.avatarUrl,
       role: currentUser.role,
@@ -49,6 +49,11 @@ export class SettingsService {
       pixDepositPercentage: businessData.pixDepositPercentage, 
       mercadoPagoAccessToken: businessData.mercadoPagoAccessToken,
       centralizePayments: businessData.centralizePayments,
+      
+      // 🌟 RETORNANDO A COMISSÃO PARA O FRONTEND LER
+      absorbPixFee: businessData.absorbPixFee,
+      commissionType: businessData.commissionType,
+      defaultCommissionRate: businessData.defaultCommissionRate,
     };
   }
 
@@ -70,7 +75,7 @@ export class SettingsService {
     if (data.name !== undefined) personalData.name = data.name;
     if (data.username !== undefined) personalData.username = data.username;
     if (data.phone !== undefined) personalData.phone = data.phone;
-    if (data.document !== undefined) personalData.document = data.document; // 👈 AGORA A API SALVA O CPF!
+    if (data.document !== undefined) personalData.document = data.document;
     if (data.bio !== undefined) personalData.bio = data.bio;
     if (data.avatarUrl !== undefined) personalData.avatarUrl = data.avatarUrl;
     
@@ -91,6 +96,11 @@ export class SettingsService {
     if (data.pixDepositPercentage !== undefined) businessData.pixDepositPercentage = data.pixDepositPercentage;
     if (data.mercadoPagoAccessToken !== undefined) businessData.mercadoPagoAccessToken = data.mercadoPagoAccessToken;
     if (data.centralizePayments !== undefined) businessData.centralizePayments = data.centralizePayments;
+    
+    // 🌟 LENDO AS COMISSÕES DO FRONTEND PARA GRAVAR NO BANCO
+    if (data.absorbPixFee !== undefined) businessData.absorbPixFee = data.absorbPixFee;
+    if (data.defaultCommissionRate !== undefined) businessData.defaultCommissionRate = data.defaultCommissionRate;
+    if (data.commissionType !== undefined) businessData.commissionType = data.commissionType;
 
     if (Object.keys(businessData).length > 0) {
       if (isOwner || isCoAdmin) {

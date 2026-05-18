@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Min, IsBoolean, Max, IsNumber } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min, IsBoolean, Max, IsNumber, IsIn } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({ example: 'Stephany Kretli' })
@@ -59,7 +59,6 @@ export class UpdateSettingsDto {
   @IsString()
   phone?: string;
 
-  // 👇 NOVO CAMPO ADICIONADO AQUI 👇
   @ApiPropertyOptional({ example: '12345678909' })
   @IsOptional()
   @IsString()
@@ -72,4 +71,18 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsString()
   avatarUrl?: string;
+
+  // 🌟 OS CAMPOS DE COMISSÃO ADICIONADOS AQUI 👇
+  @IsOptional()
+  @IsBoolean()
+  absorbPixFee?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  defaultCommissionRate?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['PERCENTAGE', 'FIXED'])
+  commissionType?: string;
 }

@@ -17,4 +17,16 @@ export class UpdateFinancialSettingsDto {
   @IsString()
   @IsIn(['PERCENTAGE', 'FIXED'])
   commissionType?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  requirePixDeposit?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  pixDepositPercentage?: number;
+
+  @IsOptional()
+  @IsString()
+  mercadoPagoAccessToken?: string;
 }

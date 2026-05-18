@@ -194,15 +194,14 @@ export class SettingsService {
         ...(dto.absorbPixFee !== undefined && { absorbPixFee: dto.absorbPixFee }),
         ...(dto.defaultCommissionRate !== undefined && { defaultCommissionRate: dto.defaultCommissionRate }),
         ...(dto.commissionType !== undefined && { commissionType: dto.commissionType }),
+        // 🌟 Nossos novos campos de PIX entraram perfeitamente:
+        ...(dto.requirePixDeposit !== undefined && { requirePixDeposit: dto.requirePixDeposit }),
+        ...(dto.pixDepositPercentage !== undefined && { pixDepositPercentage: dto.pixDepositPercentage }),
+        ...(dto.mercadoPagoAccessToken !== undefined && { mercadoPagoAccessToken: dto.mercadoPagoAccessToken }),
       },
-      select: {
-        id: true,
-        absorbPixFee: true,
-        defaultCommissionRate: true,
-        commissionType: true,
-      }
     });
 
-    return updatedUser;
+    // 🌟 Retorna TUDO padronizado para o front-end não se perder
+    return this.getSettings(userId);
   }
 }

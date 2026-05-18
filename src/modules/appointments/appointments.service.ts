@@ -31,6 +31,7 @@ function startOfDayLocal(yyyyMmDd: string) {
 @Injectable()
 export class AppointmentsService {
   private readonly logger = new Logger(AppointmentsService.name);
+  
   constructor(
     private prisma: PrismaService,
     private whatsappService: WhatsappService, 
@@ -38,6 +39,7 @@ export class AppointmentsService {
   ) {}
 
   private generatePublicCancelToken() { return randomBytes(24).toString('hex'); }
+  
   private getPublicCancelTokenExpiresAt() {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
@@ -73,6 +75,24 @@ export class AppointmentsService {
       mercadoPagoAccessToken: tokenParaUsar || undefined,  
       salonOwnerId: salonOwner.id, 
     };
+  }
+
+  async isWithinBusinessHours(userId: string, start: Date, totalMinutes: number): Promise<boolean> {
+    const weekday = start.getDay();
+    const end = new Date(start.getTime() + totalMinutes * 60000);
+
+    const startTimeStr = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
+    const endTimeStr = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+
+    const businessHours = await this.prisma.businessHour.findMany({
+      where: { userId, weekday },
+    });
+
+    if (!businessHours.length) return false;
+
+    return businessHours.some(bh => {
+      return startTimeStr >= bh.start && endTimeStr <= bh.end;
+    });
   }
 
   async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean, services?: { serviceId: string, isMaintenance: boolean }[] }) {
@@ -121,7 +141,7 @@ export class AppointmentsService {
       });
 
       const totalMinutes = getAppointmentTotalMinutes(totalFinalDuration, settings.bufferMinutes);
-      // @ts-ignore
+      
       const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
       if (!ok) throw new BadRequestException('O horário escolhido não cabe no expediente.');
 
@@ -222,7 +242,6 @@ export class AppointmentsService {
     });
     if (!appt) throw new NotFoundException('Agendamento não encontrado.');
     
-    // 🌟 Injeta objeto virtual para retrocompatibilidade com o Front-end
     const apptServices = appt.services || [];
     appt.service = {
       name: apptServices.map(s => s.service?.name).join(' + '),
@@ -235,8 +254,7 @@ export class AppointmentsService {
   async cancelByPublicToken(token: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { publicCancelToken: token },
-      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true } }, user: { select: { plan: true, ownerId: true } }
-      }
+      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true } }, user: { select: { plan: true, ownerId: true } } }
     });
     if (!appt || appt.status !== 'SCHEDULED') throw new BadRequestException('Incapaz de cancelar.');
 
@@ -264,7 +282,6 @@ export class AppointmentsService {
       this.prisma.appointment.count({ where }),
     ]);
 
-    // 🌟 Adapta os itens injetando o campo virtual singular .service
     const formattedItems = items.map(item => {
       const sArr = item.services || [];
       return {

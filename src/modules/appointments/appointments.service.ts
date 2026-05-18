@@ -401,6 +401,7 @@ export class AppointmentsService {
   }
 
   async getAvailability(userId: string, serviceId: string, date: string, professionalId?: string, cartItemsStr?: string, stepMinutes = 15) {
+    stepMinutes = 15;
     if (!serviceId && !cartItemsStr) throw new BadRequestException('Serviço ou Carrinho é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
 

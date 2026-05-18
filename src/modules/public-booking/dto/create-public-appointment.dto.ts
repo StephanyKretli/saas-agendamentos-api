@@ -4,8 +4,21 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsArray, 
+  ValidateNested,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+
+export class CartItemDto {
+  @IsString()
+  serviceId: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isMaintenance?: boolean;
+}
 
 export class CreatePublicAppointmentDto {
   @ApiProperty({ example: 'clx123abc' })
@@ -43,4 +56,10 @@ export class CreatePublicAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CartItemDto)
+  services?: CartItemDto[];
 }

@@ -66,7 +66,8 @@ export class AppointmentsService {
     return {
       resolvedUserId: user.id,
       plan: salonOwner.plan,
-      bufferMinutes: user.bufferMinutes ?? 10,
+      // 🌟 SE NÃO HOUVER BUFFER CONFIGURADO, ASSUME 15 MINUTOS POR PADRÃO:
+      bufferMinutes: (user.bufferMinutes !== null && user.bufferMinutes > 0) ? user.bufferMinutes : 15,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
       timezone: user.timezone,
@@ -219,7 +220,6 @@ export class AppointmentsService {
   async cancel(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, OR: [{ userId: userId }, { professionalId: userId }] },
-      // 🌟 Adicionamos o "name: true" aqui no professional para usarmos na mensagem
       include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { plan: true, ownerId: true } } },
     });
     
@@ -233,29 +233,13 @@ export class AppointmentsService {
     const comboNames = appt.services.map((s: any) => s.service?.name || 'Serviço').join(' + ');
     const salonOwnerId = appt.user?.ownerId || appt.userId;
 
-    // 🌟 NOVO: Notifica o Cliente sobre o cancelamento
     if (appt.client?.phone) {
-      this.whatsappService.sendClientCancellation(
-        salonOwnerId,
-        appt.client.name,
-        appt.client.phone,
-        comboNames,
-        appt.date,
-        appt.professional?.name || 'nossa equipe'
-      ).catch(e => console.error('Erro ao enviar wpp de cancelamento ao cliente:', e));
+      this.whatsappService.sendClientCancellation(salonOwnerId, appt.client.name, appt.client.phone, comboNames, appt.date, appt.professional?.name || 'nossa equipe').catch(e => console.error(e));
     }
 
-    // 🌟 MANTIDO: Notifica o Profissional (Se a loja for PRO)
     if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
-      this.whatsappService.notifyProfessionalCanceledAppointment(
-        salonOwnerId, 
-        appt.professional.phone, 
-        appt.client?.name || 'Cliente', 
-        appt.date, 
-        comboNames
-      ).catch(e => console.error('Erro ao enviar wpp de cancelamento ao prof:', e));
+      this.whatsappService.notifyProfessionalCanceledAppointment(salonOwnerId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames).catch(e => console.error(e));
     }
-    
     return canceledAppt;
   }
 
@@ -278,40 +262,21 @@ export class AppointmentsService {
   async cancelByPublicToken(token: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { publicCancelToken: token },
-      // 🌟 Adicionamos o name do profissional aqui para usar na mensagem
       include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { plan: true, ownerId: true } } }
     });
-    
     if (!appt || appt.status !== 'SCHEDULED') throw new BadRequestException('Incapaz de cancelar.');
 
     const canceledAppt = await this.prisma.appointment.update({ where: { id: appt.id }, data: { status: 'CANCELED' } });
-    
-    const comboNames = appt.services.map((s: any) => s.service?.name).join(' + ');
+    const comboNames = appt.services.map(s => s.service?.name).join(' + ');
     const salonOwnerId = appt.user?.ownerId || appt.userId;
 
-    // 🌟 NOVO: Robô do WhatsApp para o Cliente
     if (appt.client?.phone) {
-      this.whatsappService.sendClientCancellation(
-        salonOwnerId,
-        appt.client.name,
-        appt.client.phone,
-        comboNames,
-        appt.date,
-        appt.professional?.name || 'nossa equipe'
-      ).catch(e => console.error('Erro WPP Cancelamento Cliente:', e));
+      this.whatsappService.sendClientCancellation(salonOwnerId, appt.client.name, appt.client.phone, comboNames, appt.date, appt.professional?.name || 'nossa equipe').catch(e => console.error(e));
     }
 
-    // 🌟 MANTIDO: Robô do WhatsApp para o Profissional
     if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
-      this.whatsappService.notifyProfessionalCanceledAppointment(
-        salonOwnerId, 
-        appt.professional.phone, 
-        appt.client?.name || 'Cliente', 
-        appt.date, 
-        comboNames
-      ).catch(e => console.error('Erro WPP Cancelamento Profissional:', e));
+      this.whatsappService.notifyProfessionalCanceledAppointment(salonOwnerId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames).catch(e => console.error(e));
     }
-    
     return canceledAppt;
   }
 
@@ -477,7 +442,6 @@ export class AppointmentsService {
       include: { services: true }
     });
 
-    // 🌟 1. Unificar todos os períodos ocupados (Agendamentos + Bloqueios)
     const busyIntervals: { start: Date, end: Date }[] = [];
 
     for (const b of blockedSlots) {
@@ -491,7 +455,6 @@ export class AppointmentsService {
       busyIntervals.push({ start: aStart, end: addMinutes(aStart, aTotalMinutes) });
     }
 
-    // Fundir intervalos que se sobrepõem
     busyIntervals.sort((a, b) => a.start.getTime() - b.start.getTime());
     const mergedBusy: { start: Date, end: Date }[] = [];
     for (const interval of busyIntervals) {
@@ -509,7 +472,6 @@ export class AppointmentsService {
 
     const slots = new Set<string>();
 
-    // 🌟 2. Encontrar os Blocos Livres e aplicar o Smart Clustering
     for (const period of businessHours) {
       const periodStart = parseLocalISO(`${date}T${period.start}:00`);
       const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
@@ -531,18 +493,15 @@ export class AppointmentsService {
         freeBlocks.push({ start: new Date(currentStart), end: new Date(periodEnd) });
       }
 
-      // 🌟 3. A mágica do Agrupamento Inteligente (Smart Clustering)
       for (const block of freeBlocks) {
         const possibleSlots: Date[] = [];
         let cursor = new Date(block.start);
 
-        // Garante que o cursor inicia alinhado com os minutos de "step" (ex: :00, :15, :30)
         const remainder = cursor.getMinutes() % stepMinutes;
         if (remainder !== 0) {
           cursor = addMinutes(cursor, stepMinutes - remainder);
         }
 
-        // Descobre todos os horários perfeitamente encaixados neste bloco livre
         while (true) {
           const slotEnd = addMinutes(cursor, totalMinutes);
           if (slotEnd > block.end) break;
@@ -550,19 +509,16 @@ export class AppointmentsService {
           cursor = addMinutes(cursor, stepMinutes);
         }
 
-        // Aplica a regra restrita: Só libera as bordas do bloco livre!
         if (possibleSlots.length > 0) {
-          slots.add(formatTime(possibleSlots[0])); // Cola no início do bloco livre
+          slots.add(formatTime(possibleSlots[0])); 
           if (possibleSlots.length > 1) {
-            slots.add(formatTime(possibleSlots[possibleSlots.length - 1])); // Cola no final do bloco livre
+            slots.add(formatTime(possibleSlots[possibleSlots.length - 1])); 
           }
         }
       }
     }
 
-    // Ordenar os slots cronologicamente antes de enviar para o Frontend
     const sortedSlots = Array.from(slots).sort();
-    
     return { date, slots: sortedSlots };
   }
 

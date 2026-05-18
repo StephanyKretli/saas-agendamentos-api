@@ -209,7 +209,17 @@ export class AppointmentsService {
 
     if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
       try {
-        const pixData = await this.mercadoPagoService.createPixPayment(newAppointment.id, newAppointment.depositCents!, finalAppointment.client?.name || 'Cliente', finalAppointment.client?.email || undefined, settings.mercadoPagoAccessToken);
+        // 🌟 NOVO: Fallback de e-mail obrigatório para o Mercado Pago não reclamar
+        const fallbackEmail = finalAppointment.client?.email || 'cliente@naoinformado.com';
+        
+        const pixData = await this.mercadoPagoService.createPixPayment(
+          newAppointment.id, 
+          newAppointment.depositCents!, 
+          finalAppointment.client?.name || 'Cliente', 
+          fallbackEmail, // 👈 Usa o fallback aqui
+          settings.mercadoPagoAccessToken
+        );
+        
         finalAppointment = await this.prisma.appointment.update({
           where: { id: newAppointment.id },
           data: { transactionId: pixData.transactionId, pixPayload: pixData.qrCodePayload },
@@ -219,9 +229,14 @@ export class AppointmentsService {
         // Reaplica a compatibilidade após o update do PIX
         finalAppointment.service = { name: comboNames, duration: finalAppointment.duration, priceCents: finalAppointment.priceCents };
         
-      } catch (error) {
+      } catch (error: any) {
+        // 🌟 NOVO: Agora vamos ver exatamente do que o MP está a reclamar!
+        console.error("❌ ERRO MERCADO PAGO:", error?.response?.data || error);
+        
         await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
-        throw new BadRequestException('Erro ao gerar cobrança PIX.');
+        
+        const mpErrorMessage = error?.response?.data?.message || error?.message || 'Falha na comunicação com gateway.';
+        throw new BadRequestException(`Erro ao gerar PIX: ${mpErrorMessage}`);
       }
     } else {
       if (finalAppointment.client?.phone) {

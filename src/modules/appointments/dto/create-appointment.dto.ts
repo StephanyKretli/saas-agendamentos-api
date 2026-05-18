@@ -6,7 +6,8 @@ import {
   IsOptional,
   IsString,
   ValidateNested,
-  IsBoolean
+  IsBoolean,
+  IsArray
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -25,6 +26,21 @@ export class CreateAppointmentClientDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CartItemDto)
+  services?: CartItemDto[];
+}
+
+export class CartItemDto {
+  @IsString()
+  serviceId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isMaintenance?: boolean;
 }
 
 export class CreateAppointmentDto {

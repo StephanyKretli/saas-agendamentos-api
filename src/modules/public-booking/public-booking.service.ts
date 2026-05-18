@@ -207,4 +207,23 @@ export class PublicBookingService {
       select: { id: true, status: true, date: true },
     });
   }
+
+  async isWithinBusinessHours(userId: string, start: Date, totalMinutes: number): Promise<boolean> {
+    const weekday = start.getDay();
+    const end = new Date(start.getTime() + totalMinutes * 60000);
+
+    const startTimeStr = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
+    const endTimeStr = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+
+    const businessHours = await this.prisma.businessHour.findMany({
+      where: { userId, weekday },
+    });
+
+    if (!businessHours.length) return false;
+
+    // Verifica se o horário solicitado cabe dentro de algum dos turnos do profissional
+    return businessHours.some(bh => {
+      return startTimeStr >= bh.start && endTimeStr <= bh.end;
+    });
+  }
 }

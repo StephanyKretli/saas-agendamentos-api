@@ -190,6 +190,7 @@ export class PublicBookingService {
 
   async cancelByToken(token: string) {
     const normalizedToken = token.trim();
+    
     const appointment = await this.prisma.appointment.findFirst({
       where: { publicCancelToken: normalizedToken },
     });
@@ -201,10 +202,7 @@ export class PublicBookingService {
     if (appointment.status === 'CANCELED') throw new BadRequestException('Este agendamento já foi cancelado.');
     if (appointment.status === 'COMPLETED') throw new BadRequestException('Não é possível cancelar um agendamento concluído.');
 
-    return this.prisma.appointment.update({
-      where: { id: appointment.id },
-      data: { status: 'CANCELED' },
-      select: { id: true, status: true, date: true },
-    });
+    // 🌟 Em vez de atualizar o banco sozinho, ele chama a função que tem o robô do WhatsApp!
+    return this.appointmentsService.cancelByPublicToken(normalizedToken);
   }
 }

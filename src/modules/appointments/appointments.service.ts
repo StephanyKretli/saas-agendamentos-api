@@ -278,16 +278,40 @@ export class AppointmentsService {
   async cancelByPublicToken(token: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { publicCancelToken: token },
-      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true } }, user: { select: { plan: true, ownerId: true } } }
+      // 🌟 Adicionamos o name do profissional aqui para usar na mensagem
+      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { plan: true, ownerId: true } } }
     });
+    
     if (!appt || appt.status !== 'SCHEDULED') throw new BadRequestException('Incapaz de cancelar.');
 
     const canceledAppt = await this.prisma.appointment.update({ where: { id: appt.id }, data: { status: 'CANCELED' } });
-    const comboNames = appt.services.map(s => s.service?.name).join(' + ');
+    
+    const comboNames = appt.services.map((s: any) => s.service?.name).join(' + ');
+    const salonOwnerId = appt.user?.ownerId || appt.userId;
 
-    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
-      this.whatsappService.notifyProfessionalCanceledAppointment(appt.user.ownerId || appt.userId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames).catch(e => console.error(e));
+    // 🌟 NOVO: Robô do WhatsApp para o Cliente
+    if (appt.client?.phone) {
+      this.whatsappService.sendClientCancellation(
+        salonOwnerId,
+        appt.client.name,
+        appt.client.phone,
+        comboNames,
+        appt.date,
+        appt.professional?.name || 'nossa equipe'
+      ).catch(e => console.error('Erro WPP Cancelamento Cliente:', e));
     }
+
+    // 🌟 MANTIDO: Robô do WhatsApp para o Profissional
+    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
+      this.whatsappService.notifyProfessionalCanceledAppointment(
+        salonOwnerId, 
+        appt.professional.phone, 
+        appt.client?.name || 'Cliente', 
+        appt.date, 
+        comboNames
+      ).catch(e => console.error('Erro WPP Cancelamento Profissional:', e));
+    }
+    
     return canceledAppt;
   }
 

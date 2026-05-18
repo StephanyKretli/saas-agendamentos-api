@@ -66,7 +66,7 @@ export class AppointmentsService {
     return {
       resolvedUserId: user.id,
       plan: salonOwner.plan,
-      bufferMinutes: user.bufferMinutes ?? 0,
+      bufferMinutes: user.bufferMinutes ?? 10,
       minBookingNoticeMinutes: user.minBookingNoticeMinutes ?? 0,
       maxBookingDays: user.maxBookingDays ?? 30,
       timezone: user.timezone,

@@ -45,8 +45,8 @@ export class CartItemDto {
 
 export class CreateAppointmentDto {
   @ApiProperty({ example: 'clx123abc' })
+  @IsOptional()  
   @IsString()
-  @IsNotEmpty()
   serviceId?: string;
 
   @ApiProperty({

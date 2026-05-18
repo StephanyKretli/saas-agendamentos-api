@@ -22,9 +22,9 @@ export class CartItemDto {
 
 export class CreatePublicAppointmentDto {
   @ApiProperty({ example: 'clx123abc' })
+  @IsOptional()  
   @IsString()
-  @IsNotEmpty()
-  serviceId: string;
+  serviceId?: string;
 
   @ApiProperty({
     example: '2026-03-10T09:00:00',

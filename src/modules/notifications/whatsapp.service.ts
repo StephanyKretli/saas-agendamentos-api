@@ -12,7 +12,6 @@ export class WhatsappService {
   }
 
   private getInstanceName(salonId: string) {
-    // Mudamos o prefixo para 'v2_'. Isso cria uma identidade totalmente nova na API.
     return `v2_${salonId}`; 
   }
 
@@ -23,7 +22,6 @@ export class WhatsappService {
     try {
       this.logger.log(`[1] Preparando instância: ${instanceName}`);
       
-      // 1. Limpa a conexão antiga apenas se houver lixo na memória
       await fetch(`${this.baseUrl}/instance/logout/${instanceName}`, {
         method: 'DELETE',
         headers
@@ -31,7 +29,6 @@ export class WhatsappService {
 
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // 2. Cria a instância e JÁ PEDE O QR CODE NA HORA! (Isso resolve contas novas na hora)
       this.logger.log(`[2] Criando sessão e solicitando QR Code...`);
       const createResponse = await fetch(`${this.baseUrl}/instance/create`, {
         method: 'POST',
@@ -39,23 +36,21 @@ export class WhatsappService {
         body: JSON.stringify({ 
           instanceName, 
           integration: "WHATSAPP-BAILEYS",
-          qrcode: true // 🌟 Dica de Ouro: Pede à Evolution para enviar o QR Code já na criação!
+          qrcode: true 
         }),
       });
 
       let data = await createResponse.json().catch(() => null);
       let qrCode = data?.qrcode?.base64 || data?.base64;
 
-      // Se a Evolution devolveu o QR Code logo de cara (perfeito para contas novas)
       if (qrCode && typeof qrCode === 'string' && qrCode.length > 50) {
         this.logger.log(`✅ SUCESSO INSTANTÂNEO! QR Code gerado na criação.`);
         return { instanceName, status: 'qrcode', qrCodeBase64: qrCode };
       }
 
-      // 3. Loop de emergência: se a Evolution estiver lenta (máx 3 tentativas rápidas)
       this.logger.log(`[3] Evolution a processar... tentando buscar manualmente.`);
       for (let i = 1; i <= 3; i++) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Espera 5 segundos
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
         const connectResponse = await fetch(`${this.baseUrl}/instance/connect/${instanceName}`, { 
           method: 'GET', 
@@ -75,12 +70,10 @@ export class WhatsappService {
 
     } catch (error: any) {
       this.logger.error(`Aviso: ${error.message}`);
-      // Lança o erro real para o Frontend saber o que se passou
       throw new BadRequestException(error.message);
     }
   }
 
-  // ... (o resto das funções getConnectionStatus e sendMessage mantêm-se iguais)
   async getConnectionStatus(salonId: string) {
     const instanceName = this.getInstanceName(salonId);
     try {
@@ -98,14 +91,11 @@ export class WhatsappService {
   async sendMessage(salonId: string, phoneOrGroupId: string, text: string) {
     let finalPhone = phoneOrGroupId;
 
-    // 💡 A MÁGICA DOS GRUPOS: Se não tiver o '@g.us', é um número normal.
-    // Então nós limpamos os caracteres e colocamos o 55.
     if (!phoneOrGroupId.includes('@g.us')) {
       const cleanPhone = phoneOrGroupId.replace(/\D/g, ''); 
       finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
     }
 
-    // Mantemos a trava de segurança caso o salonId já venha com o prefixo do Evolution
     const instanceName = salonId.startsWith('v2_') ? salonId : this.getInstanceName(salonId);
 
     try {
@@ -117,9 +107,7 @@ export class WhatsappService {
 
       if (!response.ok) {
         const errorDetail = await response.json();
-        console.error(`❌ [EVOLUTION ERROR] Instância: ${instanceName}`);
-        console.error(`❌ [EVOLUTION ERROR] Status: ${response.status}`);
-        console.error(`❌ [EVOLUTION ERROR] Detalhe:`, JSON.stringify(errorDetail));
+        console.error(`❌ [EVOLUTION ERROR] Instância: ${instanceName} | Status: ${response.status}`);
       }
 
       return response.ok;
@@ -129,19 +117,34 @@ export class WhatsappService {
     }
   }
 
+  // 🌟 MENSAGENS PARA O CLIENTE
   async sendAppointmentConfirmation(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string, manageLink: string) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
-    const message = `Olá, *${clientName}*! 👋\n\nO seu agendamento foi confirmado!\n\n✂️ *Serviço:* ${serviceName}\n📅 *Data:* ${formattedDate}\n⏰ *Horário:* ${formattedTime}\n👨‍💼 *Profissional:* ${professionalName}\n\n🔗 ${manageLink}`;
+    const message = `Olá, *${clientName}*! 👋\n\nO seu agendamento foi confirmado!\n\n✂️ *Serviço:* ${serviceName}\n📅 *Data:* ${formattedDate}\n⏰ *Horário:* ${formattedTime}\n👨‍💼 *Profissional:* ${professionalName}\n\n🔗 *Gerir Agendamento:*\n${manageLink}`;
     return this.sendMessage(salonId, clientPhone, message);
   }
 
-  async sendAppointmentReminder(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string) {
+  async sendClientCancellation(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string) {
+    const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
-    const message = `Olá, *${clientName}*! Lembrete do seu horário amanhã às *${formattedTime}* para *${serviceName}* com ${professionalName}. ✨`;
+    const message = `Olá, *${clientName}*.\n\nConfirmamos o cancelamento do seu agendamento para *${serviceName}* no dia ${formattedDate} às ${formattedTime} com ${professionalName}.\n\nEsperamos receber você numa próxima oportunidade! 🖤`;
     return this.sendMessage(salonId, clientPhone, message);
   }
 
+  async sendDayReminder(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string) {
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
+    const message = `Olá, *${clientName}*! Passando para lembrar do seu horário amanhã às *${formattedTime}* para *${serviceName}* com ${professionalName}. Até lá! ✨`;
+    return this.sendMessage(salonId, clientPhone, message);
+  }
+
+  async sendHourReminder(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string) {
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
+    const message = `Olá, *${clientName}*! O seu horário é daqui a pouco, às *${formattedTime}* para *${serviceName}* com ${professionalName}. Estamos te aguardando! 🚀`;
+    return this.sendMessage(salonId, clientPhone, message);
+  }
+
+  // 🌟 MENSAGENS PARA A EQUIPE
   async notifyProfessionalNewAppointment(salonId: string, professionalPhone: string, clientName: string, date: Date, serviceName: string) {
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
     const message = `*Novo Agendamento!* 📅\n\n👤 *Cliente:* ${clientName}\n✂️ *Serviço:* ${serviceName}\n🕒 *Hora:* ${formattedTime}`;

@@ -13,65 +13,93 @@ export class NotificationsCron {
     private readonly whatsappService: WhatsappService,
   ) {}
 
-  // 🌟 O CronExpression '0 8 * * *' significa: "Corre todos os dias às 08:00 da manhã"
-  @Cron('0 8 * * *')
-  async sendDailyReminders() {
-    this.logger.log('A iniciar varredura de agendamentos para amanhã...');
+  // 🌟 Roda a cada 15 minutos para ser preciso com os alertas de 3 horas
+  @Cron('*/15 * * * *')
+  async processReminders() {
+    this.logger.log('🤖 Iniciando varredura de lembretes...');
+    const now = new Date();
 
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
+    // 🕒 Janelas de tempo
+    const startOf1DayWindow = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Daqui a 24h
+    const endOf1DayWindow = new Date(now.getTime() + 48 * 60 * 60 * 1000);   // Até daqui a 48h
 
-    const endOfTomorrow = new Date(tomorrow);
-    endOfTomorrow.setHours(23, 59, 59, 999);
+    const startOf3HoursWindow = new Date(now.getTime() + 3 * 60 * 60 * 1000); // Daqui a 3h
+    const endOf3HoursWindow = new Date(now.getTime() + 4 * 60 * 60 * 1000);   // Até daqui a 4h
 
-    // 1. Procura todas as marcações de amanhã que estão confirmadas (SCHEDULED)
-    const appointments = await this.prisma.appointment.findMany({
+    // ==========================================
+    // 1. LEMBRETES DE 1 DIA (Amanhã)
+    // ==========================================
+    const dayAppointments = await this.prisma.appointment.findMany({
       where: {
-        date: {
-          gte: tomorrow,
-          lte: endOfTomorrow,
-        },
         status: 'SCHEDULED',
+        dayReminderSentAt: null, // Garante que só manda 1 vez
+        date: { gte: startOf1DayWindow, lte: endOf1DayWindow },
       },
       include: {
         client: true,
-        service: true,
-        // 👇 ADICIONADO AQUI PARA DESCOBRIR A INSTÂNCIA DO WPP
-        user: { select: { ownerId: true } }
+        services: { include: { service: true } }, // 🌟 O seu carrinho de múltiplos serviços!
+        user: { select: { ownerId: true } },
+        professional: { select: { name: true } }
       },
     });
 
-    if (appointments.length === 0) {
-      this.logger.log('Nenhum agendamento para amanhã. Varredura concluída.');
-      return;
-    }
-
-    this.logger.log(`Encontrados ${appointments.length} agendamentos. A disparar WhatsApps...`);
-
-    // 2. Dispara a mensagem para cada um
-    for (const apt of appointments) {
+    for (const apt of dayAppointments) {
       if (apt.client?.phone) {
-        
-        // Vai buscar o nome do profissional à base de dados
-        const prof = apt.professionalId 
-          ? await this.prisma.user.findUnique({ where: { id: apt.professionalId }, select: { name: true } })
-          : null;
-
-        // Descobre quem é a dona da instância para o disparo
         const salonOwnerId = apt.user?.ownerId ? apt.user.ownerId : apt.userId;
-
-        await this.whatsappService.sendAppointmentReminder(
-          salonOwnerId, // 👈 O PARÂMETRO QUE FALTAVA
+        const comboNames = apt.services.map((s: any) => s.service?.name).join(' + ') || 'Serviço';
+        
+        await this.whatsappService.sendDayReminder(
+          salonOwnerId,
           apt.client.name,
           apt.client.phone,
-          apt.service?.name || 'Serviço',
+          comboNames,
           apt.date,
-          prof?.name || 'a nossa equipe'
+          apt.professional?.name || 'nossa equipe'
         );
+
+        // Marca no banco que o aviso de 1 dia já foi disparado
+        await this.prisma.appointment.update({ where: { id: apt.id }, data: { dayReminderSentAt: new Date() } });
       }
     }
 
-    this.logger.log('Lembretes automáticos enviados com sucesso!');
+    // ==========================================
+    // 2. LEMBRETES DE 3 HORAS (Daqui a pouco)
+    // ==========================================
+    const hourAppointments = await this.prisma.appointment.findMany({
+      where: {
+        status: 'SCHEDULED',
+        hourReminderSentAt: null, // Garante que só manda 1 vez
+        date: { gte: startOf3HoursWindow, lte: endOf3HoursWindow },
+      },
+      include: {
+        client: true,
+        services: { include: { service: true } },
+        user: { select: { ownerId: true } },
+        professional: { select: { name: true } }
+      },
+    });
+
+    for (const apt of hourAppointments) {
+      if (apt.client?.phone) {
+        const salonOwnerId = apt.user?.ownerId ? apt.user.ownerId : apt.userId;
+        const comboNames = apt.services.map((s: any) => s.service?.name).join(' + ') || 'Serviço';
+        
+        await this.whatsappService.sendHourReminder(
+          salonOwnerId,
+          apt.client.name,
+          apt.client.phone,
+          comboNames,
+          apt.date,
+          apt.professional?.name || 'nossa equipe'
+        );
+
+        // Marca no banco que o aviso de 3 horas já foi disparado
+        await this.prisma.appointment.update({ where: { id: apt.id }, data: { hourReminderSentAt: new Date() } });
+      }
+    }
+
+    if (dayAppointments.length > 0 || hourAppointments.length > 0) {
+      this.logger.log(`✅ Lembretes processados: ${dayAppointments.length} (Para amanhã) | ${hourAppointments.length} (Para hoje).`);
+    }
   }
 }

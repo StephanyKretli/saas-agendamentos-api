@@ -219,8 +219,10 @@ export class AppointmentsService {
   async cancel(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, OR: [{ userId: userId }, { professionalId: userId }] },
-      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true } }, user: { select: { plan: true, ownerId: true } } },
+      // 🌟 Adicionamos o "name: true" aqui no professional para usarmos na mensagem
+      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { plan: true, ownerId: true } } },
     });
+    
     if (!appt || appt.status !== 'SCHEDULED') throw new BadRequestException('Agendamento não disponível para cancelamento.');
 
     const canceledAppt = await this.prisma.appointment.update({
@@ -229,9 +231,31 @@ export class AppointmentsService {
     });
 
     const comboNames = appt.services.map((s: any) => s.service?.name || 'Serviço').join(' + ');
-    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
-      this.whatsappService.notifyProfessionalCanceledAppointment(appt.user.ownerId || appt.userId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames).catch(e => console.error(e));
+    const salonOwnerId = appt.user?.ownerId || appt.userId;
+
+    // 🌟 NOVO: Notifica o Cliente sobre o cancelamento
+    if (appt.client?.phone) {
+      this.whatsappService.sendClientCancellation(
+        salonOwnerId,
+        appt.client.name,
+        appt.client.phone,
+        comboNames,
+        appt.date,
+        appt.professional?.name || 'nossa equipe'
+      ).catch(e => console.error('Erro ao enviar wpp de cancelamento ao cliente:', e));
     }
+
+    // 🌟 MANTIDO: Notifica o Profissional (Se a loja for PRO)
+    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
+      this.whatsappService.notifyProfessionalCanceledAppointment(
+        salonOwnerId, 
+        appt.professional.phone, 
+        appt.client?.name || 'Cliente', 
+        appt.date, 
+        comboNames
+      ).catch(e => console.error('Erro ao enviar wpp de cancelamento ao prof:', e));
+    }
+    
     return canceledAppt;
   }
 

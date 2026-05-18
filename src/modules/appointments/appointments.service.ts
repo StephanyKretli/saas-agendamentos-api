@@ -181,17 +181,13 @@ export class AppointmentsService {
         depositCents = Math.round(totalFinalPriceCents * (settings.pixDepositPercentage / 100));
       }
 
+      // 🌟 CRIANDO O AGENDAMENTO APENAS COM AS COLUNAS QUE EXISTEM
       return (tx.appointment.create as any)({
         data: {
           userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED',
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
           
-          // 🌟 RETROCOMPATIBILIDADE: Alimenta as colunas raiz para o Dashboard e relatórios antigos funcionarem direto!
-          serviceId: validatedServices[0]?.serviceId || null,
-          priceCents: totalFinalPriceCents,
-          duration: totalFinalDuration,
-
           services: { create: validatedServices.map(vs => ({ serviceId: vs.serviceId, isMaintenance: vs.isMaintenance, priceCents: vs.priceCents, duration: vs.duration })) }
         },
         include: { services: { include: { service: true } }, client: true, professional: { select: { name: true, phone: true } } }
@@ -199,7 +195,17 @@ export class AppointmentsService {
     });
 
     let finalAppointment = newAppointment as any;
-    const comboNames = newAppointment.services.map(s => `${s.service.name}`).join(' + ');
+    const comboNames = newAppointment.services.map((s: any) => `${s.service.name}`).join(' + ');
+
+    // 🌟 RETROCOMPATIBILIDADE EM MEMÓRIA PARA O FRONT-END NÃO QUEBRAR
+    finalAppointment.serviceId = newAppointment.services[0]?.serviceId;
+    finalAppointment.priceCents = newAppointment.services.reduce((acc: number, s: any) => acc + s.priceCents, 0);
+    finalAppointment.duration = newAppointment.services.reduce((acc: number, s: any) => acc + s.duration, 0);
+    finalAppointment.service = {
+      name: comboNames,
+      duration: finalAppointment.duration,
+      priceCents: finalAppointment.priceCents
+    };
 
     if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
       try {
@@ -209,6 +215,10 @@ export class AppointmentsService {
           data: { transactionId: pixData.transactionId, pixPayload: pixData.qrCodePayload },
           include: { services: { include: { service: true } }, client: true, professional: { select: { name: true, phone: true } } }
         });
+        
+        // Reaplica a compatibilidade após o update do PIX
+        finalAppointment.service = { name: comboNames, duration: finalAppointment.duration, priceCents: finalAppointment.priceCents };
+        
       } catch (error) {
         await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
         throw new BadRequestException('Erro ao gerar cobrança PIX.');

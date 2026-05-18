@@ -6,7 +6,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
-  // 👇 FUNÇÃO 1: A matemática do painel blindada por cargo E POR PLANO
   async getDashboardMetrics(userId: string, monthStr?: string) {
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -16,7 +15,6 @@ export class DashboardService {
     const isAdmin = !currentUser?.ownerId || currentUser?.role === 'ADMIN';
     const shopId = currentUser?.ownerId || userId;
 
-    // 👇 Descobrimos qual é o plano da Dona do Salão
     const shopOwner = await this.prisma.user.findUnique({
       where: { id: shopId },
       select: { plan: true }
@@ -39,7 +37,7 @@ export class DashboardService {
 
     const appointments = await this.prisma.appointment.findMany({
       where: whereClause,
-      include: { service: true },
+      include: { services: { include: { service: true } } }, // 🌟 Atualizado para a tabela pivô
     });
 
     let expectedRevenueCents = 0;
@@ -53,14 +51,23 @@ export class DashboardService {
     const serviceCountMap: Record<string, { name: string; count: number }> = {};
 
     for (const apt of appointments) {
-      const price = apt.service.priceCents;
+      const aptServices = apt.services || [];
+      // 🌟 Soma o preço total de todos os serviços do carrinho deste agendamento
+      const price = aptServices.reduce((acc, s) => acc + (s.priceCents || 0), 0);
 
       if (apt.status !== 'CANCELED') {
         totalValidAppointments++;
-        if (!serviceCountMap[apt.serviceId]) {
-          serviceCountMap[apt.serviceId] = { name: apt.service.name, count: 0 };
+        
+        // 🌟 Contabiliza a popularidade de cada serviço individual dentro do carrinho
+        for (const item of aptServices) {
+          const sId = item.serviceId;
+          const sName = item.service?.name || 'Serviço';
+          if (!serviceCountMap[sId]) {
+            serviceCountMap[sId] = { name: sName, count: 0 };
+          }
+          serviceCountMap[sId].count++;
         }
-        serviceCountMap[apt.serviceId].count++;
+        
         expectedRevenueCents += price;
       } else {
         canceledCount++;
@@ -69,7 +76,6 @@ export class DashboardService {
       if (apt.status === 'COMPLETED') {
         realizedRevenueCents += price; 
         
-        // 👇 Apenas calcula as finanças detalhadas se for ADMIN e tiver plano PRO
         if (isAdmin && isProPlan) {
           teamCommissionsCents += apt.commissionValueCents || 0; 
           pixFeesCents += apt.pixFeeCents || 0;
@@ -102,17 +108,13 @@ export class DashboardService {
     return {
       month: targetMonthStr,
       isOwner: isAdmin, 
-      isPro: isProPlan, // 👈 Enviamos esta flag para o Front-end bloquear os cards visuais!
-      
-      // Métricas Básicas (Liberadas para todos)
+      isPro: isProPlan, 
       expectedRevenueCents,
       expectedRevenueFormatted: formatBRL(expectedRevenueCents),
       realizedRevenueCents,
       realizedRevenueFormatted: formatBRL(realizedRevenueCents),
       cancelRate,
       mostBookedService,
-      
-      // Métricas Premium (Vêm zeradas se não for PRO)
       teamCommissionsCents,
       teamCommissionsFormatted: formatBRL(teamCommissionsCents),
       pixFeesCents,
@@ -122,43 +124,44 @@ export class DashboardService {
     };
   }
 
-  // 👇 FUNÇÃO 2: Agenda do dia blindada por cargo
   async getTodayAgenda(userId: string) {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
-  const appointments = await this.prisma.appointment.findMany({
-    where: {
-      professionalId: userId, // ✅ Sempre filtra pelo usuário logado
-      date: {
-        gte: todayStart,
-        lte: todayEnd,
+    const appointments = await this.prisma.appointment.findMany({
+      where: {
+        professionalId: userId, 
+        date: { gte: todayStart, lte: todayEnd },
       },
-    },
-    include: {
-      service: true,
-      client: true,
-    },
-    orderBy: {
-      date: 'asc',
-    },
-  });
+      include: {
+        services: { include: { service: true } }, // 🌟 Atualizado para a tabela pivô
+        client: true,
+      },
+      orderBy: { date: 'asc' },
+    });
 
-  return appointments.map(apt => {
-    const startTime = new Date(apt.date);
-    const endTime = new Date(startTime.getTime() + apt.service.duration * 60000);
+    return appointments.map(apt => {
+      const startTime = new Date(apt.date);
+      const aptServices = apt.services || [];
+      
+      // 🌟 Soma as durações de todos os serviços para saber o fim real do atendimento
+      const duration = aptServices.reduce((acc, s) => acc + (s.duration || 0), 0);
+      const endTime = new Date(startTime.getTime() + duration * 60000);
+      
+      // 🌟 Monta o nome composto dos serviços (ex: "Corte + Barba")
+      const comboName = aptServices.map(s => s.service?.name || 'Serviço').join(' + ');
 
-    return {
-      id: apt.id,
-      status: apt.status,
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
-      clientName: apt.client?.name || 'Cliente Avulso',
-      serviceName: apt.service.name,
-    };
-  });
-}
+      return {
+        id: apt.id,
+        status: apt.status,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        clientName: apt.client?.name || 'Cliente Avulso',
+        serviceName: comboName,
+      };
+    });
+  }
 }

@@ -34,6 +34,13 @@ export class SettingsController {
     return this.settingsService.updateSettings(req.user.id, body);
   }
 
+  // 🌟 A ROTA FINANCEIRA ADICIONADA AQUI
+  @Patch('financial')
+  @ApiOperation({ summary: 'Atualizar configurações financeiras e de comissão' })
+  updateFinancial(@Req() req: any, @Body() dto: UpdateFinancialSettingsDto) {
+    return this.settingsService.updateFinancialSettings(req.user.id, dto);
+  }
+
   @Patch('avatar')
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file'))
@@ -60,11 +67,5 @@ export class SettingsController {
     }
 
     return this.settingsService.uploadAvatar(req.user.id, file);
-  }
-
-  @Patch('financial')
-  @ApiOperation({ summary: 'Atualizar configurações financeiras e de comissão' })
-  updateFinancial(@Req() req: any, @Body() dto: UpdateFinancialSettingsDto) {
-    return this.settingsService.updateFinancialSettings(req.user.id, dto);
   }
 }

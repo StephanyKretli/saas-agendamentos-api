@@ -176,8 +176,9 @@ export class AppointmentsService {
         }
       }
 
+      // 🌟 ATUALIZADO: Aceita tanto o plano PRO quanto o BUSINESS para cobrar o sinal via PIX
       let depositCents = 0;
-      if (settings.plan === 'PRO' && settings.requirePixDeposit && totalFinalPriceCents > 0) {
+      if ((settings.plan === 'PRO' || settings.plan === 'BUSINESS') && settings.requirePixDeposit && totalFinalPriceCents > 0) {
         depositCents = Math.round(totalFinalPriceCents * (settings.pixDepositPercentage / 100));
       }
 
@@ -205,7 +206,14 @@ export class AppointmentsService {
       priceCents: finalAppointment.priceCents
     };
 
-    if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
+    // 🌟 TRAVA DE SEGURANÇA ISOLADA: Se precisa de PIX, entra aqui obrigatoriamente
+    if (newAppointment.paymentStatus === 'PENDING') {
+      if (!settings.mercadoPagoAccessToken) {
+        // Remove o agendamento fantasma criado e avisa o erro de configuração do salão
+        await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
+        throw new BadRequestException('Este estabelecimento ativou o sinal por PIX, mas não configurou as credenciais do Mercado Pago.');
+      }
+
       try {
         const fallbackEmail = finalAppointment.client?.email || 'cliente@naoinformado.com';
         
@@ -232,13 +240,12 @@ export class AppointmentsService {
         throw new BadRequestException(`Erro ao gerar PIX: ${mpErrorMessage}`);
       }
     } else {
-      // 🌟 BLOCO ELSE: Executado quando NÃO há PIX obrigatório
+      // 🌟 SÓ ENTRA AQUI SE NÃO PRECISAR DE PIX (NOT_REQUIRED)
       if (finalAppointment.client?.phone) {
         const manageLink = `${process.env.APP_WEB_URL || 'https://meusyncro.com.br'}/agendamento/${finalAppointment.publicCancelToken}`;
         await this.whatsappService.sendAppointmentConfirmation(settings.salonOwnerId, finalAppointment.client.name, finalAppointment.client.phone, comboNames, finalAppointment.date, finalAppointment.professional?.name || 'Equipe', manageLink);
       }
 
-      // 🌟 NOVO: Notifica a profissional na hora se o plano for PRO ou BUSINESS
       if ((settings.plan === 'PRO' || settings.plan === 'BUSINESS') && finalAppointment.professional?.phone) {
         try {
           await this.whatsappService.notifyProfessionalNewAppointment(

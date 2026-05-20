@@ -181,7 +181,6 @@ export class AppointmentsService {
         depositCents = Math.round(totalFinalPriceCents * (settings.pixDepositPercentage / 100));
       }
 
-      // 🌟 CRIANDO O AGENDAMENTO APENAS COM AS COLUNAS QUE EXISTEM
       return (tx.appointment.create as any)({
         data: {
           userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED',
@@ -197,7 +196,6 @@ export class AppointmentsService {
     let finalAppointment = newAppointment as any;
     const comboNames = newAppointment.services.map((s: any) => `${s.service.name}`).join(' + ');
 
-    // 🌟 RETROCOMPATIBILIDADE EM MEMÓRIA PARA O FRONT-END NÃO QUEBRAR
     finalAppointment.serviceId = newAppointment.services[0]?.serviceId;
     finalAppointment.priceCents = newAppointment.services.reduce((acc: number, s: any) => acc + s.priceCents, 0);
     finalAppointment.duration = newAppointment.services.reduce((acc: number, s: any) => acc + s.duration, 0);
@@ -209,14 +207,13 @@ export class AppointmentsService {
 
     if (newAppointment.paymentStatus === 'PENDING' && settings.mercadoPagoAccessToken) {
       try {
-        // 🌟 NOVO: Fallback de e-mail obrigatório para o Mercado Pago não reclamar
         const fallbackEmail = finalAppointment.client?.email || 'cliente@naoinformado.com';
         
         const pixData = await this.mercadoPagoService.createPixPayment(
           newAppointment.id, 
           newAppointment.depositCents!, 
           finalAppointment.client?.name || 'Cliente', 
-          fallbackEmail, // 👈 Usa o fallback aqui
+          fallbackEmail, 
           settings.mercadoPagoAccessToken
         );
         
@@ -226,22 +223,34 @@ export class AppointmentsService {
           include: { services: { include: { service: true } }, client: true, professional: { select: { name: true, phone: true } } }
         });
         
-        // Reaplica a compatibilidade após o update do PIX
         finalAppointment.service = { name: comboNames, duration: finalAppointment.duration, priceCents: finalAppointment.priceCents };
         
       } catch (error: any) {
-        // 🌟 NOVO: Agora vamos ver exatamente do que o MP está a reclamar!
         console.error("❌ ERRO MERCADO PAGO:", error?.response?.data || error);
-        
         await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
-        
         const mpErrorMessage = error?.response?.data?.message || error?.message || 'Falha na comunicação com gateway.';
         throw new BadRequestException(`Erro ao gerar PIX: ${mpErrorMessage}`);
       }
     } else {
+      // 🌟 BLOCO ELSE: Executado quando NÃO há PIX obrigatório
       if (finalAppointment.client?.phone) {
         const manageLink = `${process.env.APP_WEB_URL || 'https://meusyncro.com.br'}/agendamento/${finalAppointment.publicCancelToken}`;
         await this.whatsappService.sendAppointmentConfirmation(settings.salonOwnerId, finalAppointment.client.name, finalAppointment.client.phone, comboNames, finalAppointment.date, finalAppointment.professional?.name || 'Equipe', manageLink);
+      }
+
+      // 🌟 NOVO: Notifica a profissional na hora se o plano for PRO ou BUSINESS
+      if ((settings.plan === 'PRO' || settings.plan === 'BUSINESS') && finalAppointment.professional?.phone) {
+        try {
+          await this.whatsappService.notifyProfessionalNewAppointment(
+            settings.salonOwnerId,
+            finalAppointment.professional.phone,
+            finalAppointment.client?.name || 'Cliente',
+            finalAppointment.date,
+            comboNames
+          );
+        } catch (error: any) {
+          console.error(`[WhatsApp] Falha ao notificar profissional de novo agendamento: ${error.message}`);
+        }
       }
     }
     return finalAppointment;
@@ -263,13 +272,22 @@ export class AppointmentsService {
     const comboNames = appt.services.map((s: any) => s.service?.name || 'Serviço').join(' + ');
     const salonOwnerId = appt.user?.ownerId || appt.userId;
 
+    // 1. Avisa a cliente do cancelamento
     if (appt.client?.phone) {
       this.whatsappService.sendClientCancellation(salonOwnerId, appt.client.name, appt.client.phone, comboNames, appt.date, appt.professional?.name || 'nossa equipe').catch(e => console.error(e));
     }
 
-    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
-      this.whatsappService.notifyProfessionalCanceledAppointment(salonOwnerId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames).catch(e => console.error(e));
+    // 2. 🌟 ATUALIZADO: Avisa a profissional do cancelamento se for PRO ou BUSINESS
+    if ((appt.user?.plan === 'PRO' || appt.user?.plan === 'BUSINESS') && appt.professional?.phone) {
+      this.whatsappService.notifyProfessionalCanceledAppointment(
+        salonOwnerId, 
+        appt.professional.phone, 
+        appt.client?.name || 'Cliente', 
+        appt.date, 
+        comboNames
+      ).catch(e => console.error(e));
     }
+    
     return canceledAppt;
   }
 

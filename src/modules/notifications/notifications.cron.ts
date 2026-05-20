@@ -20,11 +20,11 @@ export class NotificationsCron {
     const now = new Date();
 
     // 🕒 Janelas de tempo
-    const startOf1DayWindow = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Daqui a 24h
-    const endOf1DayWindow = new Date(now.getTime() + 48 * 60 * 60 * 1000);   // Até daqui a 48h
+    const startOf1DayWindow = new Date(now.getTime() + 24 * 60 * 60 * 1000); 
+    const endOf1DayWindow = new Date(now.getTime() + 25 * 60 * 60 * 1000);
 
-    const startOf3HoursWindow = new Date(now.getTime() + 3 * 60 * 60 * 1000); // Daqui a 3h
-    const endOf3HoursWindow = new Date(now.getTime() + 4 * 60 * 60 * 1000);   // Até daqui a 4h
+    const startOf3HoursWindow = new Date(now.getTime() + 3 * 60 * 60 * 1000); 
+    const endOf3HoursWindow = new Date(now.getTime() + 3.5 * 60 * 60 * 1000);
 
     // ==========================================
     // 1. LEMBRETES DE 1 DIA (Amanhã)

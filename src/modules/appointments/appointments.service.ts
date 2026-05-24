@@ -491,9 +491,15 @@ export class AppointmentsService {
         const cartItems = JSON.parse(cartItemsStr);
         const sIds = cartItems.map((c: any) => c.serviceId);
         const dbServices = await this.prisma.service.findMany({ where: { id: { in: sIds } } });
+        
         for (const item of cartItems) {
           const svc = dbServices.find(s => s.id === item.serviceId);
-          if (svc) totalServiceMinutes += (item.isMaintenance && svc.hasMaintenance) ? svc.maintenanceDurationMinutes : svc.duration;
+          if (svc) {
+            totalServiceMinutes += (item.isMaintenance && svc.hasMaintenance) ? svc.maintenanceDurationMinutes : svc.duration;
+            
+            // 🌟 CORREÇÃO: Se qualquer serviço no carrinho tiver otimização, ativamos para o agendamento todo
+            if (svc.optimizeSlots) optimizeSlots = true;
+          }
         }
       } catch (e) { throw new BadRequestException('Carrinho inválido.'); }
     } else if (serviceId) {

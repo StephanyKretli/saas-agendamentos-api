@@ -597,10 +597,17 @@ export class AppointmentsService {
           cursor = addMinutes(cursor, stepMinutes);
         }
 
+        // --- CORREÇÃO DA LÓGICA DE EXIBIÇÃO ---
         if (possibleSlots.length > 0) {
-          slots.add(formatTime(possibleSlots[0])); 
-          if (possibleSlots.length > 1) {
-            slots.add(formatTime(possibleSlots[possibleSlots.length - 1])); 
+          if (optimizeSlots) {
+            // Com otimização: pega apenas o primeiro e o último para "colar" na agenda
+            slots.add(formatTime(possibleSlots[0]));
+            if (possibleSlots.length > 1) {
+              slots.add(formatTime(possibleSlots[possibleSlots.length - 1]));
+            }
+          } else {
+            // Sem otimização: adiciona TODOS os horários disponíveis (comportamento padrão)
+            possibleSlots.forEach(slot => slots.add(formatTime(slot)));
           }
         }
       }

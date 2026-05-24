@@ -485,6 +485,7 @@ export class AppointmentsService {
     if (requestedDay.getTime() > maxDate.getTime()) return { date, slots: [] };
 
     let totalServiceMinutes = 0;
+    let optimizeSlots = false;
     if (cartItemsStr && cartItemsStr.length > 0) {
       try {
         const cartItems = JSON.parse(cartItemsStr);
@@ -497,7 +498,10 @@ export class AppointmentsService {
       } catch (e) { throw new BadRequestException('Carrinho inválido.'); }
     } else if (serviceId) {
       const service = await this.prisma.service.findFirst({ where: { id: serviceId } });
-      if (service) totalServiceMinutes = service.duration;
+      if (service) {
+        totalServiceMinutes = service.duration;
+        optimizeSlots = service.optimizeSlots || false;
+      }
     }
 
     const totalMinutes = getAppointmentTotalMinutes(totalServiceMinutes, settings.bufferMinutes);
@@ -575,7 +579,20 @@ export class AppointmentsService {
 
         while (true) {
           const slotEnd = addMinutes(cursor, totalMinutes);
+          
           if (slotEnd > block.end) break;
+
+          if (optimizeSlots) {
+              const isAdjacent = busyIntervals.some(busy => 
+                Math.abs(busy.end.getTime() - cursor.getTime()) < 60000 
+              );
+              
+              if (!isAdjacent && cursor.getTime() !== block.start.getTime()) {
+                cursor = addMinutes(cursor, stepMinutes);
+                continue; 
+              }
+          }
+
           possibleSlots.push(new Date(cursor));
           cursor = addMinutes(cursor, stepMinutes);
         }

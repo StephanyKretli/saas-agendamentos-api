@@ -39,4 +39,8 @@ export class CreateServiceDto {
   @IsNumber()
   @IsOptional()
   maintenancePriceCents?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  optimizeSlots?: boolean;
 }

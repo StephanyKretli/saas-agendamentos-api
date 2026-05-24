@@ -35,6 +35,7 @@ export class ServicesService {
         priceCents: dto.priceCents as number,
         icon: dto.icon || 'scissors', 
         professionals: professionalsData, 
+        optimizeSlots: dto.optimizeSlots ?? false,
         hasMaintenance: (dto as any).hasMaintenance ?? false,
         maintenanceDurationMinutes: (dto as any).hasMaintenance ? Number((dto as any).maintenanceDurationMinutes) : null,
         maintenancePriceCents: (dto as any).hasMaintenance ? Number((dto as any).maintenancePriceCents) : null,
@@ -100,6 +101,7 @@ export class ServicesService {
           ...(dto.maintenanceDurationMinutes !== undefined && { maintenanceDurationMinutes: dto.maintenanceDurationMinutes ?? null }),
           ...(dto.maintenancePriceCents !== undefined && { maintenancePriceCents: dto.maintenancePriceCents ?? null }),
         }),
+        ...(dto.optimizeSlots !== undefined && { optimizeSlots: dto.optimizeSlots }),
       },
       select: this.serviceSelect(),
     });
@@ -177,6 +179,7 @@ export class ServicesService {
       icon: true, 
       hasMaintenance: true,
       maintenanceDurationMinutes: true,
+      optimizeSlots: true,
       maintenancePriceCents: true,
       professionals: {
         select: {

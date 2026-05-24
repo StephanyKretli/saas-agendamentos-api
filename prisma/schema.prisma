@@ -105,6 +105,8 @@ model Service {
   maintenancePriceCents      Int? // Preço opcional para manutenção
   maintenanceDurationMinutes Int? // Duração opcional para manutenção
 
+  optimizeSlots              Boolean  @default(false)
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 

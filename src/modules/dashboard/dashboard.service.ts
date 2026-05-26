@@ -12,7 +12,11 @@ export class DashboardService {
       select: { ownerId: true, role: true }, 
     });
     
-    const isAdmin = !currentUser?.ownerId || currentUser?.role === 'ADMIN';
+    // 🌟 NOVA LÓGICA DE PERMISSÕES
+    const isRootOwner = !currentUser?.ownerId; // A verdadeira DONA
+    const isCoAdmin = currentUser?.ownerId && currentUser?.role === 'ADMIN'; // Membro com cargo de gerência
+    const fetchGlobal = isRootOwner || isCoAdmin; // Ambos vêm a agenda global
+
     const shopId = currentUser?.ownerId || userId;
 
     const shopOwner = await this.prisma.user.findUnique({
@@ -29,7 +33,7 @@ export class DashboardService {
 
     const whereClause: any = { date: { gte: startDate, lte: endDate } };
 
-    if (isAdmin) {
+    if (fetchGlobal) {
       whereClause.userId = shopId; 
     } else {
       whereClause.professionalId = userId; 
@@ -43,12 +47,9 @@ export class DashboardService {
     let expectedRevenueCents = 0;
     let realizedRevenueCents = 0;
     
-    // Métricas do Dono (Admin)
     let teamCommissionsCents = 0;
     let pixFeesCents = 0;
     let netRevenueCents = 0;
-
-    // Métricas do Profissional (Colaborador)
     let individualCommissionCents = 0;
     
     let canceledCount = 0;
@@ -61,16 +62,12 @@ export class DashboardService {
 
       if (apt.status !== 'CANCELED') {
         totalValidAppointments++;
-        
         for (const item of aptServices) {
           const sId = item.serviceId;
           const sName = item.service?.name || 'Serviço';
-          if (!serviceCountMap[sId]) {
-            serviceCountMap[sId] = { name: sName, count: 0 };
-          }
+          if (!serviceCountMap[sId]) { serviceCountMap[sId] = { name: sName, count: 0 }; }
           serviceCountMap[sId].count++;
         }
-        
         expectedRevenueCents += price;
       } else {
         canceledCount++;
@@ -79,20 +76,21 @@ export class DashboardService {
       if (apt.status === 'COMPLETED') {
         realizedRevenueCents += price; 
         
-        if (isAdmin) {
-          // 🌟 LÓGICA DO DONO: Calcula os custos totais do salão
+        // 🔒 BLINDAGEM: Custos e lucros globais SOMENTE para a DONA
+        if (isRootOwner) {
           if (isProPlan) {
             teamCommissionsCents += apt.commissionValueCents || 0; 
             pixFeesCents += apt.pixFeeCents || 0;
-            
             if (apt.netRevenueCents !== null) {
               netRevenueCents += apt.netRevenueCents;
             } else {
               netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
             }
           }
-        } else {
-          // 🌟 LÓGICA DO COLABORADOR: Pega apenas a comissão que ele gerou no atendimento dele
+        }
+
+        // 🌟 Comissão individual calculada estritamente para o dono do agendamento (serve para Co-Admins e Equipa)
+        if (apt.professionalId === userId) {
           individualCommissionCents += apt.commissionValueCents || 0;
         }
       }
@@ -116,65 +114,39 @@ export class DashboardService {
 
     return {
       month: targetMonthStr,
-      isOwner: isAdmin, 
+      isOwner: fetchGlobal, // Mantém true para Dona e Co-Admin (para verem o faturamento)
+      isRootOwner: isRootOwner, // 🌟 NOVA VARIÁVEL: Exclusiva da Dona
       isPro: isProPlan, 
-      expectedRevenueCents,
-      expectedRevenueFormatted: formatBRL(expectedRevenueCents),
-      realizedRevenueCents,
-      realizedRevenueFormatted: formatBRL(realizedRevenueCents),
-      cancelRate,
-      mostBookedService,
+      expectedRevenueCents, expectedRevenueFormatted: formatBRL(expectedRevenueCents),
+      realizedRevenueCents, realizedRevenueFormatted: formatBRL(realizedRevenueCents),
+      cancelRate, mostBookedService,
       
-      // Retorno para o Admin
-      teamCommissionsCents,
-      teamCommissionsFormatted: formatBRL(teamCommissionsCents),
-      pixFeesCents,
-      pixFeesFormatted: formatBRL(pixFeesCents),
-      netRevenueCents,
-      netRevenueFormatted: formatBRL(netRevenueCents),
+      // Retorno Administrativo
+      teamCommissionsCents, teamCommissionsFormatted: formatBRL(teamCommissionsCents),
+      pixFeesCents, pixFeesFormatted: formatBRL(pixFeesCents),
+      netRevenueCents, netRevenueFormatted: formatBRL(netRevenueCents),
 
-      // 🌟 Retorno novo exclusivo para o Profissional
-      individualCommissionCents,
-      individualCommissionFormatted: formatBRL(individualCommissionCents),
+      // Retorno Equipa/Co-Admin
+      individualCommissionCents, individualCommissionFormatted: formatBRL(individualCommissionCents),
     };
   }
-
+  
+  // ... mantenha o método getTodayAgenda exatamente como está
   async getTodayAgenda(userId: string) {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
     const appointments = await this.prisma.appointment.findMany({
-      where: {
-        professionalId: userId, 
-        date: { gte: todayStart, lte: todayEnd },
-      },
-      include: {
-        services: { include: { service: true } },
-        client: true,
-      },
+      where: { professionalId: userId, date: { gte: todayStart, lte: todayEnd } },
+      include: { services: { include: { service: true } }, client: true },
       orderBy: { date: 'asc' },
     });
-
     return appointments.map(apt => {
       const startTime = new Date(apt.date);
       const aptServices = apt.services || [];
-      
       const duration = aptServices.reduce((acc, s) => acc + (s.duration || 0), 0);
       const endTime = new Date(startTime.getTime() + duration * 60000);
-      
       const comboName = aptServices.map(s => s.service?.name || 'Serviço').join(' + ');
-
-      return {
-        id: apt.id,
-        status: apt.status,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-        clientName: apt.client?.name || 'Cliente Avulso',
-        serviceName: comboName,
-      };
+      return { id: apt.id, status: apt.status, startTime: startTime.toISOString(), endTime: endTime.toISOString(), clientName: apt.client?.name || 'Cliente Avulso', serviceName: comboName };
     });
   }
 }

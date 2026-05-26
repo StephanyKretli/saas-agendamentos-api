@@ -37,14 +37,19 @@ export class DashboardService {
 
     const appointments = await this.prisma.appointment.findMany({
       where: whereClause,
-      include: { services: { include: { service: true } } }, // 🌟 Atualizado para a tabela pivô
+      include: { services: { include: { service: true } } }, 
     });
 
     let expectedRevenueCents = 0;
     let realizedRevenueCents = 0;
+    
+    // Métricas do Dono (Admin)
     let teamCommissionsCents = 0;
     let pixFeesCents = 0;
     let netRevenueCents = 0;
+
+    // Métricas do Profissional (Colaborador)
+    let individualCommissionCents = 0;
     
     let canceledCount = 0;
     let totalValidAppointments = 0;
@@ -52,13 +57,11 @@ export class DashboardService {
 
     for (const apt of appointments) {
       const aptServices = apt.services || [];
-      // 🌟 Soma o preço total de todos os serviços do carrinho deste agendamento
       const price = aptServices.reduce((acc, s) => acc + (s.priceCents || 0), 0);
 
       if (apt.status !== 'CANCELED') {
         totalValidAppointments++;
         
-        // 🌟 Contabiliza a popularidade de cada serviço individual dentro do carrinho
         for (const item of aptServices) {
           const sId = item.serviceId;
           const sName = item.service?.name || 'Serviço';
@@ -76,15 +79,21 @@ export class DashboardService {
       if (apt.status === 'COMPLETED') {
         realizedRevenueCents += price; 
         
-        if (isAdmin && isProPlan) {
-          teamCommissionsCents += apt.commissionValueCents || 0; 
-          pixFeesCents += apt.pixFeeCents || 0;
-          
-          if (apt.netRevenueCents !== null) {
-            netRevenueCents += apt.netRevenueCents;
-          } else {
-            netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
+        if (isAdmin) {
+          // 🌟 LÓGICA DO DONO: Calcula os custos totais do salão
+          if (isProPlan) {
+            teamCommissionsCents += apt.commissionValueCents || 0; 
+            pixFeesCents += apt.pixFeeCents || 0;
+            
+            if (apt.netRevenueCents !== null) {
+              netRevenueCents += apt.netRevenueCents;
+            } else {
+              netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
+            }
           }
+        } else {
+          // 🌟 LÓGICA DO COLABORADOR: Pega apenas a comissão que ele gerou no atendimento dele
+          individualCommissionCents += apt.commissionValueCents || 0;
         }
       }
     }
@@ -115,12 +124,18 @@ export class DashboardService {
       realizedRevenueFormatted: formatBRL(realizedRevenueCents),
       cancelRate,
       mostBookedService,
+      
+      // Retorno para o Admin
       teamCommissionsCents,
       teamCommissionsFormatted: formatBRL(teamCommissionsCents),
       pixFeesCents,
       pixFeesFormatted: formatBRL(pixFeesCents),
       netRevenueCents,
       netRevenueFormatted: formatBRL(netRevenueCents),
+
+      // 🌟 Retorno novo exclusivo para o Profissional
+      individualCommissionCents,
+      individualCommissionFormatted: formatBRL(individualCommissionCents),
     };
   }
 
@@ -137,7 +152,7 @@ export class DashboardService {
         date: { gte: todayStart, lte: todayEnd },
       },
       include: {
-        services: { include: { service: true } }, // 🌟 Atualizado para a tabela pivô
+        services: { include: { service: true } },
         client: true,
       },
       orderBy: { date: 'asc' },
@@ -147,11 +162,9 @@ export class DashboardService {
       const startTime = new Date(apt.date);
       const aptServices = apt.services || [];
       
-      // 🌟 Soma as durações de todos os serviços para saber o fim real do atendimento
       const duration = aptServices.reduce((acc, s) => acc + (s.duration || 0), 0);
       const endTime = new Date(startTime.getTime() + duration * 60000);
       
-      // 🌟 Monta o nome composto dos serviços (ex: "Corte + Barba")
       const comboName = aptServices.map(s => s.service?.name || 'Serviço').join(' + ');
 
       return {

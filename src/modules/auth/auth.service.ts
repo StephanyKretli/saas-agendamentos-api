@@ -64,6 +64,7 @@ export class AuthService {
         email: dto.email,
         password: passwordHash,
         username: dto.username,
+        phone: dto.phone, // 👈 AQUI ESTÁ O TELEFONE DO FORMULÁRIO!
         
         // 👇 A CATRACA VIP ENTRA AQUI COM O PLANO CORRETO!
         trialEndsAt: trialEndsAt,
@@ -235,10 +236,9 @@ export class AuthService {
           email: email,
           password: passwordHash,
           username: baseUsername, 
-          phone: dto.phone,
           trialEndsAt: trialEndsAt,
           subscriptionStatus: 'TRIAL',
-          plan: 'PRO', // 👈 Adicionamos o plano PRO aqui também!
+          plan: 'PRO', 
           asaasCustomerId: asaasCustomerId,
         }
       });

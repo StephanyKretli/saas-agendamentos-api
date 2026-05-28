@@ -517,6 +517,18 @@ export class AppointmentsService {
     const dayStart = new Date(requestedDay); dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(requestedDay); dayEnd.setHours(23, 59, 59, 999);
 
+    // 🌟 NOVA TRAVA: Verifica se o DIA INTEIRO está bloqueado na tabela BlockedDate
+    const blockedDates = await this.prisma.blockedDate.findMany({
+      where: { userId: targetUserId }
+    });
+    const isDayBlocked = blockedDates.some(b => {
+      const bdStrUTC = b.date.toISOString().slice(0, 10);
+      const bdStrLocal = `${b.date.getFullYear()}-${pad(b.date.getMonth()+1)}-${pad(b.date.getDate())}`;
+      return bdStrUTC === date || bdStrLocal === date;
+    });
+
+    if (isDayBlocked) return { date, slots: [] }; // Se o dia está bloqueado, devolve a agenda VAZIA na hora!
+
     const blockedSlots = await this.prisma.blockedSlot.findMany({ where: { userId: targetUserId, start: { lt: dayEnd }, end: { gt: dayStart } } });
     const existingAppointments = await this.prisma.appointment.findMany({
       where: { professionalId: targetUserId, status: { in: ['SCHEDULED', 'COMPLETED'] }, date: { gte: dayStart, lte: dayEnd } },
@@ -643,6 +655,24 @@ export class AppointmentsService {
     const settings = await this.getUserBookingSettings(userId);
 
     const dayStart = startOfDayLocal(date); const dayEnd = endOfDayLocal(date);
+
+    // 🌟 NOVA TRAVA PARA A TIMELINE DO PAINEL: Dia inteiro bloqueado
+    const blockedDates = await this.prisma.blockedDate.findMany({
+      where: { userId: targetUserId }
+    });
+    const isDayBlocked = blockedDates.some(b => {
+      const bdStrUTC = b.date.toISOString().slice(0, 10);
+      const bdStrLocal = `${b.date.getFullYear()}-${pad(b.date.getMonth()+1)}-${pad(b.date.getDate())}`;
+      return bdStrUTC === date || bdStrLocal === date;
+    });
+
+    if (isDayBlocked) {
+      return { 
+        date, 
+        items: [{ type: 'blocked', start: '00:00', end: '23:59', reason: 'Dia Inteiro Bloqueado' }] 
+      };
+    }
+
     const businessHours = await this.prisma.businessHour.findMany({ where: { userId: targetUserId, weekday: dayStart.getDay() }, orderBy: { start: 'asc' } });
     if (!businessHours.length) return { date, items: [] };
 

@@ -31,9 +31,22 @@ export class BlockedSlotsService {
   async create(requesterId: string, targetUserId: string, startStr: string, endStr: string, reason?: string) {
     await this.validatePermission(requesterId, targetUserId);
 
-    // 🌟 1. Correção do Fuso: Converte a string bruta no mesmo fuso da agenda
-    const start = parseLocalISO(startStr);
-    const end = parseLocalISO(endStr);
+    let start: Date;
+    let end: Date;
+
+    // 🌟 1. CORREÇÃO DEFINITIVA DE FUSO HORÁRIO E DATAS INTEIRAS
+    // Se a string vier apenas como "YYYY-MM-DD" (Bloqueio da aba Datas Inteiras)
+    if (startStr.length === 10) {
+      const [y, m, d] = startStr.split('-').map(Number);
+      // 03:00 UTC = 00:00 BRT (Garante que o bloqueio começa à meia-noite exata no Brasil)
+      start = new Date(Date.UTC(y, m - 1, d, 3, 0, 0));
+      // 26:59 UTC = 23:59 BRT do dia selecionado (Garante que bloqueia até ao último minuto)
+      end = new Date(Date.UTC(y, m - 1, d, 26, 59, 59));
+    } else {
+      // Se vier do formulário de Horários Específicos (que agora usa toISOString)
+      start = new Date(startStr);
+      end = new Date(endStr);
+    }
 
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       throw new BadRequestException('Datas inválidas.');
@@ -43,7 +56,7 @@ export class BlockedSlotsService {
       throw new BadRequestException('O horário final deve ser maior que o inicial.');
     }
 
-    // 🌟 2. TRAVA DE SOBREPOSIÇÃO: Verifica se há clientes agendados neste bloco
+    // 🌟 2. TRAVA DE SOBREPOSIÇÃO: Impede bloquear por cima de clientes agendados
     const dayStart = new Date(start); dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(start); dayEnd.setHours(23, 59, 59, 999);
 
@@ -56,31 +69,23 @@ export class BlockedSlotsService {
       include: { services: true }
     });
 
-    // Precisamos do buffer do profissional para calcular o tamanho real do agendamento
     const targetUser = await this.prisma.user.findUnique({ where: { id: targetUserId } });
     const bufferMinutes = targetUser?.bufferMinutes ?? 15;
 
     for (const appt of existingAppointments) {
       const apptStart = new Date(appt.date);
       const apptDuration = appt.services?.reduce((acc, s) => acc + s.duration, 0) || 0;
-      
-      // O tempo de ocupação = duração dos serviços + limpeza
       const apptEnd = new Date(apptStart.getTime() + (apptDuration + bufferMinutes) * 60000);
 
-      // Lógica de colisão de tempo: Se o início do bloqueio for antes do fim do agendamento 
-      // E o fim do bloqueio for depois do início do agendamento -> BATEU!
+      // Lógica de colisão
       if (start < apptEnd && end > apptStart) {
         throw new BadRequestException('Não é possível bloquear. Já existe um cliente agendado neste intervalo.');
       }
     }
 
-    // 🌟 3. Verifica se não bate com outro bloqueio que a equipe já fez
+    // 🌟 3. Verifica se bate com outro bloqueio
     const overlappingBlocks = await this.prisma.blockedSlot.findMany({
-      where: {
-        userId: targetUserId,
-        start: { lt: end },
-        end: { gt: start }
-      }
+      where: { userId: targetUserId, start: { lt: end }, end: { gt: start } }
     });
 
     if (overlappingBlocks.length > 0) {
@@ -89,12 +94,7 @@ export class BlockedSlotsService {
 
     // 4. Salva com segurança
     return this.prisma.blockedSlot.create({
-      data: {
-        userId: targetUserId,
-        start,
-        end,
-        reason,
-      },
+      data: { userId: targetUserId, start, end, reason },
       select: { id: true, start: true, end: true, reason: true, createdAt: true },
     });
   }

@@ -235,6 +235,7 @@ export class AuthService {
           email: email,
           password: passwordHash,
           username: baseUsername, 
+          phone: dto.phone,
           trialEndsAt: trialEndsAt,
           subscriptionStatus: 'TRIAL',
           plan: 'PRO', // 👈 Adicionamos o plano PRO aqui também!

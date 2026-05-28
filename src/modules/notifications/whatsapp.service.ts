@@ -163,4 +163,29 @@ export class WhatsappService {
     
     return this.sendMessage(salonId, professionalPhone, message);
   }
+
+  // 🌟 MENSAGENS DO SISTEMA (LIFECYCLE SAAS)
+  async sendWelcome(phone: string, name: string, systemInstanceId: string = 'admin') {
+    const firstName = name.split(' ')[0];
+    const message = `Olá, *${firstName}*! Boas-vindas ao Syncro. ⚡\n\nSua conta Premium de 14 dias está ativa e pronta para receber agendamentos.\n\nPara começar com o pé direito, acesse o painel e configure o seu sinal via PIX para acabar com as faltas na sua agenda.\n\nSe precisar de ajuda para configurar, é só responder esta mensagem!`;
+    return this.sendMessage(systemInstanceId, phone, message);
+  }
+
+  async sendTrialEnding(phone: string, name: string, systemInstanceId: string = 'admin') {
+    const firstName = name.split(' ')[0];
+    const message = `⚠️ *${firstName}*, o seu período gratuito do Syncro termina em 48 horas!\n\nPara que o seu link de agendamento não saia do ar e você continue a receber os seus pagamentos via PIX automaticamente, ative a sua assinatura agora no painel.\n\nAcesse: https://meusyncro.com.br/billing`;
+    return this.sendMessage(systemInstanceId, phone, message);
+  }
+
+  async sendTrialExpired(phone: string, name: string, systemInstanceId: string = 'admin') {
+    const firstName = name.split(' ')[0];
+    const message = `❌ *${firstName}*, o seu link de agendamento foi temporariamente pausado.\n\nO seu período gratuito terminou hoje. Mas não se preocupe, todos os seus clientes e configurações estão salvos com segurança!\n\nReative a sua conta em menos de 1 minuto para voltar a receber agendamentos:\nhttps://meusyncro.com.br/billing`;
+    return this.sendMessage(systemInstanceId, phone, message);
+  }
+
+  async sendInvoiceDue(phone: string, name: string, invoiceUrl: string, systemInstanceId: string = 'admin') {
+    const firstName = name.split(' ')[0];
+    const message = `Olá, *${firstName}*. A sua fatura do Syncro já está disponível para pagamento.\n\nMantenha sua automação de agenda rodando sem interrupções! Acesse o link abaixo para visualizar a cobrança:\n${invoiceUrl}`;
+    return this.sendMessage(systemInstanceId, phone, message);
+  }
 }

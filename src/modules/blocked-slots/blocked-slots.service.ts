@@ -1,13 +1,14 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+// 🌟 IMPORTANTE: Usamos a mesma função de data que a agenda usa para unificar o fuso!
+import { parseLocalISO } from '../../common/date/parse-local-iso';
 
 @Injectable()
 export class BlockedSlotsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // 🌟 O SUPERPODER DA DONA: Verifica as permissões!
   private async validatePermission(requesterId: string, targetUserId: string) {
-    if (requesterId === targetUserId) return; // Se for ele mesmo, permite!
+    if (requesterId === targetUserId) return;
 
     const requester = await this.prisma.user.findUnique({ where: { id: requesterId } });
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
@@ -30,8 +31,9 @@ export class BlockedSlotsService {
   async create(requesterId: string, targetUserId: string, startStr: string, endStr: string, reason?: string) {
     await this.validatePermission(requesterId, targetUserId);
 
-    const start = new Date(startStr);
-    const end = new Date(endStr);
+    // 🌟 1. Correção do Fuso: Converte a string bruta no mesmo fuso da agenda
+    const start = parseLocalISO(startStr);
+    const end = parseLocalISO(endStr);
 
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       throw new BadRequestException('Datas inválidas.');
@@ -41,6 +43,51 @@ export class BlockedSlotsService {
       throw new BadRequestException('O horário final deve ser maior que o inicial.');
     }
 
+    // 🌟 2. TRAVA DE SOBREPOSIÇÃO: Verifica se há clientes agendados neste bloco
+    const dayStart = new Date(start); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(start); dayEnd.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await this.prisma.appointment.findMany({
+      where: { 
+        professionalId: targetUserId, 
+        status: { in: ['SCHEDULED', 'COMPLETED'] },
+        date: { gte: dayStart, lte: dayEnd }
+      },
+      include: { services: true }
+    });
+
+    // Precisamos do buffer do profissional para calcular o tamanho real do agendamento
+    const targetUser = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    const bufferMinutes = targetUser?.bufferMinutes ?? 15;
+
+    for (const appt of existingAppointments) {
+      const apptStart = new Date(appt.date);
+      const apptDuration = appt.services?.reduce((acc, s) => acc + s.duration, 0) || 0;
+      
+      // O tempo de ocupação = duração dos serviços + limpeza
+      const apptEnd = new Date(apptStart.getTime() + (apptDuration + bufferMinutes) * 60000);
+
+      // Lógica de colisão de tempo: Se o início do bloqueio for antes do fim do agendamento 
+      // E o fim do bloqueio for depois do início do agendamento -> BATEU!
+      if (start < apptEnd && end > apptStart) {
+        throw new BadRequestException('Não é possível bloquear. Já existe um cliente agendado neste intervalo.');
+      }
+    }
+
+    // 🌟 3. Verifica se não bate com outro bloqueio que a equipe já fez
+    const overlappingBlocks = await this.prisma.blockedSlot.findMany({
+      where: {
+        userId: targetUserId,
+        start: { lt: end },
+        end: { gt: start }
+      }
+    });
+
+    if (overlappingBlocks.length > 0) {
+      throw new BadRequestException('Já existe um bloqueio registado nesse horário.');
+    }
+
+    // 4. Salva com segurança
     return this.prisma.blockedSlot.create({
       data: {
         userId: targetUserId,

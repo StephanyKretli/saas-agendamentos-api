@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
 
 type SendBookingConfirmationInput = {
   to: string;
@@ -18,302 +18,183 @@ type SendReminderInput = {
 
 @Injectable()
 export class EmailService {
+  private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(EmailService.name);
-  private readonly resend = new Resend(process.env.RESEND_API_KEY);
-  private readonly from =
-    process.env.EMAIL_FROM ?? 'Agendamentos <onboarding@resend.dev>';
+  
+  private readonly from = process.env.EMAIL_FROM || '"Equipe Syncro" <contato@meusyncro.com.br>';
+  private readonly frontendUrl = process.env.FRONTEND_URL || 'https://meusyncro.com.br';
 
-  async sendBookingConfirmation({
-    to,
-    clientName,
-    serviceName,
-    appointmentDate,
-    cancelUrl,
-  }: SendBookingConfirmationInput) {
-    this.logger.log('--- EMAIL DEBUG START ---');
-    this.logger.log(
-      `RESEND_API_KEY exists: ${Boolean(process.env.RESEND_API_KEY)}`,
-    );
-    this.logger.log(`EMAIL_FROM: ${this.from}`);
-    this.logger.log(`TO: ${to}`);
-    this.logger.log(`CANCEL_URL: ${cancelUrl}`);
+  constructor() {
+    this.transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+      port: Number(process.env.SMTP_PORT) || 465,
+      secure: true, // true para 465
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
 
-    if (!process.env.RESEND_API_KEY) {
-      this.logger.warn('RESEND_API_KEY não configurada. Email não enviado.');
-      this.logger.log('--- EMAIL DEBUG END ---');
-      return;
+  // Motor centralizado de disparo
+  private async sendMail(to: string, subject: string, htmlContent: string) {
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.from,
+        to,
+        subject,
+        html: htmlContent,
+      });
+      this.logger.log(`📧 E-mail enviado para ${to} [ID: ${info.messageId}]`);
+      return true;
+    } catch (error) {
+      this.logger.error(`❌ Erro ao enviar e-mail para ${to}:`, error);
+      return false;
     }
+  }
 
+  // ==========================================
+  // 🌟 EMAILS DE AGENDAMENTO (ORIGINAIS)
+  // ==========================================
+
+  async sendBookingConfirmation({ to, clientName, serviceName, appointmentDate, cancelUrl }: SendBookingConfirmationInput) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      dateStyle: 'full',
-      timeStyle: 'short',
+      timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short',
     }).format(appointmentDate);
 
     const subject = 'Seu agendamento foi confirmado';
-
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
         <h2>Agendamento confirmado ✅</h2>
         <p>Olá, ${clientName}!</p>
         <p>Seu agendamento foi confirmado com sucesso.</p>
-
         <p><strong>Serviço:</strong> ${serviceName}</p>
         <p><strong>Data e horário:</strong> ${formattedDate}</p>
-
         <p>Se precisar cancelar, use o link abaixo:</p>
         <p>
           <a href="${cancelUrl}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:8px;">
             Cancelar agendamento
           </a>
         </p>
-
-        <p>Ou copie este link:</p>
-        <p>${cancelUrl}</p>
       </div>
     `;
-
-    try {
-      const result = await this.resend.emails.send({
-        from: this.from,
-        to,
-        subject,
-        html,
-      });
-
-      this.logger.log(`RESEND RESULT: ${JSON.stringify(result)}`);
-
-      if (result.error) {
-        this.logger.error(`Erro ao enviar email: ${result.error.message}`);
-        throw new Error(result.error.message);
-      }
-
-      this.logger.log('Email enviado com sucesso.');
-    } catch (error) {
-      this.logger.error(
-        `Falha ao enviar email: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      throw error;
-    } finally {
-      this.logger.log('--- EMAIL DEBUG END ---');
-    }
+    await this.sendMail(to, subject, html);
   }
 
-  async sendDayBeforeReminder({
-    to,
-    clientName,
-    serviceName,
-    appointmentDate,
-  }: SendReminderInput) {
-    this.logger.log('--- DAY REMINDER EMAIL DEBUG START ---');
-    this.logger.log(`TO: ${to}`);
-
-    if (!process.env.RESEND_API_KEY) {
-      this.logger.warn(
-        'RESEND_API_KEY não configurada. Lembrete de 1 dia não enviado.',
-      );
-      this.logger.log('--- DAY REMINDER EMAIL DEBUG END ---');
-      return;
-    }
-
+  async sendDayBeforeReminder({ to, clientName, serviceName, appointmentDate }: SendReminderInput) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      dateStyle: 'full',
-      timeStyle: 'short',
+      timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short',
     }).format(appointmentDate);
 
     const subject = 'Lembrete: seu agendamento é amanhã';
-
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
         <h2>Lembrete do seu agendamento 📅</h2>
         <p>Olá, ${clientName}!</p>
         <p>Passando para lembrar que seu agendamento está chegando.</p>
-
         <p><strong>Serviço:</strong> ${serviceName}</p>
         <p><strong>Data e horário:</strong> ${formattedDate}</p>
       </div>
     `;
-
-    try {
-      const result = await this.resend.emails.send({
-        from: this.from,
-        to,
-        subject,
-        html,
-      });
-
-      this.logger.log(`RESEND DAY REMINDER RESULT: ${JSON.stringify(result)}`);
-
-      if (result.error) {
-        this.logger.error(
-          `Erro ao enviar lembrete de 1 dia: ${result.error.message}`,
-        );
-        throw new Error(result.error.message);
-      }
-
-      this.logger.log('Lembrete de 1 dia enviado com sucesso.');
-    } catch (error) {
-      this.logger.error(
-        `Falha ao enviar lembrete de 1 dia: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      throw error;
-    } finally {
-      this.logger.log('--- DAY REMINDER EMAIL DEBUG END ---');
-    }
+    await this.sendMail(to, subject, html);
   }
 
-  async sendHourBeforeReminder({
-    to,
-    clientName,
-    serviceName,
-    appointmentDate,
-  }: SendReminderInput) {
-    this.logger.log('--- HOUR REMINDER EMAIL DEBUG START ---');
-    this.logger.log(`TO: ${to}`);
-
-    if (!process.env.RESEND_API_KEY) {
-      this.logger.warn(
-        'RESEND_API_KEY não configurada. Lembrete de 1 hora não enviado.',
-      );
-      this.logger.log('--- HOUR REMINDER EMAIL DEBUG END ---');
-      return;
-    }
-
+  async sendHourBeforeReminder({ to, clientName, serviceName, appointmentDate }: SendReminderInput) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      dateStyle: 'full',
-      timeStyle: 'short',
+      timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short',
     }).format(appointmentDate);
 
     const subject = 'Lembrete: seu agendamento é em breve';
-
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
         <h2>Lembrete do seu agendamento ⏰</h2>
         <p>Olá, ${clientName}!</p>
         <p>Seu agendamento está se aproximando.</p>
-
         <p><strong>Serviço:</strong> ${serviceName}</p>
         <p><strong>Data e horário:</strong> ${formattedDate}</p>
       </div>
     `;
-
-    try {
-      const result = await this.resend.emails.send({
-        from: this.from,
-        to,
-        subject,
-        html,
-      });
-
-      this.logger.log(`RESEND HOUR REMINDER RESULT: ${JSON.stringify(result)}`);
-
-      if (result.error) {
-        this.logger.error(
-          `Erro ao enviar lembrete de 1 hora: ${result.error.message}`,
-        );
-        throw new Error(result.error.message);
-      }
-
-      this.logger.log('Lembrete de 1 hora enviado com sucesso.');
-    } catch (error) {
-      this.logger.error(
-        `Falha ao enviar lembrete de 1 hora: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      throw error;
-    } finally {
-      this.logger.log('--- HOUR REMINDER EMAIL DEBUG END ---');
-    }
+    await this.sendMail(to, subject, html);
   }
 
-  // 🌟 NOVA FUNÇÃO ADICIONADA AQUI (Com design premium)
   async sendForgotPasswordEmail(to: string, name: string, token: string) {
-    this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG START ---');
-    this.logger.log(`TO: ${to}`);
-
-    if (!process.env.RESEND_API_KEY) {
-      this.logger.warn('RESEND_API_KEY não configurada. E-mail não enviado.');
-      this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG END ---');
-      return;
-    }
-
-    // Fallback de segurança para localhost se a variável FRONTEND_URL faltar
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const resetLink = `${frontendUrl}/reset-password?token=${token}`;
+    const resetLink = `${this.frontendUrl}/reset-password?token=${token}`;
     const subject = 'Recuperação de senha 🔒';
-
     const html = `
       <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
         <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-          
-          <div style="margin-bottom: 24px;">
-            <span style="font-size: 48px;">🔐</span>
-          </div>
-
-          <h1 style="color: #111827; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; margin-bottom: 16px;">
-            Esqueceu a senha?
-          </h1>
-          
-          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">
-            Olá, <strong>${name}</strong>! Recebemos um pedido para redefinir a sua senha. Clique no botão abaixo para criar uma nova.
-          </p>
-
-          <a href="${resetLink}" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); margin-bottom: 32px;">
-            Redefinir Senha
-          </a>
-
-          <p style="color: #9ca3af; font-size: 13px; line-height: 20px;">
-            Se não solicitou isto, pode ignorar este e-mail com segurança. 
-            Este link é válido por apenas <strong>1 hora</strong>.
-          </p>
-
-          <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #f3f4f6;">
-            <p style="color: #111827; font-size: 14px; font-weight: 600; margin: 0;">SaaS de Agendamentos</p>
-            <p style="color: #9ca3af; font-size: 12px; margin-top: 4px;">Gerenciando o seu tempo com inteligência.</p>
-          </div>
-        </div>
-        
-        <div style="margin-top: 24px;">
-          <p style="color: #9ca3af; font-size: 12px;">
-            Se o botão não funcionar, copie este link:<br>
-            <a href="${resetLink}" style="color: #6366f1; text-decoration: none;">${resetLink}</a>
-          </p>
+          <div style="margin-bottom: 24px;"><span style="font-size: 48px;">🔐</span></div>
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">Esqueceu a senha?</h1>
+          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">Olá, <strong>${name}</strong>! Recebemos um pedido para redefinir a sua senha. Clique no botão abaixo para criar uma nova.</p>
+          <a href="${resetLink}" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px; margin-bottom: 32px;">Redefinir Senha</a>
+          <p style="color: #9ca3af; font-size: 13px;">Se não solicitou isto, pode ignorar este e-mail com segurança.</p>
         </div>
       </div>
     `;
+    await this.sendMail(to, subject, html);
+  }
 
-    try {
-      const result = await this.resend.emails.send({
-        from: this.from,
-        to,
-        subject,
-        html,
-      });
+  // ==========================================
+  // 🌟 EMAILS DE LIFECYCLE (SAAS)
+  // ==========================================
 
-      this.logger.log(`RESEND PASSWORD RESULT: ${JSON.stringify(result)}`);
+  async sendWelcome(to: string, name: string) {
+    const firstName = name.split(' ')[0];
+    const subject = 'Bem-vinda(o) ao Syncro! ⚡';
+    const html = `
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">Olá, ${firstName}! Boas-vindas. ⚡</h1>
+          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">A sua conta Premium de 14 dias está ativa e pronta para revolucionar a gestão da sua agenda. Para começar a evitar faltas, configure o recebimento de sinais via PIX no seu painel.</p>
+          <a href="${this.frontendUrl}/dashboard" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Acessar o Painel</a>
+        </div>
+      </div>
+    `;
+    await this.sendMail(to, subject, html);
+  }
 
-      if (result.error) {
-        this.logger.error(`Erro ao enviar email de senha: ${result.error.message}`);
-        throw new Error(result.error.message);
-      }
+  async sendTrialEnding(to: string, name: string) {
+    const firstName = name.split(' ')[0];
+    const subject = 'Ação Necessária: O seu período gratuito termina em breve';
+    const html = `
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">⚠️ O seu teste termina em 48 horas!</h1>
+          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">${firstName}, para que o seu link de agendamento não saia do ar e continue a receber os seus pagamentos, ative a sua assinatura agora.</p>
+          <a href="${this.frontendUrl}/billing" style="display: inline-block; background-color: #eab308; color: #111827; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Ativar Assinatura</a>
+        </div>
+      </div>
+    `;
+    await this.sendMail(to, subject, html);
+  }
 
-      this.logger.log('Email de recuperação enviado com sucesso.');
-    } catch (error) {
-      this.logger.error(
-        `Falha ao enviar email de senha: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      throw error;
-    } finally {
-      this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG END ---');
-    }
+  async sendTrialExpired(to: string, name: string) {
+    const firstName = name.split(' ')[0];
+    const subject = 'O seu link de agendamento foi pausado.';
+    const html = `
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <h1 style="color: #ef4444; font-size: 24px; font-weight: 800; margin-bottom: 16px;">❌ O seu link foi pausado.</h1>
+          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">${firstName}, o seu período gratuito de 14 dias chegou ao fim. Todos os seus clientes e configurações continuam guardados de forma segura. Reative a sua conta em menos de 1 minuto para voltar a faturar.</p>
+          <a href="${this.frontendUrl}/billing" style="display: inline-block; background-color: #ef4444; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Reativar Conta</a>
+        </div>
+      </div>
+    `;
+    await this.sendMail(to, subject, html);
+  }
+
+  async sendInvoiceDue(to: string, name: string, invoiceUrl: string) {
+    const firstName = name.split(' ')[0];
+    const subject = 'Nova Fatura Disponível - Syncro';
+    const html = `
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">Nova Fatura Disponível</h1>
+          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">Olá, ${firstName}. A sua fatura já está disponível para pagamento. Mantenha a sua automação de agenda a funcionar sem interrupções.</p>
+          <a href="${invoiceUrl}" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Visualizar Fatura</a>
+        </div>
+      </div>
+    `;
+    await this.sendMail(to, subject, html);
   }
 }

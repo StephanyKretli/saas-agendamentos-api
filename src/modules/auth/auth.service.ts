@@ -11,6 +11,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AsaasService } from '../payments/asaas.service'; 
 import { EmailService } from '../email/email.service';
+import { WhatsappService } from '../notifications/whatsapp.service'; 
 
 @Injectable()
 export class AuthService {
@@ -19,6 +20,7 @@ export class AuthService {
     private asaasService: AsaasService,
     private jwt: JwtService,
     private emailService: EmailService,
+    private whatsappService: WhatsappService,
   ) {}
 
   async register(dto: RegisterDto) {

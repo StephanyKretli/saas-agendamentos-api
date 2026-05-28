@@ -10,8 +10,8 @@ export class SaasLifecycleService {
 
   constructor(
     private prisma: PrismaService,
-    private whatsapp: WhatsappService,
-    private email: EmailService,
+    private whatsappService: WhatsappService, 
+    private emailService: EmailService,     
   ) {}
 
   // 🌟 Roda todos os dias às 09:00 da manhã

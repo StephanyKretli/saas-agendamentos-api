@@ -82,6 +82,18 @@ export class AuthService {
       },
     });
 
+    try {
+      // Dispara o E-mail em background
+      this.emailService.sendWelcome(user.email, user.name).catch(console.error);
+      
+      // Dispara o WhatsApp se o cliente preencheu o número
+      if (dto.phone) {
+        this.whatsappService.sendWelcome(dto.phone, user.name).catch(console.error);
+      }
+    } catch (e) {
+      console.error('Falha na automação de boas vindas', e);
+    }
+
     return user;
   }
 

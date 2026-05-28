@@ -11,6 +11,12 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
+  // 🌟 O NOVO GUARDIÃO DO WHATSAPP
+  @ApiProperty({ example: '11999999999' })
+  @IsString()
+  @IsNotEmpty({ message: 'O número de WhatsApp é obrigatório.' })
+  phone: string;
+
   @ApiProperty({ example: '123456' })
   @IsString()
   @MinLength(6)

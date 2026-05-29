@@ -7,10 +7,15 @@ export class WhatsappService {
   private readonly apiUrl = process.env.WHATSAPP_API_URL || 'http://127.0.0.1:8081';
   private readonly apiKey = process.env.WHATSAPP_API_KEY || 'xxvcFp52rdBtlkjMMz7alkIyhqA3rggo';
 
+  // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
+  // 👇 Confirme e coloque aqui o nome exato da instância que aparece no seu Dashboard
+  private readonly SYSTEM_INSTANCE = 'v2_cmns_whatsapp'; 
+
   private get baseUrl() {
     return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;
   }
 
+  // 🌟 LÓGICA DAS PROFISSIONAIS (INTACTA)
   private getInstanceName(salonId: string) {
     return `v2_${salonId}`; 
   }
@@ -96,6 +101,8 @@ export class WhatsappService {
       finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
     }
 
+    // A mágica acontece aqui: se for a instância do sistema, ela já tem "v2_" e passa direto.
+    // Se for o ID de um salão, a função getInstanceName adiciona o "v2_".
     const instanceName = salonId.startsWith('v2_') ? salonId : this.getInstanceName(salonId);
 
     try {
@@ -117,7 +124,7 @@ export class WhatsappService {
     }
   }
 
-  // 🌟 MENSAGENS PARA O CLIENTE
+  // 🌟 MENSAGENS PARA O CLIENTE DOS SALÕES
   async sendAppointmentConfirmation(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string, manageLink: string) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
@@ -144,9 +151,8 @@ export class WhatsappService {
     return this.sendMessage(salonId, clientPhone, message);
   }
 
-  // 🌟 MENSAGENS PARA A EQUIPE
+  // 🌟 MENSAGENS PARA A EQUIPE DOS SALÕES
   async notifyProfessionalNewAppointment(salonId: string, professionalPhone: string, clientName: string, date: Date, serviceName: string) {
-    // Extrai a data e a hora separadamente para ficar mais bonito no WhatsApp
     const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(date);
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
     
@@ -164,26 +170,26 @@ export class WhatsappService {
     return this.sendMessage(salonId, professionalPhone, message);
   }
 
-  // 🌟 MENSAGENS DO SISTEMA (LIFECYCLE SAAS)
-  async sendWelcome(phone: string, name: string, systemInstanceId: string = 'admin') {
+  // 🌟 MENSAGENS DO SISTEMA (LIFECYCLE SAAS SYNCRO)
+  async sendWelcome(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
     const message = `Olá, *${firstName}*! Boas-vindas ao Syncro. ⚡\n\nSua conta Premium de 14 dias está ativa e pronta para receber agendamentos.\n\nPara começar com o pé direito, acesse o painel e configure o seu sinal via PIX para acabar com as faltas na sua agenda.\n\nSe precisar de ajuda para configurar, é só responder esta mensagem!`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
-  async sendTrialEnding(phone: string, name: string, systemInstanceId: string = 'admin') {
+  async sendTrialEnding(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
     const message = `⚠️ *${firstName}*, o seu período gratuito do Syncro termina em 48 horas!\n\nPara que o seu link de agendamento não saia do ar e você continue a receber os seus pagamentos via PIX automaticamente, ative a sua assinatura agora no painel.\n\nAcesse: https://meusyncro.com.br/billing`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
-  async sendTrialExpired(phone: string, name: string, systemInstanceId: string = 'admin') {
+  async sendTrialExpired(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
     const message = `❌ *${firstName}*, o seu link de agendamento foi temporariamente pausado.\n\nO seu período gratuito terminou hoje. Mas não se preocupe, todos os seus clientes e configurações estão salvos com segurança!\n\nReative a sua conta em menos de 1 minuto para voltar a receber agendamentos:\nhttps://meusyncro.com.br/billing`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
-  async sendInvoiceDue(phone: string, name: string, invoiceUrl: string, systemInstanceId: string = 'admin') {
+  async sendInvoiceDue(phone: string, name: string, invoiceUrl: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
     const message = `Olá, *${firstName}*. A sua fatura do Syncro já está disponível para pagamento.\n\nMantenha sua automação de agenda rodando sem interrupções! Acesse o link abaixo para visualizar a cobrança:\n${invoiceUrl}`;
     return this.sendMessage(systemInstanceId, phone, message);

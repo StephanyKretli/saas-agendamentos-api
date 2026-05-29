@@ -11,7 +11,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AsaasService } from '../payments/asaas.service'; 
 import { EmailService } from '../email/email.service';
-import { WhatsappService } from '../notifications/whatsapp.service'; 
+import { WhatsappService } from '../notifications/whatsapp.service';
 
 @Injectable()
 export class AuthService {
@@ -24,71 +24,41 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const emailExists = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+    const emailExists = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (emailExists) throw new ConflictException('Email já está em uso');
 
-    if (emailExists) {
-      throw new ConflictException('Email já está em uso');
-    }
-
-    const usernameExists = await this.prisma.user.findUnique({
-      where: { username: dto.username },
-    });
-
-    if (usernameExists) {
-      throw new ConflictException('Username já está em uso');
-    }
+    const usernameExists = await this.prisma.user.findUnique({ where: { username: dto.username } });
+    if (usernameExists) throw new ConflictException('Username já está em uso');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-
-    // 🌟 1. O Relógio: Calcula os 14 dias a partir de agora
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + 14);
 
-    // 🌟 2. O Asaas: Cria o cliente na plataforma de cobrança em background
     let asaasCustomerId = null;
     try {
       const asaasCustomer = await this.asaasService.createCustomer(dto.name, dto.email);
       asaasCustomerId = asaasCustomer.id;
-      console.log(`✅ Cliente criado no Asaas com ID: ${asaasCustomerId}`);
     } catch (error) {
-      console.error('Aviso: Falha ao pré-criar cliente no Asaas durante o registo.', error);
+      console.error('Aviso: Falha ao pré-criar cliente no Asaas.', error);
     }
 
-    // 👇 LÊ O PLANO QUE VEIO DO FRONT-END (Se não vier nada, assume 'STARTER')
-    const selectedPlan = 'PRO';
-
-    // 🌟 3. O Cofre: Salva no Prisma com o Trial ativado e o PLANO escolhido
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
         email: dto.email,
         password: passwordHash,
         username: dto.username,
-        phone: dto.phone, // 👈 AQUI ESTÁ O TELEFONE DO FORMULÁRIO!
-        
-        // 👇 A CATRACA VIP ENTRA AQUI COM O PLANO CORRETO!
+        phone: dto.phone,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'TRIAL',
-        plan: selectedPlan, // ⚠️ NOTA: Se o seu campo no Prisma se chamar 'subscriptionPlan' ou outra coisa, mude este nome aqui!
+        plan: 'PRO', 
         asaasCustomerId: asaasCustomerId,
       },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        username: true,
-        role: true,
-        createdAt: true,
-      },
+      select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
 
     try {
-      // Dispara o E-mail em background
       this.emailService.sendWelcome(user.email, user.name).catch(console.error);
-      
-      // Dispara o WhatsApp se o cliente preencheu o número
       if (dto.phone) {
         this.whatsappService.sendWelcome(dto.phone, user.name).catch(console.error);
       }
@@ -100,150 +70,73 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    // 🌟 LIMPEZA: Remove espaços em branco acidentais no início ou no fim do e-mail
     const normalizedEmail = dto.email.trim();
-
-    console.log(`\n--- 🕵️‍♂️ DEBUG DE LOGIN ---`);
-    console.log(`Email digitado: '${normalizedEmail}'`);
-    console.log(`Senha digitada: '${dto.password}'`);
-
-    const user = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
-
-    if (!user) {
-      console.log(`❌ ERRO: O e-mail '${normalizedEmail}' não existe no banco de dados.`);
-      console.log(`--------------------------\n`);
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-
-    console.log(`✅ Utilizador encontrado: ${user.name} (ID: ${user.id})`);
-
-    console.log(`Hash que está gravada no banco de dados: '${user.password}'`);
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user) throw new UnauthorizedException('Credenciais inválidas');
 
     const ok = await bcrypt.compare(dto.password, user.password);
+    if (!ok) throw new UnauthorizedException('Credenciais inválidas');
 
-    if (!ok) {
-      console.log(`❌ ERRO: A senha digitada não corresponde à senha encriptada guardada.`);
-      console.log(`--------------------------\n`);
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-
-    console.log(`✅ Senha correta! Gerando acesso...`);
-    console.log(`--------------------------\n`);
-
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-    };
-
+    const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload);
 
     return {
       accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-      },
+      user: { id: user.id, name: user.name, email: user.email, username: user.username, role: user.role },
     };
   }
 
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) return { message: 'Se o e-mail estiver cadastrado, um link de recuperação será enviado.' };
 
-    // Regra de ouro da segurança: Nunca dizer se o e-mail não existe
-    if (!user) {
-      return { message: 'Se o e-mail estiver cadastrado, um link de recuperação será enviado.' };
-    }
-
-    // Gerar token e validade (1 hora)
-    const token = crypto.randomUUID(); // Função nativa do Node.js
+    const token = crypto.randomUUID(); 
     const expires = new Date();
     expires.setHours(expires.getHours() + 1);
 
-    // Salvar o token na base de dados
     await this.prisma.user.update({
       where: { id: user.id },
-      data: {
-        resetToken: token,
-        resetTokenExpires: expires,
-      },
+      data: { resetToken: token, resetTokenExpires: expires },
     });
 
-    // Chamar o seu serviço de e-mail descolado
     await this.emailService.sendForgotPasswordEmail(user.email, user.name, token);
-
     return { message: 'E-mail enviado com sucesso.' };
   }
 
   async resetPassword(token: string, newPassword: string) {
-    console.log(`\n--- 🔐 DEBUG DE REDEFINIÇÃO ---`);
-    console.log(`Nova senha que chegou do frontend: '${newPassword}'`);
-  const user = await this.prisma.user.findFirst({
-    where: {
-      resetToken: token,
-      resetTokenExpires: { gt: new Date() },
-    },
-  });
+    const user = await this.prisma.user.findFirst({
+      where: { resetToken: token, resetTokenExpires: { gt: new Date() } },
+    });
 
-  if (!user) {
-    console.log(`❌ ERRO: Token não encontrado ou expirado.`);
-    throw new BadRequestException('Token inválido ou expirado.');
+    if (!user) throw new BadRequestException('Token inválido ou expirado.');
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, resetToken: null, resetTokenExpires: null },
+    });
+
+    return { message: 'Senha atualizada com sucesso!' };
   }
-
-  // 🌟 O SEGREDO ESTÁ AQUI: Encriptar a nova senha antes de salvar!
-  const saltOrRounds = 10;
-  const hashedPassword = await bcrypt.hash(newPassword, saltOrRounds);
-
-  console.log(`Hash gerada (bcryptjs): '${hashedPassword}'`);
-  console.log(`------------------------------\n`);
-
-  await this.prisma.user.update({
-    where: { id: user.id },
-    data: {
-      password: hashedPassword, // 👈 Salvar a senha encriptada, NÃO a original
-      resetToken: null,
-      resetTokenExpires: null,
-    },
-  });
-
-  return { message: 'Senha atualizada com sucesso!' };
-}
 
   async validateOAuthLogin(googleUser: any) {
     const email = googleUser.email;
     let user = await this.prisma.user.findUnique({ where: { email } });
 
-    // Se a conta não existir, criamos uma nova automaticamente!
     if (!user) {
-      console.log(`✨ Novo utilizador via Google detetado: ${email}`);
-      
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + 14);
 
       let asaasCustomerId = null;
       try {
-        const asaasCustomer = await this.asaasService.createCustomer(
-          `${googleUser.firstName} ${googleUser.lastName}`, 
-          email
-        );
+        const asaasCustomer = await this.asaasService.createCustomer(`${googleUser.firstName} ${googleUser.lastName}`, email);
         asaasCustomerId = asaasCustomer.id;
-      } catch (error) {
-        console.error('Aviso: Falha ao pré-criar cliente no Asaas (Google Login).', error);
-      }
+      } catch (error) {}
 
-      // Geramos uma senha aleatória complexa porque o login será sempre pelo Google
       const randomPassword = crypto.randomUUID(); 
       const passwordHash = await bcrypt.hash(randomPassword, 10);
-
-      // Gerar um username base a partir do email
       let baseUsername = email.split('@')[0];
       
-      // Criar a conta
       user = await this.prisma.user.create({
         data: {
           name: `${googleUser.firstName} ${googleUser.lastName}`,
@@ -252,21 +145,14 @@ export class AuthService {
           username: baseUsername, 
           trialEndsAt: trialEndsAt,
           subscriptionStatus: 'TRIAL',
-          plan: 'PRO', 
+          plan: 'PRO',
           asaasCustomerId: asaasCustomerId,
         }
       });
     }
 
-    // Quer seja uma conta nova ou existente, geramos o Token de acesso (JWT)
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-    };
-
+    const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload);
-
     return { accessToken };
   }
 }

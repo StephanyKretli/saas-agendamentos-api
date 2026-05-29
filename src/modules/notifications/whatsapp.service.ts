@@ -9,7 +9,7 @@ export class WhatsappService {
 
   // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
   // 👇 Confirme e coloque aqui o nome exato da instância que aparece no seu Dashboard
-  private readonly SYSTEM_INSTANCE = 'v2_cmns_whatsapp'; 
+  private readonly SYSTEM_INSTANCE = 'v2_cmns5c80m0000s101l3bzhssq'; 
 
   private get baseUrl() {
     return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;

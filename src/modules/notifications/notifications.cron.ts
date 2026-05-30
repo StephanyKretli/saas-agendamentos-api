@@ -102,4 +102,39 @@ export class NotificationsCron {
       this.logger.log(`✅ Lembretes processados: ${dayAppointments.length} (Para amanhã) | ${hourAppointments.length} (Para hoje).`);
     }
   }
+
+  // ==========================================
+  // 3. AVISOS DO SISTEMA SYNCRO (Fim do Trial)
+  // ==========================================
+  @Cron('* * * * *') // Roda a cada minuto (ideal para testarmos agora!)
+  async processSaaSLifecycle() {
+    this.logger.log('⚡ Verificando Trials do Syncro...');
+    const now = new Date();
+
+    // Cria uma janela exata para quem vence em 48 horas
+    const startOf48hWindow = new Date(now.getTime() + 48 * 60 * 60 * 1000); 
+    const endOf48hWindow = new Date(now.getTime() + 48.1 * 60 * 60 * 1000); // Margem de ~6 minutos
+
+    const expiringUsers = await this.prisma.user.findMany({
+      where: {
+        subscriptionStatus: 'TRIAL',
+        trialEndsAt: { 
+          gte: startOf48hWindow, 
+          lte: endOf48hWindow 
+        },
+      },
+    });
+
+    for (const user of expiringUsers) {
+      if (user.phone) {
+        await this.whatsappService.sendTrialEnding(user.phone, user.name);
+        this.logger.log(`⚠️ Aviso de fim de trial enviado para o salão: ${user.name}`);
+        
+        // 🚨 IMPORTANTE PARA O FUTURO:
+        // Assim como nos agendamentos, você precisará adicionar um campo no seu banco 
+        // (ex: trialWarningSentAt) para marcar que já enviou e não ficar repetindo a cada minuto.
+        // Como é só um teste agora, vamos deixar sem a marcação.
+      }
+    }
+  }
 }

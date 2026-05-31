@@ -103,37 +103,42 @@ export class NotificationsCron {
     }
   }
 
-  // ==========================================
+ // ==========================================
   // 3. AVISOS DO SISTEMA SYNCRO (Fim do Trial)
   // ==========================================
-  @Cron('* * * * *') // Roda a cada minuto (ideal para testarmos agora!)
+  @Cron('0 * * * *') // Roda a cada hora (Padrão excelente para SaaS)
   async processSaaSLifecycle() {
     this.logger.log('⚡ Verificando Trials do Syncro...');
     const now = new Date();
 
-    // Cria uma janela exata para quem vence em 48 horas
-    const startOf48hWindow = new Date(now.getTime() + 48 * 60 * 60 * 1000); 
-    const endOf48hWindow = new Date(now.getTime() + 48.1 * 60 * 60 * 1000); // Margem de ~6 minutos
+    // Data alvo: exatamente daqui a 48 horas
+    const target48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
     const expiringUsers = await this.prisma.user.findMany({
       where: {
         subscriptionStatus: 'TRIAL',
         trialEndsAt: { 
-          //gte: startOf48hWindow, 
-          //lte: endOf48hWindow 
+          lte: target48h, // Vence em 48 horas ou menos
+          gt: now         // E ainda não venceu totalmente
         },
+        trialWarningSentAt: null, // 👈 A MÁGICA DE PRODUÇÃO: Só pega quem ainda não foi avisado
       },
     });
 
     for (const user of expiringUsers) {
       if (user.phone) {
-        await this.whatsappService.sendTrialEnding(user.phone, user.name);
-        this.logger.log(`⚠️ Aviso de fim de trial enviado para o salão: ${user.name}`);
-        
-        // 🚨 IMPORTANTE PARA O FUTURO:
-        // Assim como nos agendamentos, você precisará adicionar um campo no seu banco 
-        // (ex: trialWarningSentAt) para marcar que já enviou e não ficar repetindo a cada minuto.
-        // Como é só um teste agora, vamos deixar sem a marcação.
+        try {
+          await this.whatsappService.sendTrialEnding(user.phone, user.name);
+          this.logger.log(`⚠️ Aviso de fim de trial enviado para o utilizador: ${user.name}`);
+          
+          // Marca no banco que o aviso já foi disparado
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { trialWarningSentAt: new Date() }
+          });
+        } catch (error) {
+          this.logger.error(`❌ Falha ao enviar aviso de trial para ${user.name}:`, error);
+        }
       }
     }
   }

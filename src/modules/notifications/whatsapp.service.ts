@@ -173,25 +173,19 @@ export class WhatsappService {
   // 🌟 MENSAGENS DO SISTEMA (LIFECYCLE SAAS SYNCRO)
   async sendWelcome(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `Olá, *${firstName}*! Boas-vindas ao Syncro. ⚡\n\nSua conta Premium de 14 dias está ativa e pronta para receber agendamentos.\n\nPara começar com o pé direito, acesse o painel e configure o seu sinal via PIX para acabar com as faltas na sua agenda.\n\nSe precisar de ajuda para configurar, é só responder esta mensagem!`;
+    const message = `const text = `Olá, ${firstName}! Seja bem-vindo ao Syncro. 🚀\n\nSua conta de testes já está liberada. Criamos o Syncro para que você gaste menos tempo organizando horários e mais tempo analisando suas métricas de crescimento.\n\nPara começar a configurar sua agenda e o seu dashboard em menos de 2 minutos, acesse: https://meusyncro.com.br/settings\n\nSe tiver qualquer dúvida, é só chamar por aqui!`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
   async sendTrialEnding(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `⚠️ *${firstName}*, o seu período gratuito do Syncro termina em 48 horas!\n\nPara que o seu link de agendamento não saia do ar e você continue a receber os seus pagamentos via PIX automaticamente, ative a sua assinatura agora no painel.\n\nAcesse: https://meusyncro.com.br/billing`;
+    const message = `Olá, ${firstName}. Passando para avisar que faltam apenas 2 dias para encerrar o seu período de testes no Syncro.\n\nPara não perder o seu link de agendamento personalizado e manter o acesso aos seus dashboards de métricas, basta escolher o seu plano no painel.\n\nEvite interrupções na sua agenda. Ative sua assinatura aqui: https://meusyncro.com.br/settings`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
   async sendTrialExpired(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
     const message = `❌ *${firstName}*, o seu link de agendamento foi temporariamente pausado.\n\nO seu período gratuito terminou hoje. Mas não se preocupe, todos os seus clientes e configurações estão salvos com segurança!\n\nReative a sua conta em menos de 1 minuto para voltar a receber agendamentos:\nhttps://meusyncro.com.br/billing`;
-    return this.sendMessage(systemInstanceId, phone, message);
-  }
-
-  async sendInvoiceDue(phone: string, name: string, invoiceUrl: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
-    const firstName = name.split(' ')[0];
-    const message = `Olá, *${firstName}*. A sua fatura do Syncro já está disponível para pagamento.\n\nMantenha sua automação de agenda rodando sem interrupções! Acesse o link abaixo para visualizar a cobrança:\n${invoiceUrl}`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 }

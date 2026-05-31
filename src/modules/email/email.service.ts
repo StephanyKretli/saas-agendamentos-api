@@ -140,13 +140,34 @@ export class EmailService {
 
   async sendWelcome(to: string, name: string) {
     const firstName = name.split(' ')[0];
-    const subject = 'Bem-vinda(o) ao Syncro! ⚡';
+    const subject = 'Bem-vindo ao Syncro. O controle do seu negócio começa aqui.';
     const html = `
-      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
-        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">Olá, ${firstName}! Boas-vindas. ⚡</h1>
-          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">A sua conta Premium de 14 dias está ativa e pronta para revolucionar a gestão da sua agenda. Para começar a evitar faltas, configure o recebimento de sinais via PIX no seu painel.</p>
-          <a href="${this.frontendUrl}/dashboard" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Acessar o Painel</a>
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: left;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 24px;">Olá, ${firstName},</h1>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 26px; margin-bottom: 24px;">
+            Sua conta no Syncro está ativa. A partir de agora, você tem acesso a uma plataforma de engenharia robusta, desenhada para transformar seus agendamentos em métricas claras e automatizar sua rotina.
+          </p>
+          
+          <h3 style="color: #111827; font-size: 18px; font-weight: 700; margin-bottom: 16px;">O que fazer agora?</h3>
+          <p style="color: #4b5563; font-size: 16px; line-height: 26px; margin-bottom: 16px;">Para extrair o máximo de valor do seu teste gratuito, recomendamos seguir estes 3 passos simples:</p>
+          
+          <ol style="color: #4b5563; font-size: 16px; line-height: 26px; margin-bottom: 32px; padding-left: 20px;">
+            <li style="margin-bottom: 8px;">Configure seus horários e serviços disponíveis.</li>
+            <li style="margin-bottom: 8px;">Personalize o seu link exclusivo de agendamento.</li>
+            <li style="margin-bottom: 8px;">Acesse o seu Dashboard para visualizar onde seu negócio pode escalar.</li>
+          </ol>
+
+          <a href="${this.frontendUrl}/dashboard" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin-bottom: 32px;">Acessar Meu Painel</a>
+          
+          <p style="color: #4b5563; font-size: 15px; line-height: 24px; margin-bottom: 32px;">Se precisar de qualquer suporte técnico durante sua jornada, nossa equipe está à disposição.</p>
+          
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin-bottom: 24px;">
+          
+          <p style="color: #111827; font-size: 16px; font-weight: 600; margin: 0;">Stephany Kretli</p>
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">Founder, Syncro</p>
         </div>
       </div>
     `;
@@ -155,13 +176,33 @@ export class EmailService {
 
   async sendTrialEnding(to: string, name: string) {
     const firstName = name.split(' ')[0];
-    const subject = 'Ação Necessária: O seu período gratuito termina em breve';
+    const subject = 'Seu período de testes no Syncro está terminando. Não perca seus dados.';
     const html = `
-      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
-        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">⚠️ O seu teste termina em 48 horas!</h1>
-          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">${firstName}, para que o seu link de agendamento não saia do ar e continue a receber os seus pagamentos, ative a sua assinatura agora.</p>
-          <a href="${this.frontendUrl}/billing" style="display: inline-block; background-color: #eab308; color: #111827; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Ativar Assinatura</a>
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: left;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 24px;">Olá, ${firstName},</h1>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 26px; margin-bottom: 24px;">
+            Faltam apenas <strong>2 dias</strong> para o fim do seu período de testes gratuito no Syncro.
+          </p>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 26px; margin-bottom: 24px;">
+            Durante esse tempo, sua operação ganhou mais agilidade e você começou a ter clareza das suas métricas. Se você não escolher um plano, seus agendamentos online e o acesso ao dashboard serão pausados após o vencimento.
+          </p>
+          
+          <p style="color: #111827; font-size: 16px; font-weight: 600; line-height: 26px; margin-bottom: 32px;">
+            Não deixe a automação do seu negócio parar. Escolha o plano ideal para a sua escala e continue crescendo.
+          </p>
+          
+          <a href="${this.frontendUrl}/settings" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin-bottom: 32px;">Escolher Meu Plano</a>
+          
+          <div style="background-color: #f3f4f6; padding: 16px; border-radius: 6px; border-left: 4px solid #111827;">
+            <p style="color: #6b7280; font-size: 13px; line-height: 20px; margin: 0;">
+              <strong>Nota:</strong> Todos os dados que você já configurou serão mantidos com segurança na nossa infraestrutura assim que você ativar a assinatura.
+            </p>
+          </div>
+
         </div>
       </div>
     `;
@@ -170,28 +211,33 @@ export class EmailService {
 
   async sendTrialExpired(to: string, name: string) {
     const firstName = name.split(' ')[0];
-    const subject = 'O seu link de agendamento foi pausado.';
+    const subject = 'Aviso: Seu link de agendamento no Syncro foi pausado.';
     const html = `
-      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
-        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-          <h1 style="color: #ef4444; font-size: 24px; font-weight: 800; margin-bottom: 16px;">❌ O seu link foi pausado.</h1>
-          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">${firstName}, o seu período gratuito de 14 dias chegou ao fim. Todos os seus clientes e configurações continuam guardados de forma segura. Reative a sua conta em menos de 1 minuto para voltar a faturar.</p>
-          <a href="${this.frontendUrl}/billing" style="display: inline-block; background-color: #ef4444; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Reativar Conta</a>
-        </div>
-      </div>
-    `;
-    await this.sendMail(to, subject, html);
-  }
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: left;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          
+          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 24px;">Olá, ${firstName},</h1>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 26px; margin-bottom: 24px;">
+            O seu período de testes de 14 dias chegou ao fim. Como não identificamos a ativação de um plano, o seu link de agendamento online e o acesso ao seu dashboard foram <strong>temporariamente pausados</strong>.
+          </p>
+          
+          <div style="background-color: #f3f4f6; padding: 16px; border-radius: 6px; border-left: 4px solid #111827; margin-bottom: 24px;">
+            <p style="color: #4b5563; font-size: 14px; line-height: 22px; margin: 0;">
+              <strong>Fique tranquilo:</strong> todos os dados da sua operação (clientes, serviços configurados e histórico de agendamentos) estão preservados com segurança em nossa infraestrutura.
+            </p>
+          </div>
 
-  async sendInvoiceDue(to: string, name: string, invoiceUrl: string) {
-    const firstName = name.split(' ')[0];
-    const subject = 'Nova Fatura Disponível - Syncro';
-    const html = `
-      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: center;">
-        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-          <h1 style="color: #111827; font-size: 24px; font-weight: 800; margin-bottom: 16px;">Nova Fatura Disponível</h1>
-          <p style="color: #4b5563; font-size: 16px; line-height: 24px; margin-bottom: 32px;">Olá, ${firstName}. A sua fatura já está disponível para pagamento. Mantenha a sua automação de agenda a funcionar sem interrupções.</p>
-          <a href="${invoiceUrl}" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 700; font-size: 16px; padding: 16px 32px; text-decoration: none; border-radius: 16px;">Visualizar Fatura</a>
+          <p style="color: #111827; font-size: 16px; font-weight: 600; line-height: 26px; margin-bottom: 32px;">
+            Para retomar o controle da sua agenda e reativar sua operação instantaneamente, escolha o seu plano abaixo.
+          </p>
+          
+          <a href="${this.frontendUrl}/settings" style="display: inline-block; background-color: #111827; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin-bottom: 32px;">Reativar Minha Operação</a>
+          
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin-bottom: 24px;">
+          
+          <p style="color: #111827; font-size: 16px; font-weight: 600; margin: 0;">Stephany Kretli</p>
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">Founder, Syncro</p>
         </div>
       </div>
     `;

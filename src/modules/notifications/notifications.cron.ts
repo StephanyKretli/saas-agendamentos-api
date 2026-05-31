@@ -104,24 +104,26 @@ export class NotificationsCron {
   }
 
  // ==========================================
-  // 3. AVISOS DO SISTEMA SYNCRO (Fim do Trial)
+  // 3. AVISOS DO SISTEMA SYNCRO (SaaS Lifecycle)
   // ==========================================
-  @Cron('0 * * * *') // Roda a cada hora (Padrão excelente para SaaS)
+  @Cron('0 * * * *') // Roda a cada hora
   async processSaaSLifecycle() {
     this.logger.log('⚡ Verificando Trials do Syncro...');
     const now = new Date();
 
-    // Data alvo: exatamente daqui a 48 horas
+    // ---------------------------------------------------------
+    // A. AVISO PRÉVIO DE 48 HORAS (sendTrialEnding)
+    // ---------------------------------------------------------
     const target48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
     const expiringUsers = await this.prisma.user.findMany({
       where: {
         subscriptionStatus: 'TRIAL',
         trialEndsAt: { 
-          lte: target48h, // Vence em 48 horas ou menos
-          gt: now         // E ainda não venceu totalmente
+          lte: target48h, 
+          gt: now         
         },
-        trialWarningSentAt: null, // 👈 A MÁGICA DE PRODUÇÃO: Só pega quem ainda não foi avisado
+        trialWarningSentAt: null, 
       },
     });
 
@@ -129,15 +131,44 @@ export class NotificationsCron {
       if (user.phone) {
         try {
           await this.whatsappService.sendTrialEnding(user.phone, user.name);
-          this.logger.log(`⚠️ Aviso de fim de trial enviado para o utilizador: ${user.name}`);
+          this.logger.log(`⚠️ Aviso de fim de trial (48h) enviado para: ${user.name}`);
           
-          // Marca no banco que o aviso já foi disparado
           await this.prisma.user.update({
             where: { id: user.id },
             data: { trialWarningSentAt: new Date() }
           });
         } catch (error) {
-          this.logger.error(`❌ Falha ao enviar aviso de trial para ${user.name}:`, error);
+          this.logger.error(`❌ Falha ao enviar aviso de trial (48h) para ${user.name}:`, error);
+        }
+      }
+    }
+
+    // ---------------------------------------------------------
+    // B. TRIAL EXPIRADO (sendTrialExpired)
+    // ---------------------------------------------------------
+    const expiredUsers = await this.prisma.user.findMany({
+      where: {
+        subscriptionStatus: 'TRIAL',
+        trialEndsAt: { lte: now }, // 👈 O tempo já passou!
+        trialExpiredSentAt: null,  // Mas ainda não foi avisado do corte
+      },
+    });
+
+    for (const user of expiredUsers) {
+      if (user.phone) {
+        try {
+          await this.whatsappService.sendTrialExpired(user.phone, user.name);
+          this.logger.log(`❌ Aviso de Trial Expirado enviado para: ${user.name}`);
+          
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { 
+              trialExpiredSentAt: new Date(),
+              subscriptionStatus: 'EXPIRED' // 💡 Engenharia Pro: Já atualiza o status do plano para bloquear o acesso!
+            }
+          });
+        } catch (error) {
+          this.logger.error(`❌ Falha ao enviar aviso de expiração para ${user.name}:`, error);
         }
       }
     }

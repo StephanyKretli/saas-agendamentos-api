@@ -103,7 +103,7 @@ export class NotificationsCron {
     }
   }
 
- // ==========================================
+// ==========================================
   // 3. AVISOS DO SISTEMA SYNCRO (SaaS Lifecycle)
   // ==========================================
   @Cron('0 * * * *') // Roda a cada hora
@@ -119,27 +119,41 @@ export class NotificationsCron {
     const expiringUsers = await this.prisma.user.findMany({
       where: {
         subscriptionStatus: 'TRIAL',
-        trialEndsAt: { 
-          lte: target48h, 
-          gt: now         
-        },
+        trialEndsAt: { lte: target48h, gt: now },
         trialWarningSentAt: null, 
       },
     });
 
     for (const user of expiringUsers) {
+      let notificacaoEnviada = false;
+
+      // 1. Tenta mandar o WhatsApp
       if (user.phone) {
         try {
           await this.whatsappService.sendTrialEnding(user.phone, user.name);
-          this.logger.log(`⚠️ Aviso de fim de trial (48h) enviado para: ${user.name}`);
-          
-          await this.prisma.user.update({
-            where: { id: user.id },
-            data: { trialWarningSentAt: new Date() }
-          });
+          notificacaoEnviada = true;
         } catch (error) {
-          this.logger.error(`❌ Falha ao enviar aviso de trial (48h) para ${user.name}:`, error);
+          this.logger.error(`❌ Falha WPP (48h) para ${user.name}`);
         }
+      }
+
+      // 2. Tenta mandar o E-mail
+      if (user.email) {
+        try {
+          await this.emailService.sendTrialEndingEmail(user.email, user.name);
+          notificacaoEnviada = true;
+        } catch (error) {
+          this.logger.error(`❌ Falha E-MAIL (48h) para ${user.name}`);
+        }
+      }
+
+      // 3. Carimba o banco se pelo menos 1 canal funcionou
+      if (notificacaoEnviada) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { trialWarningSentAt: new Date() }
+        });
+        this.logger.log(`⚠️ Avisos de 48h enviados para: ${user.name} (WPP/Email)`);
       }
     }
 
@@ -149,27 +163,44 @@ export class NotificationsCron {
     const expiredUsers = await this.prisma.user.findMany({
       where: {
         subscriptionStatus: 'TRIAL',
-        trialEndsAt: { lte: now }, // 👈 O tempo já passou!
-        trialExpiredSentAt: null,  // Mas ainda não foi avisado do corte
+        trialEndsAt: { lte: now },
+        trialExpiredSentAt: null,
       },
     });
 
     for (const user of expiredUsers) {
+      let notificacaoEnviada = false;
+
+      // 1. Tenta mandar o WhatsApp
       if (user.phone) {
         try {
           await this.whatsappService.sendTrialExpired(user.phone, user.name);
-          this.logger.log(`❌ Aviso de Trial Expirado enviado para: ${user.name}`);
-          
-          await this.prisma.user.update({
-            where: { id: user.id },
-            data: { 
-              trialExpiredSentAt: new Date(),
-              subscriptionStatus: 'PAST_DUE' // 💡 Engenharia Pro: Já atualiza o status do plano para bloquear o acesso!
-            }
-          });
+          notificacaoEnviada = true;
         } catch (error) {
-          this.logger.error(`❌ Falha ao enviar aviso de expiração para ${user.name}:`, error);
+          this.logger.error(`❌ Falha WPP (Expirado) para ${user.name}`);
         }
+      }
+
+      // 2. Tenta mandar o E-mail
+      if (user.email) {
+        try {
+          await this.emailService.sendTrialExpiredEmail(user.email, user.name);
+          notificacaoEnviada = true;
+        } catch (error) {
+          this.logger.error(`❌ Falha E-MAIL (Expirado) para ${user.name}`);
+        }
+      }
+
+      // 3. Carimba o banco e corta o acesso
+      if (notificacaoEnviada) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { 
+            trialExpiredSentAt: new Date(),
+            subscriptionStatus: 'PAST_DUE'
+          }
+        });
+        this.logger.log(`❌ Avisos de Trial Expirado enviados para: ${user.name}`);
       }
     }
   }

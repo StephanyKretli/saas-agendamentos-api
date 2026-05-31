@@ -173,7 +173,7 @@ export class WhatsappService {
   // 🌟 MENSAGENS DO SISTEMA (LIFECYCLE SAAS SYNCRO)
   async sendWelcome(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `const text = `Olá, ${firstName}! Seja bem-vindo ao Syncro. 🚀\n\nSua conta de testes já está liberada. Criamos o Syncro para que você gaste menos tempo organizando horários e mais tempo analisando suas métricas de crescimento.\n\nPara começar a configurar sua agenda e o seu dashboard em menos de 2 minutos, acesse: https://meusyncro.com.br/settings\n\nSe tiver qualquer dúvida, é só chamar por aqui!`;
+    const message = `Olá, ${firstName}! Seja bem-vindo ao Syncro. 🚀\n\nSua conta de testes já está liberada. Criamos o Syncro para que você gaste menos tempo organizando horários e mais tempo analisando suas métricas de crescimento.\n\nPara começar a configurar sua agenda e o seu dashboard em menos de 2 minutos, acesse pelo computador: https://meusyncro.com.br/settings\n\nSe tiver qualquer dúvida, é só chamar por aqui!`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 

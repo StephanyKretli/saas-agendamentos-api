@@ -164,7 +164,7 @@ export class NotificationsCron {
             where: { id: user.id },
             data: { 
               trialExpiredSentAt: new Date(),
-              subscriptionStatus: 'EXPIRED' // 💡 Engenharia Pro: Já atualiza o status do plano para bloquear o acesso!
+              subscriptionStatus: 'PAST_DUE' // 💡 Engenharia Pro: Já atualiza o status do plano para bloquear o acesso!
             }
           });
         } catch (error) {

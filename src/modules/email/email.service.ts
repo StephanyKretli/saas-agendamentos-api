@@ -21,7 +21,7 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(EmailService.name);
   
-  private readonly from = process.env.EMAIL_FROM || '"Equipe Syncro" <contato@meusyncro.com.br>';
+  private readonly from = '"Equipe Syncro" <contato@meusyncro.com.br>';
   private readonly frontendUrl = process.env.FRONTEND_URL || 'https://meusyncro.com.br';
 
   constructor() {

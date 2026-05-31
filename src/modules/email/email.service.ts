@@ -197,4 +197,47 @@ export class EmailService {
     `;
     await this.sendMail(to, subject, html);
   }
+
+  // ==========================================
+  // 🌟 EMAILS DE FEEDBACK / SUPORTE
+  // ==========================================
+
+  async sendFeedbackEmail(
+    user: { name: string; email: string; username: string }, 
+    data: { type: 'SUGGESTION' | 'COMPLIMENT' | 'BUG'; subject: string; message: string }
+  ) {
+    const typeColors = {
+      SUGGESTION: '#3b82f6', // Azul
+      COMPLIMENT: '#f59e0b', // Dourado
+      BUG: '#ef4444',        // Vermelho
+    };
+
+    const typeLabels = {
+      SUGGESTION: '💡 Nova Sugestão',
+      COMPLIMENT: '⭐ Novo Elogio',
+      BUG: '🐞 Relato de Problema',
+    };
+
+    const subject = `${typeLabels[data.type]}: ${data.subject}`;
+    
+    const html = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <h2 style="color: ${typeColors[data.type]}; margin-bottom: 5px;">
+          ${typeLabels[data.type]}
+        </h2>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 0; border-bottom: 1px solid #e5e7eb; padding-bottom: 15px;">
+          Enviado por: <strong>${user.name}</strong> (${user.email})<br/>
+          Empresa/Username: @${user.username || 'N/A'}
+        </p>
+        
+        <h3 style="color: #111827; margin-top: 20px;">${data.subject}</h3>
+        <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; color: #374151; white-space: pre-wrap;">
+          ${data.message}
+        </div>
+      </div>
+    `;
+
+    // 💡 Usa o seu motor Hostinger e manda direto para a caixa do Syncro!
+    await this.sendMail('contato@meusyncro.com.br', subject, html);
+  }
 }

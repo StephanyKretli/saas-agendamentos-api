@@ -141,6 +141,7 @@ export class EmailService {
   async sendWelcome(to: string, name: string) {
     const firstName = name.split(' ')[0];
     const subject = 'Bem-vindo ao Syncro. O controle do seu negócio começa aqui.';
+    const logoUrl = 'https://instagram.fplu37-1.fna.fbcdn.net/v/t51.82787-19/705982412_18075874151651980_7504865812887393557_n.jpg?efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLmRqYW5nby4xMDgwLmMyIn0&_nc_ht=instagram.fplu37-1.fna.fbcdn.net&_nc_cat=104&_nc_oc=Q6cZ2gHFxSN_K_ZlnHKmX-wBGSbJ1zWCn0kfwQgbMp-_9RNtWJXEFZlAjKGytX6tLCa3DJxsfdY1LE8sAddGVWG9iFqi&_nc_ohc=S4_4MvKmm98Q7kNvwHBikeY&_nc_gid=z0dFW02bBNZsfwp7GW27rA&edm=AP4sbd4BAAAA&ccb=7-5&oh=00_Af8l6L3roannpWB0DT8ks5IfxA6YuHwZ930KXI3JkeMuyg&oe=6A218A91&_nc_sid=7a9f4b'; 
     const html = `
       <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; text-align: left;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 40px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">

@@ -119,8 +119,8 @@ export class NotificationsCron {
       where: {
         subscriptionStatus: 'TRIAL',
         trialEndsAt: { 
-          gte: startOf48hWindow, 
-          lte: endOf48hWindow 
+          //gte: startOf48hWindow, 
+          //lte: endOf48hWindow 
         },
       },
     });

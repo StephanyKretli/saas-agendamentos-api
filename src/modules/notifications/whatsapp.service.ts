@@ -185,7 +185,7 @@ export class WhatsappService {
 
   async sendTrialExpired(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `❌ *${firstName}*, o seu link de agendamento foi temporariamente pausado.\n\nO seu período gratuito terminou hoje. Mas não se preocupe, todos os seus clientes e configurações estão salvos com segurança!\n\nReative a sua conta em menos de 1 minuto para voltar a receber agendamentos:\nhttps://meusyncro.com.br/billing`;
+    const message = `Olá, ${firstName}. O seu período de testes no Syncro expirou e o seu link de agendamento foi temporariamente pausado. ⏸️\n\nFique tranquilo, todos os dados da sua operação (clientes, serviços e histórico) estão salvos com segurança em nossa infraestrutura.\n\nPara reativar sua conta instantaneamente e voltar a receber agendamentos, ative sua assinatura aqui: https://meusyncro.com.br/settings`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 }

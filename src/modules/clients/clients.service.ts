@@ -29,11 +29,33 @@ export class ClientsService {
 
     const tenantId = await this.getTenantId(userId);
 
+    // 🌟 CORREÇÃO: Verificação de duplicidade antes de salvar
+    let normalizedPhone = phone;
+    
+    if (phone) {
+      // Usando a mesma limpeza de caracteres que você fez no update!
+      normalizedPhone = phone.replace(/\D/g, ''); 
+
+      if (normalizedPhone) {
+        const phoneInUse = await this.prisma.client.findFirst({
+          where: {
+            userId: tenantId,
+            phone: normalizedPhone,
+          },
+        });
+
+        if (phoneInUse) {
+          // Aqui nós barramos a criação e enviamos a mensagem amigável para o painel
+          throw new BadRequestException('Já existe um cliente cadastrado com este telefone.');
+        }
+      }
+    }
+
     return this.prisma.client.create({
       data: {
-        userId: tenantId, // 🌟 Salva sempre na conta do Dono
+        userId: tenantId,
         name,
-        phone,
+        phone: normalizedPhone,
         email,
         notes,
       },

@@ -64,10 +64,13 @@ export class ClientsService {
 
   async findAll(
     userId: string,
-    query?: { page?: number; limit?: number; search?: string },
+    // 🌟 Tipagem alterada para aceitar strings da URL
+    query?: { page?: any; limit?: any; search?: string },
   ) {
-    const page = query?.page ?? 1;
-    const limit = query?.limit ?? 10;
+    // 🌟 A MÁGICA: Converte forçadamente para número, garantindo que o Prisma não quebre
+    const page = Number(query?.page) || 1;
+    const limit = Number(query?.limit) || 10;
+    
     const skip = (page - 1) * limit;
     const search = query?.search?.trim();
 

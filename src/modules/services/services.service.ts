@@ -138,7 +138,13 @@ export class ServicesService {
 
     // 2. 🌟 CORREÇÃO: Limpa os agendamentos vinculados a este serviço (Destrava a FK)
     await this.prisma.appointment.deleteMany({
-      where: { serviceId: id }
+      where: {
+        services: {
+          some: {
+            serviceId: id
+          }
+        }
+      }
     });
 
     // 3. Finalmente, apaga o serviço

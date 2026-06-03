@@ -116,16 +116,24 @@ export class ClientsService {
     const tenantId = await this.getTenantId(userId);
 
     const client = await this.prisma.client.findFirst({
-      where: { id, userId: tenantId },
+  where: {
+    id: clientId,
+    userId: userId
+  },
+  include: {
+    appointments: {
+      // ...
       include: {
-        appointments: {
+        services: {
           include: {
-            service: true,
-          },
-          orderBy: { date: 'desc' },
-        },
+            service: true 
+          }
+        }
       },
-    });
+      orderBy: { date: "desc" }
+    }
+  }
+});
 
     if (!client) throw new BadRequestException('Cliente não encontrado');
 
@@ -174,9 +182,14 @@ export class ClientsService {
       },
       include: {
         appointments: {
-          where: dateFilter ? { date: dateFilter } : undefined, // 🌟 Aplica o filtro aqui!
+          where: dateFilter ? { date: dateFilter } : undefined,
           include: {
-            service: true,
+            // 🌟 CORREÇÃO 1: Em vez de 'service: true', chamamos a tabela intermediária 'services'
+            services: {
+              include: {
+                service: true,
+              },
+            },
           },
           orderBy: {
             date: 'desc',
@@ -201,11 +214,40 @@ export class ClientsService {
       )
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const totalSpentCents = completed.reduce((sum, a) => {
-      return sum + (a.service?.priceCents ?? 0);
+    // 🌟 CORREÇÃO 2: Soma os preços de todos os serviços dentro de cada agendamento
+    const totalSpentCents = completed.reduce((sum, appointment) => {
+      const appointmentTotal = appointment.services.reduce((acc, s) => acc + s.priceCents, 0);
+      return sum + appointmentTotal;
     }, 0);
 
-    const lastAppointment = completed.length > 0 ? completed[0] : null;
+    // 🌟 CORREÇÃO 3: Mapeia os dados para o formato exato que o Frontend espera
+    // Ele junta os nomes dos serviços (Ex: "Corte + Barba") e soma valores e durações.
+    const mappedItems = client.appointments.map((appointment) => {
+      const totalDuration = appointment.services.reduce((acc, s) => acc + s.duration, 0);
+      const totalPrice = appointment.services.reduce((acc, s) => acc + s.priceCents, 0);
+      const serviceNames = appointment.services.map(s => s.service.name).join(" + ");
+      const firstService = appointment.services[0];
+
+      return {
+        id: appointment.id,
+        date: appointment.date,
+        status: appointment.status,
+        notes: appointment.notes,
+        service: {
+          id: firstService?.service.id || "0",
+          name: serviceNames || "Serviço não encontrado",
+          duration: totalDuration,
+          priceCents: totalPrice,
+        },
+      };
+    });
+
+    const mappedNextAppointments = mappedItems.filter(
+      (a) => a.status === 'SCHEDULED' && new Date(a.date).getTime() > now.getTime()
+    ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const mappedCompleted = mappedItems.filter((a) => a.status === 'COMPLETED');
+    const lastAppointment = mappedCompleted.length > 0 ? mappedCompleted[0] : null;
 
     return {
       client: {
@@ -222,20 +264,9 @@ export class ClientsService {
         totalSpentCents,
         totalSpentFormatted: (totalSpentCents / 100).toFixed(2),
         lastAppointment,
-        nextAppointments: upcoming,
+        nextAppointments: mappedNextAppointments,
       },
-      items: client.appointments.map((appointment) => ({
-        id: appointment.id,
-        date: appointment.date,
-        status: appointment.status,
-        notes: appointment.notes,
-        service: {
-          id: appointment.service.id,
-          name: appointment.service.name,
-          duration: appointment.service.duration,
-          priceCents: appointment.service.priceCents,
-        },
-      })),
+      items: mappedItems,
     };
   }
 

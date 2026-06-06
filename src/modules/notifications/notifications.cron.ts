@@ -170,11 +170,14 @@ export class NotificationsCron {
     for (const user of expiredUsers) {
       let notificacaoEnviada = false;
 
+      this.logger.log(`>> Analisando ${user.name} | Telefone no Banco: ${user.phone || 'VAZIO'}`);
+
       // 1. Tenta mandar o WhatsApp
       if (user.phone) {
         try {
           await this.whatsappService.sendTrialExpired(user.phone, user.name);
           notificacaoEnviada = true;
+          this.logger.log(`✅ WPP Enviado com sucesso para ${user.name}`);
         } catch (error) {
           this.logger.error(`❌ Falha WPP (Expirado) para ${user.name}`);
         }

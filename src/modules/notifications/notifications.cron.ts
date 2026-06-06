@@ -106,7 +106,7 @@ export class NotificationsCron {
 // ==========================================
   // 3. AVISOS DO SISTEMA SYNCRO (SaaS Lifecycle)
   // ==========================================
-  @Cron('*/1 * * * *') // 🌟 ALTERADO PARA A CADA 1 MINUTO (Só para testar!)
+  @Cron('0 * * * *') // Roda no minuto zero de cada hora (ex: 14:00, 15:00)
   async processSaaSLifecycle() {
     const now = new Date();
 
@@ -139,7 +139,7 @@ export class NotificationsCron {
       // 2. Tenta mandar o E-mail
       if (user.email) {
         try {
-          await this.emailService.sendTrialEndingEmail(user.email, user.name);
+          await this.emailService.sendTrialEnding(user.email, user.name);
           notificacaoEnviada = true;
         } catch (error) {
           this.logger.error(`❌ Falha E-MAIL (48h) para ${user.name}`);
@@ -186,7 +186,7 @@ export class NotificationsCron {
       // 2. Tenta mandar o E-mail
       if (user.email) {
         try {
-          await this.emailService.sendTrialExpiredEmail(user.email, user.name);
+          await this.emailService.sendTrialExpired(user.email, user.name);
           notificacaoEnviada = true;
         } catch (error) {
           this.logger.error(`❌ Falha E-MAIL (Expirado) para ${user.name}`);

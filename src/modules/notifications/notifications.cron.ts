@@ -106,10 +106,8 @@ export class NotificationsCron {
 // ==========================================
   // 3. AVISOS DO SISTEMA SYNCRO (SaaS Lifecycle)
   // ==========================================
-  @Cron('0 * * * *') // Roda a cada hora
+  @Cron('*/1 * * * *') // 🌟 ALTERADO PARA A CADA 1 MINUTO (Só para testar!)
   async processSaaSLifecycle() {
-    this.logger.log('⚡ Verificando Trials do Syncro...');
-    const now = new Date();
 
     // ---------------------------------------------------------
     // A. AVISO PRÉVIO DE 48 HORAS (sendTrialEnding)

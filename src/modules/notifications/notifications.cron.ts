@@ -108,6 +108,7 @@ export class NotificationsCron {
   // ==========================================
   @Cron('*/1 * * * *') // 🌟 ALTERADO PARA A CADA 1 MINUTO (Só para testar!)
   async processSaaSLifecycle() {
+    const now = new Date();
 
     // ---------------------------------------------------------
     // A. AVISO PRÉVIO DE 48 HORAS (sendTrialEnding)

@@ -57,6 +57,29 @@ export class AuthService {
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
 
+    // Envia o evento de conversão para a RD Station
+    try {
+      await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_type: 'CONVERSION',
+          event_family: 'CDP',
+          payload: {
+            // 👇 AQUI ESTÁ O NOME DO EVENTO QUE VAI APARECER NO PAINEL!
+            conversion_identifier: 'cadastro_syncro', 
+            email: user.email,
+            name: user.name,
+            // (Opcional) Podemos enviar o username para usar em links futuros!
+            cf_username: user.username 
+          }
+        })
+      });
+      console.log('✅ Conversão enviada para RD Station');
+    } catch (error) {
+      console.error('❌ Falha ao enviar para RD Station', error);
+    }
+
     try {
       this.emailService.sendWelcome(user.email, user.name).catch(console.error);
       if (dto.phone) {

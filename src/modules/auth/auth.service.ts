@@ -57,28 +57,30 @@ export class AuthService {
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
 
-    // Envia o evento de conversão para a RD Station
+    // 👇 INÍCIO DA ATUALIZAÇÃO DA RD STATION (API V1)
     try {
-      await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
+      const rdResponse = await fetch('https://api.rd.services/v1/conversions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event_type: 'CONVERSION',
-          event_family: 'CDP',
-          payload: {
-            // 👇 AQUI ESTÁ O NOME DO EVENTO QUE VAI APARECER NO PAINEL!
-            conversion_identifier: 'cadastro_syncro', 
-            email: user.email,
-            name: user.name,
-            // (Opcional) Podemos enviar o username para usar em links futuros!
-            cf_username: user.username 
-          }
+          token_rdstation: process.env.RD_STATION_TOKEN,
+          identifier: 'cadastro_syncro',
+          email: user.email,
+          name: user.name,
+          username_syncro: user.username // Vira campo personalizado na RD
         })
       });
-      console.log('✅ Conversão enviada para RD Station');
+
+      if (!rdResponse.ok) {
+        const rdError = await rdResponse.text();
+        console.error(`❌ Erro retornado pela RD Station (${rdResponse.status}):`, rdError);
+      } else {
+        console.log('✅ Conversão enviada com sucesso para a RD Station (Via Form)!');
+      }
     } catch (error) {
-      console.error('❌ Falha ao enviar para RD Station', error);
+      console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
     }
+    // 👆 FIM DA ATUALIZAÇÃO
 
     try {
       this.emailService.sendWelcome(user.email, user.name).catch(console.error);
@@ -159,7 +161,7 @@ export class AuthService {
       const randomPassword = crypto.randomUUID(); 
       const passwordHash = await bcrypt.hash(randomPassword, 10);
       let baseUsername = email.split('@')[0];
-      
+       
       user = await this.prisma.user.create({
         data: {
           name: `${googleUser.firstName} ${googleUser.lastName}`,
@@ -172,6 +174,31 @@ export class AuthService {
           asaasCustomerId: asaasCustomerId,
         }
       });
+
+      // 👇 DISPARO PARA A RD STATION SE O CADASTRO FOR VIA GOOGLE
+      try {
+        const rdResponse = await fetch('https://api.rd.services/v1/conversions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token_rdstation: process.env.RD_STATION_TOKEN,
+            identifier: 'cadastro_syncro',
+            email: user.email,
+            name: user.name,
+            username_syncro: user.username
+          })
+        });
+
+        if (!rdResponse.ok) {
+          const rdError = await rdResponse.text();
+          console.error(`❌ Erro retornado pela RD Station (OAuth):`, rdError);
+        } else {
+          console.log('✅ Conversão enviada com sucesso para a RD Station (Via OAuth)!');
+        }
+      } catch (error) {
+        console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
+      }
+      // 👆 FIM DA ATUALIZAÇÃO
     }
 
     const payload = { sub: user.id, email: user.email, role: user.role };

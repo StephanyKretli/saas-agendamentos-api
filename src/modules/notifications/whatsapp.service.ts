@@ -8,8 +8,8 @@ export class WhatsappService {
   private readonly apiKey = process.env.WHATSAPP_API_KEY || 'xxvcFp52rdBtlkjMMz7alkIyhqA3rggo';
 
   // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
-  // 👇 Confirme e coloque aqui o nome exato da instância que aparece no seu Dashboard
-  private readonly SYSTEM_INSTANCE = 'v2_cmns5c80m0000s101l3bzhssq'; 
+  // 👇 Trocado o underline (_) pelo hífen (-)
+  private readonly SYSTEM_INSTANCE = 'v2-cmns5c80m0000s101l3bzhssq'; 
 
   private get baseUrl() {
     return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;
@@ -17,7 +17,8 @@ export class WhatsappService {
 
   // 🌟 LÓGICA DAS PROFISSIONAIS (INTACTA)
   private getInstanceName(salonId: string) {
-    return `v2_${salonId}`; 
+    // 👇 Trocado o underline (_) pelo hífen (-)
+    return `v2-${salonId}`; 
   }
 
   async getQRCode(salonId: string) {
@@ -101,9 +102,8 @@ export class WhatsappService {
       finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
     }
 
-    // A mágica acontece aqui: se for a instância do sistema, ela já tem "v2_" e passa direto.
-    // Se for o ID de um salão, a função getInstanceName adiciona o "v2_".
-    const instanceName = salonId.startsWith('v2_') ? salonId : this.getInstanceName(salonId);
+    // 👇 Trocado o underline (_) pelo hífen (-) na verificação
+    const instanceName = salonId.startsWith('v2-') ? salonId : this.getInstanceName(salonId);
 
     try {
       const response = await fetch(`${this.baseUrl}/message/sendText/${instanceName}`, {

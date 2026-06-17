@@ -57,17 +57,20 @@ export class AuthService {
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
 
-    // 👇 INÍCIO DA ATUALIZAÇÃO DA RD STATION (API V1)
+    // 👇 ROTA CORRETA DA RD STATION: /platform/events
     try {
-      const rdResponse = await fetch('https://api.rd.services/v1/conversions', {
+      const rdResponse = await fetch(`https://api.rd.services/platform/events?api_key=${process.env.RD_STATION_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token_rdstation: process.env.RD_STATION_TOKEN,
-          identifier: 'cadastro_syncro',
-          email: user.email,
-          name: user.name,
-          username_syncro: user.username // Vira campo personalizado na RD
+          event_type: 'CONVERSION',
+          event_family: 'CDP',
+          payload: {
+            conversion_identifier: 'cadastro_syncro',
+            email: user.email,
+            name: user.name,
+            cf_username: user.username 
+          }
         })
       });
 
@@ -80,7 +83,7 @@ export class AuthService {
     } catch (error) {
       console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
     }
-    // 👆 FIM DA ATUALIZAÇÃO
+    // 👆 FIM DA INTEGRAÇÃO
 
     try {
       this.emailService.sendWelcome(user.email, user.name).catch(console.error);
@@ -175,17 +178,20 @@ export class AuthService {
         }
       });
 
-      // 👇 DISPARO PARA A RD STATION SE O CADASTRO FOR VIA GOOGLE
+      // 👇 ROTA CORRETA DA RD STATION: /platform/events (OAuth)
       try {
-        const rdResponse = await fetch('https://api.rd.services/v1/conversions', {
+        const rdResponse = await fetch(`https://api.rd.services/platform/events?api_key=${process.env.RD_STATION_TOKEN}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            token_rdstation: process.env.RD_STATION_TOKEN,
-            identifier: 'cadastro_syncro',
-            email: user.email,
-            name: user.name,
-            username_syncro: user.username
+            event_type: 'CONVERSION',
+            event_family: 'CDP',
+            payload: {
+              conversion_identifier: 'cadastro_syncro',
+              email: user.email,
+              name: user.name,
+              cf_username: user.username
+            }
           })
         });
 
@@ -198,7 +204,7 @@ export class AuthService {
       } catch (error) {
         console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
       }
-      // 👆 FIM DA ATUALIZAÇÃO
+      // 👆 FIM DA INTEGRAÇÃO
     }
 
     const payload = { sub: user.id, email: user.email, role: user.role };

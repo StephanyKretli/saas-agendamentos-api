@@ -57,9 +57,13 @@ export class AuthService {
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
 
-    // 👇 ROTA CORRETA DA RD STATION: /platform/events
+    // 👇 ROTA CORRETA DA RD STATION: /platform/conversions
     try {
-      const rdResponse = await fetch(`https://api.rd.services/platform/events?api_key=${process.env.RD_STATION_TOKEN}`, {
+      if (!process.env.RD_STATION_TOKEN) {
+        console.error('❌ ERRO CRÍTICO: RD_STATION_TOKEN não foi encontrado! O Docker não está lendo o .env.');
+      }
+
+      const rdResponse = await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,9 +182,13 @@ export class AuthService {
         }
       });
 
-      // 👇 ROTA CORRETA DA RD STATION: /platform/events (OAuth)
+      // 👇 ROTA CORRETA DA RD STATION: /platform/conversions (OAuth)
       try {
-        const rdResponse = await fetch(`https://api.rd.services/platform/events?api_key=${process.env.RD_STATION_TOKEN}`, {
+        if (!process.env.RD_STATION_TOKEN) {
+          console.error('❌ ERRO CRÍTICO: RD_STATION_TOKEN não foi encontrado! O Docker não está lendo o .env.');
+        }
+
+        const rdResponse = await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -197,7 +205,7 @@ export class AuthService {
 
         if (!rdResponse.ok) {
           const rdError = await rdResponse.text();
-          console.error(`❌ Erro retornado pela RD Station (OAuth):`, rdError);
+          console.error(`❌ Erro retornado pela RD Station (OAuth): (${rdResponse.status}):`, rdError);
         } else {
           console.log('✅ Conversão enviada com sucesso para a RD Station (Via OAuth)!');
         }

@@ -9,15 +9,21 @@ export class WhatsappService {
 
   // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
   // 👇 Trocado o underline (_) pelo hífen (-)
-  private readonly SYSTEM_INSTANCE = 'v2_cmns5c80m0000s101l3bzhssq'; 
+  private readonly SYSTEM_INSTANCE = 'v2-cmns5c80m0000s101l3bzhssq'; 
 
   private get baseUrl() {
     return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;
   }
 
-  // 🌟 LÓGICA DAS PROFISSIONAIS (INTACTA)
+// 🌟 LÓGICA DAS PROFISSIONAIS (INTACTA E BLINDADA)
   private getInstanceName(salonId: string) {
-    // 👇 Trocado o underline (_) pelo hífen (-)
+    // Se já vier com o traço certo, retorna ele mesmo
+    if (salonId.startsWith('v2-')) return salonId;
+    
+    // Se vier com o underline antigo, conserta para o traço
+    if (salonId.startsWith('v2_')) return salonId.replace('v2_', 'v2-');
+    
+    // Se vier só o ID limpo, adiciona o prefixo com traço
     return `v2-${salonId}`; 
   }
 

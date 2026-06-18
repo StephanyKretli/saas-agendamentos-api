@@ -89,13 +89,13 @@ export class AuthService {
     }
     // 👆 FIM DA INTEGRAÇÃO
 
+    // 👇 O E-MAIL FOI REMOVIDO, MANTENDO APENAS O DISPARO DE WHATSAPP
     try {
-      this.emailService.sendWelcome(user.email, user.name).catch(console.error);
       if (dto.phone) {
         this.whatsappService.sendWelcome(dto.phone, user.name).catch(console.error);
       }
     } catch (e) {
-      console.error('Falha na automação de boas vindas', e);
+      console.error('Falha na automação de boas vindas via WhatsApp', e);
     }
 
     return user;

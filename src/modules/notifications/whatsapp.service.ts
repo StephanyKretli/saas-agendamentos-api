@@ -9,7 +9,7 @@ export class WhatsappService {
 
   // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
   // 👇 Trocado o underline (_) pelo hífen (-)
-  private readonly SYSTEM_INSTANCE = 'v2-cmns5c80m0000s101l3bzhssq'; 
+  private readonly SYSTEM_INSTANCE = 'v2_cmns5c80m0000s101l3bzhssq'; 
 
   private get baseUrl() {
     return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;

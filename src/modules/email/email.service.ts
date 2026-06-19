@@ -317,6 +317,13 @@ export class EmailService {
     }
   }
 
+  // =================================================================
+  // E-mail de Feedback / Suporte
+  // =================================================================
+  async sendFeedbackEmail(user: any, data: any) {
+    this.logger.log(`📩 Novo feedback recebido de ${user?.name || 'Usuário'} (${user?.email}):`, data);
+  }
+
   async sendUpgradeConversion(email: string, name: string) {
     const rdPublicToken = process.env.RD_STATION_PUBLIC_TOKEN; 
     

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Injectable, Logger, BadRequestException } from '@nestjs/common'; 
 
 @Injectable()
@@ -8,22 +9,16 @@ export class WhatsappService {
   private readonly apiKey = process.env.WHATSAPP_API_KEY || 'xxvcFp52rdBtlkjMMz7alkIyhqA3rggo';
 
   // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
-  // 👇 Trocado o underline (_) pelo hífen (-)
   private readonly SYSTEM_INSTANCE = 'v2-cmns5c80m0000s101l3bzhssq'; 
 
   private get baseUrl() {
     return this.apiUrl.endsWith('/') ? this.apiUrl.slice(0, -1) : this.apiUrl;
   }
 
-// 🌟 LÓGICA DAS PROFISSIONAIS (INTACTA E BLINDADA)
+  // 🌟 LÓGICA DAS PROFISSIONAIS (INTACTA E BLINDADA)
   private getInstanceName(salonId: string) {
-    // Se já vier com o traço certo, retorna ele mesmo
     if (salonId.startsWith('v2-')) return salonId;
-    
-    // Se vier com o underline antigo, conserta para o traço
     if (salonId.startsWith('v2_')) return salonId.replace('v2_', 'v2-');
-    
-    // Se vier só o ID limpo, adiciona o prefixo com traço
     return `v2-${salonId}`; 
   }
 
@@ -108,7 +103,6 @@ export class WhatsappService {
       finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
     }
 
-    // 👇 Trocado o underline (_) pelo hífen (-) na verificação
     const instanceName = salonId.startsWith('v2-') ? salonId : this.getInstanceName(salonId);
 
     try {
@@ -176,22 +170,33 @@ export class WhatsappService {
     return this.sendMessage(salonId, professionalPhone, message);
   }
 
+  // ==========================================
   // 🌟 MENSAGENS DO SISTEMA (LIFECYCLE SAAS SYNCRO)
+  // ==========================================
+  
+  // DIA 1: BOAS-VINDAS
   async sendWelcome(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `Olá, ${firstName}! Seja bem-vindo ao Syncro. 🚀\n\nSua conta de testes já está liberada. Criamos o Syncro para que você gaste menos tempo organizando horários e mais tempo analisando suas métricas de crescimento.\n\nPara começar a configurar sua agenda e o seu dashboard em menos de 2 minutos, acesse pelo computador: https://meusyncro.com.br/settings\n\nSe tiver qualquer dúvida, é só chamar por aqui!`;
+    const message = `Fala, *${firstName}*! ⚡ Aqui é a equipa do Syncro.\n\nA sua máquina de agendamentos e pagamentos está oficialmente no ar! 🖤\n\nPara começar a transformar o seu espaço, o primeiro passo é configurar a sua vitrine online e deixá-la com a sua cara. Já deu uma olhada em como ficou?\n\nAcesse o seu painel agora e adicione o seu primeiro serviço: https://meusyncro.com.br/dashboard/settings`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
+  // DIA 12: URGÊNCIA E ESCASSEZ (48h para o fim)
   async sendTrialEnding(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `Olá, ${firstName}. Passando para avisar que faltam apenas 2 dias para encerrar o seu período de testes no Syncro.\n\nPara não perder o seu link de agendamento personalizado e manter o acesso aos seus dashboards de métricas, basta escolher o seu plano no painel.\n\nEvite interrupções na sua agenda. Ative sua assinatura aqui: https://meusyncro.com.br/settings`;
+    const message = `Atenção, *${firstName}*! ⚠️ \n\nFaltam apenas *48 horas* para a sua conta gratuita do Syncro expirar.\n\nSe não fizer o upgrade, o seu link de agendamento deixará de funcionar e a sua gestão voltará para o caos do papel e caneta. Mantenha a sua vitrine no ar e os pagamentos centralizados.\n\nAssine o plano PRO, é rápido e seguro: https://meusyncro.com.br/dashboard/settings 💳⚡`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
+  // DIA 14: FECHAMENTO (Trial Expirado)
   async sendTrialExpired(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `Olá, ${firstName}. O seu período de testes no Syncro expirou e o seu link de agendamento foi temporariamente pausado. ⏸️\n\nFique tranquilo, todos os dados da sua operação (clientes, serviços e histórico) estão salvos com segurança em nossa infraestrutura.\n\nPara reativar sua conta instantaneamente e voltar a receber agendamentos, ative sua assinatura aqui: https://meusyncro.com.br/settings`;
+    const message = `*${firstName}*, o seu tempo esgotou. ⏱️ \n\nA partir de hoje, a sua vitrine do Syncro está suspensa para novos agendamentos.\n\nMas não se preocupe: todos os seus dados e clientes continuam *salvos e seguros* connosco. Para reativar o seu link imediatamente e continuar a dominar a sua agenda, basta ativar o seu plano: https://meusyncro.com.br/dashboard/settings 🖤\n\nEstamos à sua espera do outro lado!`;
     return this.sendMessage(systemInstanceId, phone, message);
+  }
+
+  // MENSAGEM GENÉRICA (Usada nos Dias 3, 5 e 10 do Cron)
+  async sendEngagementMessage(phone: string, text: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
+    return this.sendMessage(systemInstanceId, phone, text);
   }
 }

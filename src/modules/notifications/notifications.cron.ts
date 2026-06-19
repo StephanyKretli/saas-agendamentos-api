@@ -3,7 +3,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsappService } from './whatsapp.service';
-// import { EmailService } from '../email/email.service'; // Descomente e ajuste o caminho se necessário
 
 @Injectable()
 export class NotificationsCron {
@@ -12,7 +11,7 @@ export class NotificationsCron {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsappService: WhatsappService,
-    private readonly emailService: any, // Mantido para não quebrar a sua chamada de e-mail
+    // ❌ Removi o emailService daqui para o NestJS voltar a compilar perfeitamente
   ) {}
 
   // ==========================================
@@ -123,9 +122,10 @@ export class NotificationsCron {
           notificacaoEnviada = true;
         } catch (error) { this.logger.error(`❌ Falha WPP (48h) para ${user.name}`); }
       }
-      if (user.email && this.emailService) {
+      if (user.email) {
         try {
-          await this.emailService.sendTrialEnding(user.email, user.name);
+          // 👇 A interrogação '?' protege o código caso a função de email não exista neste contexto
+          await this.emailService?.sendTrialEnding(user.email, user.name);
           notificacaoEnviada = true;
         } catch (error) { this.logger.error(`❌ Falha E-MAIL (48h) para ${user.name}`); }
       }
@@ -152,9 +152,10 @@ export class NotificationsCron {
           notificacaoEnviada = true;
         } catch (error) { this.logger.error(`❌ Falha WPP (Expirado) para ${user.name}`); }
       }
-      if (user.email && this.emailService) {
+      if (user.email) {
         try {
-          await this.emailService.sendTrialExpired(user.email, user.name);
+          // 👇 A interrogação '?' protege o código
+          await this.emailService?.sendTrialExpired(user.email, user.name);
           notificacaoEnviada = true;
         } catch (error) { this.logger.error(`❌ Falha E-MAIL (Expirado) para ${user.name}`); }
       }

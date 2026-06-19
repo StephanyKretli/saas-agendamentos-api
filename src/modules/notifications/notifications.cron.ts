@@ -12,7 +12,7 @@ export class NotificationsCron {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsappService: WhatsappService,
-    private readonly emailService: any, // 🌟 Adicionado para não quebrar a sua chamada de e-mail abaixo
+    private readonly emailService: any, // Mantido para não quebrar a sua chamada de e-mail
   ) {}
 
   // ==========================================
@@ -30,7 +30,7 @@ export class NotificationsCron {
   }
 
   // ==========================================
-  // 1 e 2. LEMBRETES DE AGENDAMENTO (INTACTOS)
+  // 1 e 2. LEMBRETES DE AGENDAMENTO
   // ==========================================
   @Cron('*/15 * * * *')
   async processReminders() {
@@ -99,8 +99,7 @@ export class NotificationsCron {
   }
 
   // ==========================================
-  // 3. AVISOS DO SISTEMA SYNCRO (TRIAL ENDING / EXPIRED) (INTACTOS)
-  // Responsável por cobrir o seu Dia 12 (48h) e Dia 14 (Expirado)
+  // 3. AVISOS DO SISTEMA SYNCRO (TRIAL ENDING / EXPIRED)
   // ==========================================
   @Cron('0 * * * *')
   async processSaaSLifecycle() {
@@ -180,8 +179,9 @@ export class NotificationsCron {
     });
 
     for (const user of usersDay3) {
-      const textDay3 = `${user.name}, sabe qual é o maior pesadelo de quem tem uma agenda lotada? *Faltas.* 📉\n\nCom o Syncro, você ativa o *Sinal via PIX* em 2 cliques. O seu cliente paga uma percentagem para confirmar o agendamento, e você blinda a sua receita. Adeus horários vazios!\n\nAtive a proteção contra faltas nas suas configurações financeiras: https://meusyncro.com.br/dashboard/settings 🛡️⚡`;
-      await this.whatsappService.sendWelcome(user.phone, textDay3).catch(e => this.logger.error(e));
+      const firstName = user.name.split(' ')[0];
+      const textDay3 = `${firstName}, sabe qual é o maior pesadelo de quem tem uma agenda lotada? *Faltas.* 📉\n\nCom o Syncro, você ativa o *Sinal via PIX* em 2 cliques. O seu cliente paga uma percentagem para confirmar o agendamento, e você blinda a sua receita. Adeus horários vazios!\n\nAtive a proteção contra faltas nas suas configurações financeiras: https://meusyncro.com.br/dashboard/settings 🛡️⚡`;
+      await this.whatsappService.sendEngagementMessage(user.phone, textDay3).catch(e => this.logger.error(e));
     }
 
     // --- DIA 5: Dica de Ouro ---
@@ -191,8 +191,9 @@ export class NotificationsCron {
     });
 
     for (const user of usersDay5) {
-      const textDay5 = `Dica de ouro para você hoje, ${user.name}! 🏆\n\nA melhor plataforma do mundo não funciona se o seu cliente não achar o link. A mágica acontece quando você coloca o link da sua vitrine do Syncro na bio do seu Instagram.\n\nCopie o seu link e cole lá no Insta. Você vai começar a receber agendamentos enquanto dorme. 🚀🖤`;
-      await this.whatsappService.sendWelcome(user.phone, textDay5).catch(e => this.logger.error(e));
+      const firstName = user.name.split(' ')[0];
+      const textDay5 = `Dica de ouro para você hoje, ${firstName}! 🏆\n\nA melhor plataforma do mundo não funciona se o seu cliente não achar o link. A mágica acontece quando você coloca o link da sua vitrine do Syncro na bio do seu Instagram.\n\nCopie o seu link e cole lá no Insta. Você vai começar a receber agendamentos enquanto dorme. 🚀🖤`;
+      await this.whatsappService.sendEngagementMessage(user.phone, textDay5).catch(e => this.logger.error(e));
     }
 
     // --- DIA 10: Prova Social & FOMO ---
@@ -202,8 +203,9 @@ export class NotificationsCron {
     });
 
     for (const user of usersDay10) {
-      const textDay10 = `O seu período de teste do Syncro termina em 4 dias, ${user.name}... ⏳\n\nEnquanto isso, centenas de profissionais já estão a faturar mais e a perder *zero tempo* com marcações manuais por mensagens. Não fique para trás nessa revolução digital.\n\nGaranta a sua paz de espírito e não deixe a sua vitrine sair do ar. Faça o upgrade para o PRO agora: https://meusyncro.com.br/dashboard/settings ⚡`;
-      await this.whatsappService.sendWelcome(user.phone, textDay10).catch(e => this.logger.error(e));
+      const firstName = user.name.split(' ')[0];
+      const textDay10 = `O seu período de teste do Syncro termina em 4 dias, ${firstName}... ⏳\n\nEnquanto isso, centenas de profissionais já estão a faturar mais e a perder *zero tempo* com marcações manuais por mensagens. Não fique para trás nessa revolução digital.\n\nGaranta a sua paz de espírito e não deixe a sua vitrine sair do ar. Faça o upgrade para o PRO agora: https://meusyncro.com.br/dashboard/settings ⚡`;
+      await this.whatsappService.sendEngagementMessage(user.phone, textDay10).catch(e => this.logger.error(e));
     }
 
     this.logger.log('✅ Régua de engajamento concluída.');

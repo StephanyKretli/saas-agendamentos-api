@@ -19,7 +19,10 @@ type SendReminderInput = {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly resend = new Resend(process.env.RESEND_API_KEY);
+  
+  // 👇 AQUI ESTÁ A BLINDAGEM: Se não achar a chave, usa uma falsa para não derrubar a API
+  private readonly resend = new Resend(process.env.RESEND_API_KEY || 're_123456789_chave_falsa_emergencia');
+  
   private readonly from =
     process.env.EMAIL_FROM ?? 'Agendamentos <onboarding@resend.dev>';
 

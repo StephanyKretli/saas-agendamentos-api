@@ -3,8 +3,9 @@ import { MercadoPagoService } from './mercado-pago.service';
 import { AsaasService } from './asaas.service'; 
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
+import { EmailService } from '../email/email.service';
 @Module({
-  providers: [MercadoPagoService, AsaasService, BillingService],
+  providers: [MercadoPagoService, AsaasService, BillingService, EmailService],
   exports: [MercadoPagoService, AsaasService], 
   controllers: [BillingController], 
 })

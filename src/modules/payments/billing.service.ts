@@ -194,31 +194,82 @@ export class BillingService {
     return { message: `Plano alterado para ${newPlan} com sucesso!` };
   }
 
-  // 6. Webhook do Asaas (O Radar Automático de Inadimplência)
   async handleAsaasWebhook(payload: any) {
     console.log('🔔 Webhook recebido do Asaas:', payload.event);
 
-    // Se o cliente não pagar a renovação (cartão recusado ou boleto vencido)
-    if (payload.event === 'PAYMENT_OVERDUE' || payload.event === 'PAYMENT_REFUNDED') {
-      const customerId = payload.payment?.customer;
+    const customerId = payload.payment?.customer;
+    
+    // Se não houver customerId no payload, ignoramos e devolvemos 200 OK para o Asaas
+    if (!customerId) return { received: true };
+
+    // 🟢 CENÁRIO DE SUCESSO: Pagamento Aprovado!
+    if (payload.event === 'PAYMENT_RECEIVED' || payload.event === 'PAYMENT_CONFIRMED') {
+      const user = await this.prisma.user.findFirst({ where: { asaasCustomerId: customerId } });
       
-      if (customerId) {
-        const user = await this.prisma.user.findFirst({ where: { asaasCustomerId: customerId } });
+      if (user) {
+        // Atualiza a conta da Syncro para ativa e PRO
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { 
+            plan: 'PRO', 
+            subscriptionStatus: 'ACTIVE' 
+          }
+        });
+        console.log(`✅ Pagamento Confirmado: O utilizador ${user.email} ativou/renovou o plano PRO.`);
         
-        if (user && user.plan === 'PRO') {
-          // Rebaixa automaticamente a cliente de volta para o plano gratuito
-          await this.prisma.user.update({
-            where: { id: user.id },
-            data: { 
-              plan: 'STARTER', 
-              subscriptionStatus: 'INACTIVE',
-              asaasSubscriptionId: null
-            }
-          });
-          console.log(`❌ Downgrade automático: O utilizador ${user.email} perdeu o acesso PRO por falta de pagamento.`);
-        }
+        // 🌟 Avisa o RD Station para tirar o lead do fluxo de Onboarding
+        await this.notificarVendaRDStation(user.email, user.name);
       }
     }
+
+    // 🔴 CENÁRIO DE FALHA: Falta de pagamento ou reembolso
+    else if (payload.event === 'PAYMENT_OVERDUE' || payload.event === 'PAYMENT_REFUNDED') {
+      const user = await this.prisma.user.findFirst({ where: { asaasCustomerId: customerId } });
+      
+      if (user && user.plan === 'PRO') {
+        // Rebaixa automaticamente a cliente de volta para o plano gratuito
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { 
+            plan: 'STARTER', 
+            subscriptionStatus: 'INACTIVE',
+            asaasSubscriptionId: null
+          }
+        });
+        console.log(`❌ Downgrade automático: O utilizador ${user.email} perdeu o acesso PRO por falta de pagamento.`);
+      }
+    }
+
     return { received: true };
+  }
+
+  // 📡 FUNÇÃO DE DISPARO PARA O RD STATION
+  private async notificarVendaRDStation(email: string, nome: string) {
+    try {
+      const apiKey = process.env.RD_STATION_API_KEY;
+
+      if (!apiKey) {
+        console.warn('⚠️ RD_STATION_API_KEY não está configurada no seu ficheiro .env');
+        return;
+      }
+
+      // Endpoint oficial do RD Station para marcar conversões
+      const url = `https://api.rd.services/platform/events?api_key=${apiKey}`;
+
+      await axios.post(url, {
+        event_type: "CONVERSION",
+        event_family: "CDP",
+        payload: {
+          conversion_identifier: "assinatura_aprovada", // O mesmo nome que deve estar na "Saída" da automação
+          email: email,
+          name: nome,
+          tags: ["cliente-premium", "pagamento-asaas"] 
+        }
+      });
+
+      console.log(`🚀 [RD Station] Conversão de venda enviada com sucesso para: ${email}`);
+    } catch (error: any) {
+      console.error("🚨 [RD Station] Erro ao enviar conversão:", error?.response?.data || error.message);
+    }
   }
 }

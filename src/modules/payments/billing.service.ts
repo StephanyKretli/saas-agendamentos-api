@@ -243,28 +243,25 @@ export class BillingService {
     return { received: true };
   }
 
-  // 📡 FUNÇÃO DE DISPARO PARA O RD STATION
+  // 📡 FUNÇÃO DE DISPARO PARA O RD STATION (Atualizada para v1.3)
   private async notificarVendaRDStation(email: string, nome: string) {
     try {
-      const apiKey = process.env.RD_STATION_API_KEY;
+      // Use o token curto (96ecc...) no seu .env para esta variável
+      const tokenPublico = process.env.RD_STATION_API_KEY; 
 
-      if (!apiKey) {
+      if (!tokenPublico) {
         console.warn('⚠️ RD_STATION_API_KEY não está configurada no seu ficheiro .env');
         return;
       }
 
-      // Endpoint oficial do RD Station para marcar conversões
-      const url = `https://api.rd.services/platform/events?api_key=${apiKey}`;
+      const url = 'https://www.rdstation.com.br/api/1.3/conversions';
 
       await axios.post(url, {
-        event_type: "CONVERSION",
-        event_family: "CDP",
-        payload: {
-          conversion_identifier: "assinatura_aprovada", // O mesmo nome que deve estar na "Saída" da automação
-          email: email,
-          name: nome,
-          tags: ["cliente-premium", "pagamento-asaas"] 
-        }
+        token_rdstation: tokenPublico,
+        identificador: "assinatura_aprovada", // O gatilho!
+        email: email,
+        name: nome,
+        tags: "cliente-premium, pagamento-asaas" // Na v1.3, as tags são separadas por vírgula
       });
 
       console.log(`🚀 [RD Station] Conversão de venda enviada com sucesso para: ${email}`);

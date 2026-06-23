@@ -106,15 +106,24 @@ export class WhatsappService {
     const instanceName = salonId.startsWith('v2-') ? salonId : this.getInstanceName(salonId);
 
     try {
+      // 🌟 PAYLOAD À PROVA DE BALAS (Funciona em v1 e v2)
+      const payload = {
+        number: finalPhone,
+        textMessage: { text: text }, // Formato mais rigoroso
+        text: text, // Formato simplificado v2
+        options: { delay: 1000, presence: "composing" } // Simula que está digitando
+      };
+
       const response = await fetch(`${this.baseUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': this.apiKey },
-        body: JSON.stringify({ number: finalPhone, text: text })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
-        const errorDetail = await response.json();
-        console.error(`❌ [EVOLUTION ERROR] Instância: ${instanceName} | Status: ${response.status}`);
+        // 🌟 O GRANDE TRUQUE: Extrair o texto exato do erro!
+        const errorText = await response.text(); 
+        console.error(`❌ [EVOLUTION ERROR] Instância: ${instanceName} | Status: ${response.status} | Detalhe: ${errorText}`);
       }
 
       return response.ok;

@@ -96,7 +96,13 @@ export class AuthService {
     // 👇 O E-MAIL FOI REMOVIDO, MANTENDO APENAS O DISPARO DE WHATSAPP
     try {
       if (dto.phone) {
-        this.whatsappService.sendWelcome(dto.phone, user.name).catch(console.error);
+        // 🌟 Formatação para a Evolution API (Injeta o 55 do Brasil)
+        let telefoneWhatsApp = dto.phone;
+        if (telefoneWhatsApp.length === 10 || telefoneWhatsApp.length === 11) {
+          telefoneWhatsApp = `55${telefoneWhatsApp}`;
+        }
+
+        this.whatsappService.sendWelcome(telefoneWhatsApp, user.name).catch(console.error);
       }
     } catch (e) {
       console.error('Falha na automação de boas vindas via WhatsApp', e);

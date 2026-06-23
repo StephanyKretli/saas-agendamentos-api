@@ -12,6 +12,8 @@ import { LoginDto } from './dto/login.dto';
 import { AsaasService } from '../payments/asaas.service'; 
 import { EmailService } from '../email/email.service';
 import { WhatsappService } from '../notifications/whatsapp.service';
+import axios from 'axios';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -56,6 +58,8 @@ export class AuthService {
       },
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
+
+    await this.notificarMetaCAPI(user.email);
 
     // 👇 ROTA CORRETA DA RD STATION: /platform/conversions
     try {
@@ -182,6 +186,8 @@ export class AuthService {
         }
       });
 
+      await this.notificarMetaCAPI(user.email);
+
       // 👇 ROTA CORRETA DA RD STATION: /platform/conversions (OAuth)
       try {
         if (!process.env.RD_STATION_TOKEN) {
@@ -218,5 +224,43 @@ export class AuthService {
     const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload);
     return { accessToken };
+  }
+
+  private async notificarMetaCAPI(email: string, ip: string = '', userAgent: string = '') {
+    try {
+      const pixelId = process.env.META_PIXEL_ID;
+      const accessToken = process.env.META_ACCESS_TOKEN;
+
+      if (!pixelId || !accessToken) {
+        console.warn('⚠️ Credenciais da Meta ausentes no .env');
+        return;
+      }
+
+      // Hash SHA256 obrigatório pela Meta
+      const hashedEmail = crypto.createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+
+      const url = `https://graph.facebook.com/v19.0/${pixelId}/events?access_token=${accessToken}`;
+
+      const payload = {
+        data: [
+          {
+            event_name: 'CompleteRegistration',
+            event_time: Math.floor(Date.now() / 1000),
+            action_source: 'website',
+            user_data: {
+              em: [hashedEmail],
+              client_ip_address: ip,
+              client_user_agent: userAgent,
+            },
+          }
+        ]
+      };
+
+      await axios.post(url, payload);
+      console.log(`🎯 [Meta CAPI] Evento de cadastro enviado para: ${email}`);
+      
+    } catch (error: any) {
+      console.error("🚨 [Meta CAPI] Erro:", error?.response?.data || error.message);
+    }
   }
 }

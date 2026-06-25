@@ -181,7 +181,7 @@ export class NotificationsCron {
 
     for (const user of usersDay3) {
       const firstName = user.name.split(' ')[0];
-      const textDay3 = `${firstName}, sabe qual é o maior pesadelo de quem tem uma agenda lotada? *Faltas.* 📉\n\nCom o Syncro, você ativa o *Sinal via PIX* em 2 cliques. O seu cliente paga uma percentagem para confirmar o agendamento, e você blinda a sua receita. Adeus horários vazios!\n\nAtive a proteção contra faltas nas suas configurações financeiras: https://meusyncro.com.br/dashboard/settings 🛡️⚡`;
+      const textDay3 = `${firstName}, sabe qual é o maior pesadelo de quem tem uma agenda lotada? *Faltas.* 📉\n\nCom o Syncro, você ativa o *Sinal via PIX* em 2 cliques. O seu cliente paga uma percentagem para confirmar o agendamento, e você blinda a sua receita. Adeus horários vazios!\n\nAtive a proteção contra faltas nas suas configurações financeiras: https://meusyncro.com.br/settings 🛡️⚡`;
       await this.whatsappService.sendEngagementMessage(user.phone, textDay3).catch(e => this.logger.error(e));
     }
 
@@ -205,7 +205,7 @@ export class NotificationsCron {
 
     for (const user of usersDay10) {
       const firstName = user.name.split(' ')[0];
-      const textDay10 = `O seu período de teste do Syncro termina em 4 dias, ${firstName}... ⏳\n\nEnquanto isso, centenas de profissionais já estão a faturar mais e a perder *zero tempo* com marcações manuais por mensagens. Não fique para trás nessa revolução digital.\n\nGaranta a sua paz de espírito e não deixe a sua vitrine sair do ar. Faça o upgrade para o PRO agora: https://meusyncro.com.br/dashboard/settings ⚡`;
+      const textDay10 = `O seu período de teste do Syncro termina em 4 dias, ${firstName}... ⏳\n\nEnquanto isso, centenas de profissionais já estão a faturar mais e a perder *zero tempo* com marcações manuais por mensagens. Não fique para trás nessa revolução digital.\n\nGaranta a sua paz de espírito e não deixe a sua vitrine sair do ar. Faça o upgrade para o PRO agora: https://meusyncro.com.br/billing ⚡`;
       await this.whatsappService.sendEngagementMessage(user.phone, textDay10).catch(e => this.logger.error(e));
     }
 

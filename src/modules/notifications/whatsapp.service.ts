@@ -186,21 +186,21 @@ export class WhatsappService {
   // DIA 1: BOAS-VINDAS
   async sendWelcome(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `Fala, *${firstName}*! ⚡ Aqui é a equipa do Syncro.\n\nA sua máquina de agendamentos e pagamentos está oficialmente no ar! 🖤\n\nPara começar a transformar o seu espaço, o primeiro passo é configurar a sua vitrine online e deixá-la com a sua cara. Já deu uma olhada em como ficou?\n\nAcesse o seu painel agora e adicione o seu primeiro serviço: https://meusyncro.com.br/dashboard/settings`;
+    const message = `Fala, *${firstName}*! ⚡ Aqui é a equipe do Syncro.\n\nA sua máquina de agendamentos e pagamentos está oficialmente no ar! 🖤\n\nPara começar a transformar o seu espaço, o primeiro passo é configurar a sua vitrine online e deixá-la com a sua cara. Já deu uma olhada em como ficou?\n\nAcesse o seu painel agora e adicione o seu primeiro serviço: https://meusyncro.com.br/settings`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
   // DIA 12: URGÊNCIA E ESCASSEZ (48h para o fim)
   async sendTrialEnding(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `Atenção, *${firstName}*! ⚠️ \n\nFaltam apenas *48 horas* para a sua conta gratuita do Syncro expirar.\n\nSe não fizer o upgrade, o seu link de agendamento deixará de funcionar e a sua gestão voltará para o caos do papel e caneta. Mantenha a sua vitrine no ar e os pagamentos centralizados.\n\nAssine o plano PRO, é rápido e seguro: https://meusyncro.com.br/dashboard/settings 💳⚡`;
+    const message = `Atenção, *${firstName}*! ⚠️ \n\nFaltam apenas *48 horas* para a sua conta gratuita do Syncro expirar.\n\nSe não fizer o upgrade, o seu link de agendamento deixará de funcionar e a sua gestão voltará para o caos do papel e caneta. Mantenha a sua vitrine no ar e os pagamentos centralizados.\n\nAssine o plano PRO, é rápido e seguro: https://meusyncro.com.br/billing 💳⚡`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 
   // DIA 14: FECHAMENTO (Trial Expirado)
   async sendTrialExpired(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];
-    const message = `*${firstName}*, o seu tempo esgotou. ⏱️ \n\nA partir de hoje, a sua vitrine do Syncro está suspensa para novos agendamentos.\n\nMas não se preocupe: todos os seus dados e clientes continuam *salvos e seguros* connosco. Para reativar o seu link imediatamente e continuar a dominar a sua agenda, basta ativar o seu plano: https://meusyncro.com.br/dashboard/settings 🖤\n\nEstamos à sua espera do outro lado!`;
+    const message = `*${firstName}*, o seu tempo esgotou. ⏱️ \n\nA partir de hoje, a sua vitrine do Syncro está suspensa para novos agendamentos.\n\nMas não se preocupe: todos os seus dados e clientes continuam *salvos e seguros* conosco. Para reativar o seu link imediatamente e continuar a dominar a sua agenda, basta ativar o seu plano: https://meusyncro.com.br/billing 🖤\n\nEstamos à sua espera do outro lado!`;
     return this.sendMessage(systemInstanceId, phone, message);
   }
 

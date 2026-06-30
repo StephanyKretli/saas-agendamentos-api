@@ -191,6 +191,14 @@ export class WhatsappService {
   return this.sendMessage(systemInstanceId, phone, message);
 }
 
+  // DIA 2 (24h): Resgate de Inativos
+  async sendDay1Rescue(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
+    const firstName = name.split(' ')[0];
+    const message = `Oi, *${firstName}*! Tudo bem? Aqui é a equipe do Syncro. 🖤\n\nVi que você criou a sua conta ontem, mas com a correria dos atendimentos acabou não conseguindo terminar de configurar a sua recepção virtual, né? É super normal!\n\nPara te ajudar a dar esse primeiro passo sem complicação, que tal a gente definir apenas os seus *Horários de Atendimento* hoje?\n\nLeva literalmente 2 minutinhos e você já deixa a base da sua agenda pronta. É só acessar por aqui: https://meusyncro.com.br/business-hours\n\nE olha, se você tentou mexer no sistema e achou alguma coisa difícil, pode me mandar um áudio ou responder aqui que eu te ajudo passo a passo, combinado? 🤝`;
+    
+    return this.sendMessage(systemInstanceId, phone, message);
+  }
+
   // DIA 12: URGÊNCIA E ESCASSEZ (48h para o fim)
   async sendTrialEnding(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
     const firstName = name.split(' ')[0];

@@ -185,10 +185,11 @@ export class WhatsappService {
   
   // DIA 1: BOAS-VINDAS
   async sendWelcome(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {
-    const firstName = name.split(' ')[0];
-    const message = `Fala, *${firstName}*! ⚡ Aqui é a equipe do Syncro.\n\nA sua máquina de agendamentos e pagamentos está oficialmente no ar! 🖤\n\nPara começar a transformar o seu espaço, o primeiro passo é configurar a sua vitrine online e deixá-la com a sua cara. Já deu uma olhada em como ficou?\n\nAcesse o seu painel agora e adicione o seu primeiro serviço: https://meusyncro.com.br/settings`;
-    return this.sendMessage(systemInstanceId, phone, message);
-  }
+  const firstName = name.split(' ')[0];
+  const message = `Oi, *${firstName}*! Tudo bem? 🖤 Aqui é a equipe do Syncro.\n\nQue alegria ter você com a gente! A sua conta já está criada e a sua recepção virtual está quase pronta para organizar o seu dia a dia e facilitar a sua vida.\n\nPara não ter complicação, vamos dar um passo de cada vez. A primeira coisa a fazer é bem simples: definir os seus *Horários de Atendimento*.\n\nLeva menos de 2 minutinhos. É só acessar o seu painel por aqui: https://meusyncro.com.br/business-hours\n\nAh, e se você travar em qualquer tela, é só me responder aqui mesmo. Nosso suporte é humano e estamos prontos para te ajudar! 🤝`;
+  
+  return this.sendMessage(systemInstanceId, phone, message);
+}
 
   // DIA 12: URGÊNCIA E ESCASSEZ (48h para o fim)
   async sendTrialEnding(phone: string, name: string, systemInstanceId: string = this.SYSTEM_INSTANCE) {

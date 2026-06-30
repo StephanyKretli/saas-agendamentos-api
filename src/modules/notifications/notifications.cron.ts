@@ -211,4 +211,52 @@ export class NotificationsCron {
 
     this.logger.log('✅ Régua de engajamento concluída.');
   }
+
+  // ==========================================
+  // 5. RESGATE DE 24 HORAS (CLIENTES INATIVOS)
+  // ==========================================
+  @Cron(CronExpression.EVERY_HOUR)
+  async processDay1Rescue() {
+    this.logger.log('⏳ Iniciando varredura de resgate (24h) para inativos...');
+
+    const now = new Date();
+    // Cria uma janela que pega quem se cadastrou entre 25h e 24h atrás
+    const twentyFiveHoursAgo = new Date(now.getTime() - 25 * 60 * 60 * 1000);
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    try {
+      const idleUsers = await this.prisma.user.findMany({
+        where: {
+          createdAt: {
+            gte: twentyFiveHoursAgo,
+            lt: twentyFourHoursAgo,
+          },
+          phone: { not: null },
+          // A trava que garante que o sistema só chame quem não configurou nada.
+          // Neste exemplo, filtra usuários que ainda não têm nenhum serviço criado:
+          services: {
+            none: {} 
+          }
+        },
+      });
+
+      for (const user of idleUsers) {
+        try {
+          await this.whatsappService.sendDay1Rescue(user.phone, user.name);
+          this.logger.log(`✅ Mensagem de resgate (24h) enviada para: ${user.name}`);
+          
+          // Pausa de 2 segundos entre os disparos para evitar bloqueio na API
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (error) {
+          this.logger.error(`❌ Erro ao enviar resgate (24h) para ${user.name}`);
+        }
+      }
+      
+      if (idleUsers.length > 0) {
+        this.logger.log(`✅ Resgate concluído: ${idleUsers.length} inativos notificados.`);
+      }
+    } catch (error) {
+      this.logger.error('❌ Erro na varredura do banco (Resgate 24h):', error);
+    }
+  }
 }

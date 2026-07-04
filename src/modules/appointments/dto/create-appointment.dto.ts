@@ -82,4 +82,13 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsBoolean()
   isMaintenance?: boolean;
+
+  // 🛡️ O PASSE LIVRE: Permite que o salão force um agendamento ("Encaixe VIP")
+  @ApiPropertyOptional({ 
+    example: true, 
+    description: 'Ignora bloqueios, pausas e horário de funcionamento (usado apenas pelo painel do salão)' 
+  })
+  @IsOptional()
+  @IsBoolean()
+  ignoreAvailabilityRules?: boolean;
 }

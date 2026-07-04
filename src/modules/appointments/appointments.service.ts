@@ -96,7 +96,9 @@ export class AppointmentsService {
   }
 
   async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean, services?: { serviceId: string, isMaintenance: boolean }[] }) {
-    const { date, professionalId, clientId, notes, client } = dto;
+    // 🌟 1. Extraímos a flag ignoreAvailabilityRules do DTO
+    const { date, professionalId, clientId, notes, client, ignoreAvailabilityRules } = dto;
+    
     let servicesPayload = dto.services || [];
     if (servicesPayload.length === 0 && dto.serviceId) {
       servicesPayload = [{ serviceId: dto.serviceId, isMaintenance: !!dto.isMaintenance }];
@@ -108,14 +110,21 @@ export class AppointmentsService {
     const start = parseLocalISO(date);
     if (Number.isNaN(start.getTime())) throw new BadRequestException('Data inválida.');
     const now = new Date();
-    if (start.getTime() <= now.getTime()) throw new BadRequestException('Não é possível agendar no passado.');
+    
+    // 🌟 2. PASSE LIVRE: Permite que a dona lance na agenda um serviço que já aconteceu (ex: no fim do dia)
+    if (!ignoreAvailabilityRules && start.getTime() <= now.getTime()) {
+      throw new BadRequestException('Não é possível agendar no passado.');
+    }
 
     const targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') ? professionalId : userId;
     const settings = await this.getUserBookingSettings(targetUserId);
     const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
     const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
 
-    if (start.getTime() < minStart.getTime()) throw new BadRequestException(`Agende com antecedência de ${minLeadMinutes} minutes.`);
+    // 🌟 3. PASSE LIVRE: Ignora a regra de horas de antecedência
+    if (!ignoreAvailabilityRules && start.getTime() < minStart.getTime()) {
+      throw new BadRequestException(`Agende com antecedência de ${minLeadMinutes} minutes.`);
+    }
 
     const newAppointment = await this.prisma.$transaction(async (tx) => {
       const serviceIds = servicesPayload.map(s => s.serviceId);
@@ -142,27 +151,33 @@ export class AppointmentsService {
 
       const totalMinutes = getAppointmentTotalMinutes(totalFinalDuration, settings.bufferMinutes);
       
-      const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
-      if (!ok) throw new BadRequestException('O horário escolhido não cabe no expediente.');
+      // 🌟 4. PASSE LIVRE: Ignora o horário de funcionamento e dias de folga
+      if (!ignoreAvailabilityRules) {
+        const ok = await this.isWithinBusinessHours(targetUserId, start, totalMinutes);
+        if (!ok) throw new BadRequestException('O horário escolhido não cabe no expediente.');
+      }
 
       const end = addMinutes(start, totalMinutes);
       const dayStart = new Date(start); dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date(start); dayEnd.setHours(23, 59, 59, 999);
 
-      const existing = await tx.appointment.findMany({
-        where: { professionalId: targetUserId, status: { in: ['SCHEDULED', 'COMPLETED'] }, date: { gte: dayStart, lte: dayEnd } },
-        select: { date: true, services: { select: { duration: true } } },
-      });
+      // 🌟 5. PASSE LIVRE: Pula completamente a busca por conflitos (permite sobreposição/marcação dupla)
+      if (!ignoreAvailabilityRules) {
+        const existing = await tx.appointment.findMany({
+          where: { professionalId: targetUserId, status: { in: ['SCHEDULED', 'COMPLETED'] }, date: { gte: dayStart, lte: dayEnd } },
+          select: { date: true, services: { select: { duration: true } } },
+        });
 
-      const hasConflict = existing.some((a: any) => {
-        const aStart = new Date(a.date);
-        const apptServices = a.services || [];
-        const aDuration = apptServices.reduce((acc: number, s: any) => acc + s.duration, 0);
-        const aTotalMinutes = getAppointmentTotalMinutes(aDuration, settings.bufferMinutes);
-        return rangesOverlap(aStart, aTotalMinutes, start, end);
-      });
+        const hasConflict = existing.some((a: any) => {
+          const aStart = new Date(a.date);
+          const apptServices = a.services || [];
+          const aDuration = apptServices.reduce((acc: number, s: any) => acc + s.duration, 0);
+          const aTotalMinutes = getAppointmentTotalMinutes(aDuration, settings.bufferMinutes);
+          return rangesOverlap(aStart, aTotalMinutes, start, end);
+        });
 
-      if (hasConflict) throw new BadRequestException('Conflito de horário.');
+        if (hasConflict) throw new BadRequestException('Conflito de horário.');
+      }
 
       let resolvedClientId = clientId;
       if (!resolvedClientId && client) {
@@ -176,7 +191,6 @@ export class AppointmentsService {
         }
       }
 
-      // 🌟 ATUALIZADO: Aceita tanto o plano PRO quanto o BUSINESS para cobrar o sinal via PIX
       let depositCents = 0;
       if ((settings.plan === 'PRO' || settings.plan === 'BUSINESS') && settings.requirePixDeposit && totalFinalPriceCents > 0) {
         depositCents = Math.round(totalFinalPriceCents * (settings.pixDepositPercentage / 100));
@@ -206,10 +220,8 @@ export class AppointmentsService {
       priceCents: finalAppointment.priceCents
     };
 
-    // 🌟 TRAVA DE SEGURANÇA ISOLADA: Se precisa de PIX, entra aqui obrigatoriamente
     if (newAppointment.paymentStatus === 'PENDING') {
       if (!settings.mercadoPagoAccessToken) {
-        // Remove o agendamento fantasma criado e avisa o erro de configuração do salão
         await this.prisma.appointment.delete({ where: { id: newAppointment.id } });
         throw new BadRequestException('Este estabelecimento ativou o sinal por PIX, mas não configurou as credenciais do Mercado Pago.');
       }
@@ -240,7 +252,6 @@ export class AppointmentsService {
         throw new BadRequestException(`Erro ao gerar PIX: ${mpErrorMessage}`);
       }
     } else {
-      // 🌟 SÓ ENTRA AQUI SE NÃO PRECISAR DE PIX (NOT_REQUIRED)
       if (finalAppointment.client?.phone) {
         const manageLink = `${process.env.APP_WEB_URL || 'https://meusyncro.com.br'}/agendamento/${finalAppointment.publicCancelToken}`;
         await this.whatsappService.sendAppointmentConfirmation(settings.salonOwnerId, finalAppointment.client.name, finalAppointment.client.phone, comboNames, finalAppointment.date, finalAppointment.professional?.name || 'Equipe', manageLink);

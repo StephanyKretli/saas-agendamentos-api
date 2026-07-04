@@ -170,6 +170,8 @@ model Appointment {
   services AppointmentService[]
 
   @@map("appointments")
+
+  isVIP Boolean @default(false)
 }
 
 model BlockedDate {

@@ -198,7 +198,7 @@ export class AppointmentsService {
 
       return (tx.appointment.create as any)({
         data: {
-          userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED',
+          userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
           

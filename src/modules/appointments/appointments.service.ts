@@ -667,7 +667,7 @@ export class AppointmentsService {
 
     const dayStart = startOfDayLocal(date); const dayEnd = endOfDayLocal(date);
 
-    // 🌟 NOVA TRAVA PARA A TIMELINE DO PAINEL: Dia inteiro bloqueado
+    // 🌟 TRAVA DE DIA INTEIRO BLOQUEADO: Agora verifica se existem agendamentos VIP no dia antes de bloquear tudo!
     const blockedDates = await this.prisma.blockedDate.findMany({
       where: { userId: targetUserId }
     });
@@ -677,7 +677,14 @@ export class AppointmentsService {
       return bdStrUTC === date || bdStrLocal === date;
     });
 
-    if (isDayBlocked) {
+    const appointments = await this.prisma.appointment.findMany({
+      where: { OR: [{ userId: userId }, { professionalId: userId }], professionalId: targetUserId, date: { gte: dayStart, lte: dayEnd }, status: { in: ['SCHEDULED', 'COMPLETED'] } },
+      include: { services: { include: { service: true } }, client: true },
+      orderBy: { date: 'asc' },
+    });
+
+    // Se o dia estiver bloqueado inteiro, só exibe os agendamentos VIP (se houverem), senão retorna tudo bloqueado
+    if (isDayBlocked && !appointments.some(a => a.isVIP)) {
       return { 
         date, 
         items: [{ type: 'blocked', start: '00:00', end: '23:59', reason: 'Dia Inteiro Bloqueado' }] 
@@ -685,14 +692,24 @@ export class AppointmentsService {
     }
 
     const businessHours = await this.prisma.businessHour.findMany({ where: { userId: targetUserId, weekday: dayStart.getDay() }, orderBy: { start: 'asc' } });
-    if (!businessHours.length) return { date, items: [] };
+    
+    // 🌟 SE NÃO HOUVER EXPEDIENTE NESTE DIA, MAS HOUVER AGENDAMENTO VIP: Criamos um expediente virtual do primeiro ao último VIP
+    let computedBusinessHours = [...businessHours];
+    if (computedBusinessHours.length === 0 && appointments.length > 0) {
+      computedBusinessHours = [{
+        start: '00:00',
+        end: '23:59',
+        userId: targetUserId,
+        weekday: dayStart.getDay(),
+        id: 'virtual-vip',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }];
+    } else if (computedBusinessHours.length === 0) {
+      return { date, items: [] };
+    }
 
     const blockedSlots = await this.prisma.blockedSlot.findMany({ where: { userId: targetUserId, start: { lt: dayEnd }, end: { gt: dayStart } }, orderBy: { start: 'asc' } });
-    const appointments = await this.prisma.appointment.findMany({
-      where: { OR: [{ userId: userId }, { professionalId: userId }], professionalId: targetUserId, date: { gte: dayStart, lte: dayEnd }, status: { in: ['SCHEDULED', 'COMPLETED'] } },
-      include: { services: { include: { service: true } }, client: true },
-      orderBy: { date: 'asc' },
-    });
 
     const busyAppointments = appointments.map((appointment) => {
       const start = new Date(appointment.date);
@@ -702,7 +719,20 @@ export class AppointmentsService {
     }).sort((a, b) => a.start.getTime() - b.start.getTime());
 
     const items = [];
-    for (const period of businessHours) {
+    
+    // 🌟 GARANTE QUE OS VIPS APAREÇAM MESMO FORA DO HORÁRIO: Expandimos dinamicamente as pontas do expediente
+    if (busyAppointments.length > 0) {
+      const firstApptTimeStr = formatTime(busyAppointments[0].start);
+      const lastApptEndStr = formatTime(busyAppointments[busyAppointments.length - 1].end);
+      
+      const firstBH = computedBusinessHours[0];
+      const lastBH = computedBusinessHours[computedBusinessHours.length - 1];
+      
+      if (firstApptTimeStr < firstBH.start) firstBH.start = firstApptTimeStr;
+      if (lastApptEndStr > lastBH.end) lastBH.end = lastApptEndStr;
+    }
+
+    for (const period of computedBusinessHours) {
       const periodStart = parseLocalISO(`${date}T${period.start}:00`);
       const periodEnd = parseLocalISO(`${date}T${period.end}:00`);
       
@@ -721,9 +751,21 @@ export class AppointmentsService {
         if (item.kind === 'appointment') {
           const sArr = item.data.services || [];
           items.push({
-            type: 'busy', start: formatTime(itemStart), end: formatTime(itemEnd), appointmentId: item.data.id, status: item.data.status, paymentStatus: item.data.paymentStatus, depositCents: item.data.depositCents, notes: item.data.notes,
+            type: 'busy', 
+            start: formatTime(itemStart), 
+            end: formatTime(itemEnd), 
+            appointmentId: item.data.id, 
+            status: item.data.status, 
+            paymentStatus: item.data.paymentStatus, 
+            depositCents: item.data.depositCents, 
+            notes: item.data.notes,
+            // 🌟 AQUI O SEGREDO: Enviamos a flag para o Frontend renderizar o Raio (⚡)
+            isVIP: item.data.isVIP,
             client: item.data.client,
-            service: { name: sArr.map(s => s.service?.name).join(' + '), duration: sArr.reduce((acc, s) => acc + s.duration, 0) }
+            service: { 
+              name: sArr.map(s => s.service?.name).join(' + '), 
+              duration: sArr.reduce((acc, s) => acc + s.duration, 0) 
+            }
           });
         } else {
           items.push({ type: 'blocked', start: formatTime(itemStart), end: formatTime(itemEnd) });

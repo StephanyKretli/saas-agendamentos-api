@@ -54,6 +54,9 @@ model User {
   owner       User?   @relation("TeamHierarchy", fields: [ownerId], references: [id])
   teamMembers User[]  @relation("TeamHierarchy")
 
+  // Preferência de onboarding: dona optou por trabalhar sozinha (sem convidar equipe)
+  isSoloProfessional Boolean @default(false)
+
   // Configurações de Agendamento
   timezone                String @default("America/Sao_Paulo")
   bufferMinutes           Int    @default(0)

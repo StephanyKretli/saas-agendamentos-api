@@ -85,4 +85,9 @@ export class UpdateSettingsDto {
   @IsString()
   @IsIn(['PERCENTAGE', 'FIXED'])
   commissionType?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  isSoloProfessional?: boolean;
 }

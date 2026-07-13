@@ -54,6 +54,9 @@ export class SettingsService {
       absorbPixFee: businessData.absorbPixFee,
       commissionType: businessData.commissionType,
       defaultCommissionRate: businessData.defaultCommissionRate,
+
+      // Preferência de onboarding: dona optou por trabalhar sozinha
+      isSoloProfessional: businessData.isSoloProfessional,
     };
   }
 
@@ -101,6 +104,7 @@ export class SettingsService {
     if (data.absorbPixFee !== undefined) businessData.absorbPixFee = data.absorbPixFee;
     if (data.defaultCommissionRate !== undefined) businessData.defaultCommissionRate = data.defaultCommissionRate;
     if (data.commissionType !== undefined) businessData.commissionType = data.commissionType;
+    if (data.isSoloProfessional !== undefined) businessData.isSoloProfessional = data.isSoloProfessional;
 
     if (Object.keys(businessData).length > 0) {
       if (isOwner || isCoAdmin) {
@@ -148,6 +152,7 @@ export class SettingsService {
       absorbPixFee: businessData.absorbPixFee,
       commissionType: businessData.commissionType,
       defaultCommissionRate: businessData.defaultCommissionRate,
+      isSoloProfessional: businessData.isSoloProfessional,
 
       owner: currentUser.owner ? {
         centralizePayments: currentUser.owner.centralizePayments,

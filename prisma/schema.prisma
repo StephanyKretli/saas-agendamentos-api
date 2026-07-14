@@ -250,3 +250,11 @@ model AppointmentService {
 
   @@map("appointment_services")
 }
+
+// Idempotência de webhooks: garante que o mesmo evento (ex: reenvio do Asaas
+// após timeout) nunca é processado (nem notificado ao RD Station) duas vezes.
+model ProcessedWebhookEvent {
+  id          String   @id @default(cuid())
+  eventKey    String   @unique // ex: "asaas:PAYMENT_CONFIRMED:pay_xxx"
+  processedAt DateTime @default(now())
+}

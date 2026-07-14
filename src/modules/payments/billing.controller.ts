@@ -1,17 +1,19 @@
-import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get, Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BillingService } from './billing.service';
 // 👇 1. Importe o serviço onde você colocou a função do RD Station
-import { EmailService } from '../email/email.service'; 
+import { EmailService } from '../email/email.service';
 
 @Controller('billing')
 // 🚨 AVISO: NÃO coloque @UseGuards(JwtAuthGuard) aqui, ou o Asaas será bloqueado!
 export class BillingController {
+  private readonly logger = new Logger(BillingController.name);
+
   constructor(
     private prisma: PrismaService,
     private readonly billingService: BillingService,
-    private readonly emailService: EmailService // 👇 2. Injete o serviço aqui
+    private readonly emailService: EmailService // 👇 2. Injete o serviço aqui (usado só na rota de teste sandbox)
   ) {}
 
   // 🔒 ROTA PROTEGIDA: Apenas utilizadores logados podem assinar
@@ -126,53 +128,21 @@ export class BillingController {
 
   // =================================================================
   // 🔓 ROTA PÚBLICA: Webhook ÚNICO do Asaas (Radar de Pagamentos)
+  // Casca fina: só loga e delega. Toda a lógica de negócio vive no
+  // BillingService — fonte única de verdade para os eventos do Asaas.
   // =================================================================
   @Post('webhook')
   async handleAsaasWebhook(@Body() body: any) {
-    console.log('\n🔔 WEBHOOK DO ASAAS RECEBIDO:', body.event);
+    this.logger.log(`Webhook Asaas recebido: ${body?.event}`);
 
     try {
-      // 🟢 QUANDO O PAGAMENTO É APROVADO
-      if (body.event === 'PAYMENT_CONFIRMED' || body.event === 'PAYMENT_RECEIVED') {
-        const asaasCustomerId = body.payment?.customer;
-        
-        if (asaasCustomerId) {
-          // 1. Destranca o painel no banco de dados
-          await this.prisma.user.updateMany({
-            where: { asaasCustomerId: asaasCustomerId },
-            data: { subscriptionStatus: 'ACTIVE' } 
-          });
-
-          // 2. Busca o dono da conta para enviar ao RD Station
-          const user = await this.prisma.user.findFirst({
-            where: { asaasCustomerId: asaasCustomerId }
-          });
-
-          if (user && user.email) {
-            // 👇 3. A MÁGICA: Avisa o RD Station para tirar o cliente do fluxo de cobrança!
-            await this.emailService.sendUpgradeConversion(user.email, user.name);
-          }
-        }
-      }
-
-      // 🔴 QUANDO O PAGAMENTO ATRASA OU A ASSINATURA É CANCELADA
-      if (body.event === 'PAYMENT_OVERDUE' || body.event === 'SUBSCRIPTION_DELETED') {
-        const asaasCustomerId = body.payment?.customer || body.subscription?.customer;
-        if (asaasCustomerId) {
-          await this.prisma.user.updateMany({
-            where: { asaasCustomerId: asaasCustomerId },
-            data: { subscriptionStatus: 'PAST_DUE' } 
-          });
-        }
-      }
-
-      // Se houver lógica complementar dentro do seu service, ela roda aqui:
-      if (this.billingService.handleAsaasWebhook) {
-        await this.billingService.handleAsaasWebhook(body);
-      }
-
-    } catch (error) {
-      console.error('Erro ao processar o webhook do Asaas:', error);
+      await this.billingService.handleAsaasWebhook(body);
+    } catch (error: any) {
+      // Nunca deixa o Asaas martelar retries por um erro nosso — logamos e
+      // devolvemos 200 do mesmo jeito. A idempotência garante que um retry
+      // legítimo (reenvio por timeout) não duplica nada quando o processamento
+      // já tiver sido concluído.
+      this.logger.error('Erro ao processar webhook do Asaas', error?.stack || error);
     }
 
     return { received: true };

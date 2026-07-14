@@ -1,13 +1,18 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import axios from 'axios';
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   private readonly asaasApiUrl = process.env.ASAAS_API_URL || 'https://sandbox.asaas.com/api/v3';
   private readonly asaasApiKey = process.env.ASAAS_API_KEY;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
 
   // 1. Cria um Cliente no Asaas (Agora aceita o CPF na criação)
   async createCustomer(name: string, email: string, cpfCnpj?: string | null) {
@@ -194,79 +199,105 @@ export class BillingService {
     return { message: `Plano alterado para ${newPlan} com sucesso!` };
   }
 
-  async handleAsaasWebhook(payload: any) {
-    console.log('🔔 Webhook recebido do Asaas:', payload.event);
-
-    const customerId = payload.payment?.customer;
-    
-    // Se não houver customerId no payload, ignoramos e devolvemos 200 OK para o Asaas
-    if (!customerId) return { received: true };
-
-    // 🟢 CENÁRIO DE SUCESSO: Pagamento Aprovado!
-    if (payload.event === 'PAYMENT_RECEIVED' || payload.event === 'PAYMENT_CONFIRMED') {
-      const user = await this.prisma.user.findFirst({ where: { asaasCustomerId: customerId } });
-      
-      if (user) {
-        // Atualiza a conta da Syncro para ativa e PRO
-        await this.prisma.user.update({
-          where: { id: user.id },
-          data: { 
-            plan: 'PRO', 
-            subscriptionStatus: 'ACTIVE' 
-          }
-        });
-        console.log(`✅ Pagamento Confirmado: O utilizador ${user.email} ativou/renovou o plano PRO.`);
-        
-        // 🌟 Avisa o RD Station para tirar o lead do fluxo de Onboarding
-        await this.notificarVendaRDStation(user.email, user.name);
-      }
+  /**
+   * Fonte única de verdade para os eventos do Asaas. Um handler por evento,
+   * sem sobreposição. `plan` continua sendo escrito por coerência com o
+   * restante do sistema (a Fase 2B remove os gates que dependem dele) —
+   * `subscriptionStatus` é o campo crítico, é o que o SubscriptionGuard lê.
+   */
+  async handleAsaasWebhook(payload: any): Promise<void> {
+    const event = payload?.event;
+    if (!event) {
+      this.logger.warn('Webhook Asaas sem "event" no payload — ignorado.');
+      return;
     }
 
-    // 🔴 CENÁRIO DE FALHA: Falta de pagamento ou reembolso
-    else if (payload.event === 'PAYMENT_OVERDUE' || payload.event === 'PAYMENT_REFUNDED') {
-      const user = await this.prisma.user.findFirst({ where: { asaasCustomerId: customerId } });
-      
-      if (user && user.plan === 'PRO') {
-        // Rebaixa automaticamente a cliente de volta para o plano gratuito
-        await this.prisma.user.update({
-          where: { id: user.id },
-          data: { 
-            plan: 'STARTER', 
-            subscriptionStatus: 'INACTIVE',
-            asaasSubscriptionId: null
-          }
-        });
-        console.log(`❌ Downgrade automático: O utilizador ${user.email} perdeu o acesso PRO por falta de pagamento.`);
-      }
-    }
-
-    return { received: true };
-  }
-
-  // 📡 FUNÇÃO DE DISPARO PARA O RD STATION (Atualizada para v1.3)
-  private async notificarVendaRDStation(email: string, nome: string) {
-    try {
-      // Use o token curto (96ecc...) no seu .env para esta variável
-      const tokenPublico = process.env.RD_STATION_API_KEY; 
-
-      if (!tokenPublico) {
-        console.warn('⚠️ RD_STATION_API_KEY não está configurada no seu ficheiro .env');
+    // Idempotência: o Asaas reenvia o mesmo evento em caso de timeout/falha.
+    // Sem isso, um reenvio duplicaria a notificação ao RD Station.
+    const resourceId = payload?.payment?.id || payload?.subscription?.id;
+    if (resourceId) {
+      const eventKey = `asaas:${event}:${resourceId}`;
+      const alreadyProcessed = await this.claimWebhookEvent(eventKey);
+      if (alreadyProcessed) {
+        this.logger.log(`Evento ${eventKey} já processado — ignorando (idempotência).`);
         return;
       }
-
-      const url = 'https://www.rdstation.com.br/api/1.3/conversions';
-
-      await axios.post(url, {
-        token_rdstation: tokenPublico,
-        identificador: "assinatura_aprovada", // O gatilho!
-        email: email,
-        name: nome,
-        tags: "cliente-premium, pagamento-asaas" // Na v1.3, as tags são separadas por vírgula
-      });
-
-      console.log(`🚀 [RD Station] Conversão de venda enviada com sucesso para: ${email}`);
-    } catch (error: any) {
-      console.error("🚨 [RD Station] Erro ao enviar conversão:", error?.response?.data || error.message);
+    } else {
+      this.logger.warn(
+        `Evento Asaas "${event}" sem payment.id/subscription.id — idempotência não garantida para este evento.`
+      );
     }
+
+    const asaasCustomerId = payload?.payment?.customer || payload?.subscription?.customer;
+    if (!asaasCustomerId) {
+      this.logger.warn(`Webhook Asaas evento "${event}" sem customer — ignorado.`);
+      return;
+    }
+
+    switch (event) {
+      case 'PAYMENT_CONFIRMED':
+      case 'PAYMENT_RECEIVED':
+        await this.activateSubscription(asaasCustomerId);
+        break;
+
+      case 'PAYMENT_OVERDUE':
+        // NÃO é INACTIVE: dá chance de regularizar antes de cortar o acesso.
+        await this.markPastDue(asaasCustomerId);
+        break;
+
+      case 'SUBSCRIPTION_DELETED':
+      case 'SUBSCRIPTION_CANCELLED':
+        await this.deactivateSubscription(asaasCustomerId);
+        break;
+
+      default:
+        this.logger.log(`Evento Asaas "${event}" não tratado — ignorado sem alterar estado.`);
+    }
+  }
+
+  /** Registra o evento como processado. Retorna true se ele já tinha sido processado antes. */
+  private async claimWebhookEvent(eventKey: string): Promise<boolean> {
+    try {
+      await this.prisma.processedWebhookEvent.create({ data: { eventKey } });
+      return false;
+    } catch (error: any) {
+      if (error.code === 'P2002') return true; // unique constraint: já existia
+      throw error;
+    }
+  }
+
+  private async activateSubscription(asaasCustomerId: string) {
+    const user = await this.prisma.user.findFirst({ where: { asaasCustomerId } });
+    if (!user) return;
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { plan: 'PRO', subscriptionStatus: 'ACTIVE' },
+    });
+    this.logger.log(`Assinatura ativada: ${user.email}`);
+
+    await this.emailService.sendUpgradeConversion(user.email, user.name);
+  }
+
+  private async markPastDue(asaasCustomerId: string) {
+    const user = await this.prisma.user.findFirst({ where: { asaasCustomerId } });
+    if (!user) return;
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { subscriptionStatus: 'PAST_DUE' },
+    });
+    this.logger.log(`Pagamento em atraso: ${user.email}`);
+  }
+
+  private async deactivateSubscription(asaasCustomerId: string) {
+    const user = await this.prisma.user.findFirst({ where: { asaasCustomerId } });
+    if (!user) return;
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { plan: 'STARTER', subscriptionStatus: 'INACTIVE', asaasSubscriptionId: null },
+    });
+    this.logger.log(`Assinatura cancelada: ${user.email}`);
   }
 }

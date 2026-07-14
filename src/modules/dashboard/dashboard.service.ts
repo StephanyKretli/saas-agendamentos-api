@@ -19,12 +19,6 @@ export class DashboardService {
 
     const shopId = currentUser?.ownerId || userId;
 
-    const shopOwner = await this.prisma.user.findUnique({
-      where: { id: shopId },
-      select: { plan: true }
-    });
-    const isProPlan = shopOwner?.plan === 'PRO';
-
     const today = new Date();
     const targetMonthStr = monthStr || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const [year, month] = targetMonthStr.split('-');
@@ -78,14 +72,12 @@ export class DashboardService {
         
         // 🔒 BLINDAGEM: Custos e lucros globais SOMENTE para a DONA
         if (isRootOwner) {
-          if (isProPlan) {
-            teamCommissionsCents += apt.commissionValueCents || 0; 
-            pixFeesCents += apt.pixFeeCents || 0;
-            if (apt.netRevenueCents !== null) {
-              netRevenueCents += apt.netRevenueCents;
-            } else {
-              netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
-            }
+          teamCommissionsCents += apt.commissionValueCents || 0;
+          pixFeesCents += apt.pixFeeCents || 0;
+          if (apt.netRevenueCents !== null) {
+            netRevenueCents += apt.netRevenueCents;
+          } else {
+            netRevenueCents += (price - (apt.commissionValueCents || 0) - (apt.pixFeeCents || 0));
           }
         }
 
@@ -116,7 +108,6 @@ export class DashboardService {
       month: targetMonthStr,
       isOwner: fetchGlobal, // Mantém true para Dona e Co-Admin (para verem o faturamento)
       isRootOwner: isRootOwner, // 🌟 NOVA VARIÁVEL: Exclusiva da Dona
-      isPro: isProPlan, 
       expectedRevenueCents, expectedRevenueFormatted: formatBRL(expectedRevenueCents),
       realizedRevenueCents, realizedRevenueFormatted: formatBRL(realizedRevenueCents),
       cancelRate, mostBookedService,

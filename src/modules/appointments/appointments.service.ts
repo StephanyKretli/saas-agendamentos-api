@@ -192,7 +192,7 @@ export class AppointmentsService {
       }
 
       let depositCents = 0;
-      if ((settings.plan === 'PRO' || settings.plan === 'BUSINESS') && settings.requirePixDeposit && totalFinalPriceCents > 0) {
+      if (settings.requirePixDeposit && totalFinalPriceCents > 0) {
         depositCents = Math.round(totalFinalPriceCents * (settings.pixDepositPercentage / 100));
       }
 
@@ -257,7 +257,7 @@ export class AppointmentsService {
         await this.whatsappService.sendAppointmentConfirmation(settings.salonOwnerId, finalAppointment.client.name, finalAppointment.client.phone, comboNames, finalAppointment.date, finalAppointment.professional?.name || 'Equipe', manageLink);
       }
 
-      if ((settings.plan === 'PRO' || settings.plan === 'BUSINESS') && finalAppointment.professional?.phone) {
+      if (finalAppointment.professional?.phone) {
         try {
           await this.whatsappService.notifyProfessionalNewAppointment(
             settings.salonOwnerId,
@@ -277,9 +277,9 @@ export class AppointmentsService {
   async cancel(userId: string, appointmentId: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, OR: [{ userId: userId }, { professionalId: userId }] },
-      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { plan: true, ownerId: true } } },
+      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { ownerId: true } } },
     });
-    
+
     if (!appt || appt.status !== 'SCHEDULED') throw new BadRequestException('Agendamento não disponível para cancelamento.');
 
     const canceledAppt = await this.prisma.appointment.update({
@@ -295,8 +295,8 @@ export class AppointmentsService {
       this.whatsappService.sendClientCancellation(salonOwnerId, appt.client.name, appt.client.phone, comboNames, appt.date, appt.professional?.name || 'nossa equipe').catch(e => console.error(e));
     }
 
-    // 2. 🌟 ATUALIZADO: Avisa a profissional do cancelamento se for PRO ou BUSINESS
-    if ((appt.user?.plan === 'PRO' || appt.user?.plan === 'BUSINESS') && appt.professional?.phone) {
+    // 2. Avisa a profissional do cancelamento
+    if (appt.professional?.phone) {
       this.whatsappService.notifyProfessionalCanceledAppointment(
         salonOwnerId, 
         appt.professional.phone, 
@@ -328,7 +328,7 @@ export class AppointmentsService {
   async cancelByPublicToken(token: string) {
     const appt = await this.prisma.appointment.findFirst({
       where: { publicCancelToken: token },
-      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { plan: true, ownerId: true } } }
+      include: { services: { include: { service: true } }, client: true, professional: { select: { phone: true, name: true } }, user: { select: { ownerId: true } } }
     });
     if (!appt || appt.status !== 'SCHEDULED') throw new BadRequestException('Incapaz de cancelar.');
 
@@ -340,7 +340,7 @@ export class AppointmentsService {
       this.whatsappService.sendClientCancellation(salonOwnerId, appt.client.name, appt.client.phone, comboNames, appt.date, appt.professional?.name || 'nossa equipe').catch(e => console.error(e));
     }
 
-    if (appt.user?.plan === 'PRO' && appt.professional?.phone) {
+    if (appt.professional?.phone) {
       this.whatsappService.notifyProfessionalCanceledAppointment(salonOwnerId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames).catch(e => console.error(e));
     }
     return canceledAppt;

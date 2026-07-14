@@ -24,34 +24,13 @@ export class TeamService {
     // Busca os dados do Dono do Salão (Dona)
     const admin = await this.prisma.user.findUnique({
       where: { id: targetShopId },
-      include: { 
-        _count: { select: { teamMembers: true } } 
-      }
     });
 
     if (!admin) {
       throw new NotFoundException('Dono do salão não encontrado.');
     }
 
-    // O nosso plano ilimitado oficial
-    const isUnlimitedPlan = admin.plan === 'PRO';
-
-    // 👇 BLINDAGEM DUPLA: Usa o valor do banco, mas se falhar, assume 3 para o Starter
-    const limitOfMembers = admin.maxMembers || 3;
-
-    if (!isUnlimitedPlan && admin._count.teamMembers >= limitOfMembers) {
-      throw new BadRequestException(
-        `Limite de membros atingido. O plano Starter permite até 3 profissionais. Faça upgrade para o PRO para ter uma equipe ilimitada.`
-      );
-    }
-
     let requestedRole = data.role && data.role !== '' ? data.role : 'PROFESSIONAL';
-
-    if (requestedRole === 'ADMIN' && !isUnlimitedPlan) {
-      throw new BadRequestException(
-        `O seu plano atual (${admin.plan}) não permite a criação de Co-Administradores. Faça o upgrade para o plano Ilimitado.`
-      );
-    }
 
     let plainPassword = data.password;
     if (!plainPassword || plainPassword.trim() === '') {

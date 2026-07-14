@@ -31,20 +31,16 @@ export class PublicBookingService {
 
     const adminUser = await this.prisma.user.findUnique({
       where: { id: tenantId },
-      select: { id: true, name: true, username: true, avatarUrl: true, role: true, plan: true, maxMembers: true }
+      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
     });
 
     const teamMembers = await this.prisma.user.findMany({
       where: { ownerId: tenantId },
-      orderBy: { createdAt: 'asc' }, 
+      orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, username: true, avatarUrl: true, role: true },
     });
 
-    const isProPlan = adminUser?.plan === 'PRO';
-    const limit = isProPlan ? 9999 : (adminUser?.maxMembers || 3);
-    
-    const allowedTeamMembers = teamMembers.slice(0, limit);
-    const allProfessionals = [adminUser, ...allowedTeamMembers].filter(Boolean);
+    const allProfessionals = [adminUser, ...teamMembers].filter(Boolean);
     const allowedProfIds = new Set(allProfessionals.map(p => p!.id));
 
     const services = await this.prisma.service.findMany({

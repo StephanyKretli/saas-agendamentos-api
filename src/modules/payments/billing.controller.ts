@@ -1,7 +1,7 @@
 import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get, Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BillingService } from './billing.service';
+import { BillingService, SUBSCRIPTION_PRICE_BRL } from './billing.service';
 // 👇 1. Importe o serviço onde você colocou a função do RD Station
 import { EmailService } from '../email/email.service';
 
@@ -19,9 +19,8 @@ export class BillingController {
   // 🔒 ROTA PROTEGIDA: Apenas utilizadores logados podem assinar
   @Post('subscribe')
   @UseGuards(JwtAuthGuard)
-  async subscribe(@Request() req, @Body() body: { plan: string }) {
+  async subscribe(@Request() req) {
     const userId = req.user.id || req.user.sub;
-    const { plan } = body;
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('Usuário não encontrado');
@@ -52,15 +51,14 @@ export class BillingController {
       throw new BadRequestException('Erro interno: ID de cobrança não foi gerado.');
     }
 
-    const value = plan === 'PRO' ? 99.00 : 49.00;
-    const subscription = await this.billingService.createSubscription(customerId, value, plan);
+    const subscription = await this.billingService.createSubscription(customerId, SUBSCRIPTION_PRICE_BRL, 'Profissional');
 
     await this.prisma.user.update({
       where: { id: billingUser.id },
       data: {
         asaasSubscriptionId: subscription.subscriptionId,
-        plan: plan === 'PRO' ? 'PRO' : 'STARTER',
-        subscriptionStatus: 'PENDING', 
+        plan: 'PRO',
+        subscriptionStatus: 'PENDING',
       }
     });
 

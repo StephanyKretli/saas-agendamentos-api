@@ -3,6 +3,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import axios from 'axios';
 
+// Plano único (unificação Starter/Pro). O Asaas não tem conceito de "produto"
+// pré-cadastrado nessa integração — o valor é passado solto por requisição —
+// então não há um "ID de plano" para mover pra env var. O que era hardcoded
+// de verdade era o VALOR; é isso que vira configurável aqui.
+export const SUBSCRIPTION_PRICE_BRL = Number(process.env.ASAAS_SUBSCRIPTION_VALUE) || 97.0;
+
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
@@ -137,19 +143,16 @@ export class BillingService {
         throw new BadRequestException('Preencha seu CPF ou CNPJ na aba de "Perfil" para acessar o portal de pagamentos.');
       }
 
-      const planToCharge = user.plan === 'PRO' ? 'PRO' : 'STARTER';
-      const valueToCharge = planToCharge === 'PRO' ? 99.00 : 49.00;
-      
       // 🌟 ATUALIZA COM O CPF REAL NO ASAAS ANTES DE COBRAR
       try {
         await axios.post(`${this.asaasApiUrl}/customers/${safeCustomerId}`, {
-          cpfCnpj: user.document 
+          cpfCnpj: user.document
         }, { headers: { access_token: this.asaasApiKey } });
       } catch (e) {
          // Ignora se o asaas disser que o CPF já tá lá
       }
 
-      const newSub = await this.createSubscription(safeCustomerId, valueToCharge, planToCharge);
+      const newSub = await this.createSubscription(safeCustomerId, SUBSCRIPTION_PRICE_BRL, 'Profissional');
 
       // 🌟 CORREÇÃO DO BLOQUEIO: Salva no banco, mas não muda o status para PENDING (Assim você não fica presa)
       await this.prisma.user.update({
@@ -175,10 +178,9 @@ export class BillingService {
 
     // Se tem assinatura no Asaas, atualiza o valor e a descrição lá no gateway
     if (user.asaasSubscriptionId) {
-      const newValue = newPlan === 'PRO' ? 99.00 : 49.00;
       try {
         await axios.post(`${this.asaasApiUrl}/subscriptions/${user.asaasSubscriptionId}`, {
-          value: newValue,
+          value: SUBSCRIPTION_PRICE_BRL,
           description: `Assinatura Syncro - Plano ${newPlan}`,
           updatePendingPayments: true // 🌟 MÁGICA: Atualiza o valor das faturas que ainda vão vencer
         }, {

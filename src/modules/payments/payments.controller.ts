@@ -65,9 +65,8 @@ export class PaymentsController {
             );
           }
 
-          // 2. 🌟 AVISA A PROFISSIONAL APENAS SE O PLANO PERMITIR (PRO/BUSINESS)
-          const plan = appointment.user.plan;
-          if ((plan === 'PRO' || plan === 'BUSINESS') && appointment.professional?.phone) {
+          // 2. Avisa a profissional
+          if (appointment.professional?.phone) {
             try {
               await this.whatsappService.notifyProfessionalNewAppointment(
                 salonOwnerId,

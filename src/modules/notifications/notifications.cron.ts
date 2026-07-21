@@ -47,6 +47,7 @@ export class NotificationsCron {
       where: {
         status: 'SCHEDULED',
         dayReminderSentAt: null,
+        dayReminderProcessingAt: null,
         date: { gte: startOf1DayWindow, lte: endOf1DayWindow },
       },
       include: {
@@ -57,13 +58,34 @@ export class NotificationsCron {
       },
     });
 
+    let dayRemindersSent = 0;
     for (const apt of dayAppointments) {
-      if (apt.client?.phone) {
+      if (!apt.client?.phone) continue;
+
+      // Reserva o agendamento antes de enviar (lock otimista). Se outra
+      // execucao do cron ja pegou este registro, o updateMany devolve count 0
+      // e pulamos — evita lembrete duplicado quando uma rodada demora mais
+      // que o intervalo de 15 minutos.
+      const claimed = await this.prisma.appointment.updateMany({
+        where: { id: apt.id, dayReminderSentAt: null, dayReminderProcessingAt: null },
+        data: { dayReminderProcessingAt: new Date() },
+      });
+      if (claimed.count === 0) continue;
+
+      try {
         const salonOwnerId = apt.user?.ownerId ? apt.user.ownerId : apt.userId;
         const comboNames = apt.services.map((s: any) => s.service?.name).join(' + ') || 'Serviço';
-        
+
         await this.whatsappService.sendDayReminder(salonOwnerId, apt.client.name, apt.client.phone, comboNames, apt.date, apt.professional?.name || 'nossa equipe');
         await this.prisma.appointment.update({ where: { id: apt.id }, data: { dayReminderSentAt: new Date() } });
+        dayRemindersSent++;
+      } catch (error: any) {
+        // Libera a reserva para a proxima rodada tentar de novo.
+        await this.prisma.appointment.update({
+          where: { id: apt.id },
+          data: { dayReminderProcessingAt: null },
+        });
+        this.logger.error(`Falha ao enviar lembrete de 1 dia (${apt.id}): ${error?.message}`);
       }
     }
 
@@ -72,6 +94,7 @@ export class NotificationsCron {
       where: {
         status: 'SCHEDULED',
         hourReminderSentAt: null,
+        hourReminderProcessingAt: null,
         date: { gte: startOf3HoursWindow, lte: endOf3HoursWindow },
       },
       include: {
@@ -82,18 +105,34 @@ export class NotificationsCron {
       },
     });
 
+    let hourRemindersSent = 0;
     for (const apt of hourAppointments) {
-      if (apt.client?.phone) {
+      if (!apt.client?.phone) continue;
+
+      const claimed = await this.prisma.appointment.updateMany({
+        where: { id: apt.id, hourReminderSentAt: null, hourReminderProcessingAt: null },
+        data: { hourReminderProcessingAt: new Date() },
+      });
+      if (claimed.count === 0) continue;
+
+      try {
         const salonOwnerId = apt.user?.ownerId ? apt.user.ownerId : apt.userId;
         const comboNames = apt.services.map((s: any) => s.service?.name).join(' + ') || 'Serviço';
-        
+
         await this.whatsappService.sendHourReminder(salonOwnerId, apt.client.name, apt.client.phone, comboNames, apt.date, apt.professional?.name || 'nossa equipe');
         await this.prisma.appointment.update({ where: { id: apt.id }, data: { hourReminderSentAt: new Date() } });
+        hourRemindersSent++;
+      } catch (error: any) {
+        await this.prisma.appointment.update({
+          where: { id: apt.id },
+          data: { hourReminderProcessingAt: null },
+        });
+        this.logger.error(`Falha ao enviar lembrete de 3 horas (${apt.id}): ${error?.message}`);
       }
     }
 
-    if (dayAppointments.length > 0 || hourAppointments.length > 0) {
-      this.logger.log(`✅ Lembretes processados: ${dayAppointments.length} (Para amanhã) | ${hourAppointments.length} (Para hoje).`);
+    if (dayRemindersSent > 0 || hourRemindersSent > 0) {
+      this.logger.log(`✅ Lembretes processados: ${dayRemindersSent} (Para amanhã) | ${hourRemindersSent} (Para hoje).`);
     }
   }
 

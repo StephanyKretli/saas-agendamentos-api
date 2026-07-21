@@ -71,7 +71,15 @@ export class CalendarService {
         date: true,
         status: true,
         notes: true,
-        service: { select: { id: true, name: true, duration: true, priceCents: true } },
+        // O schema atual usa a tabela pivo `services` (AppointmentService),
+        // nao existe mais relacao singular `service` em Appointment.
+        services: {
+          select: {
+            duration: true,
+            priceCents: true,
+            service: { select: { id: true, name: true } },
+          },
+        },
       },
       orderBy: { date: 'asc' },
     });
@@ -94,7 +102,12 @@ export class CalendarService {
     for (const a of appointments) {
       const s = new Date(a.date);
       const startMin = s.getHours() * 60 + s.getMinutes();
-      const endMin = startMin + a.service.duration; // buffer você pode embutir se quiser
+      // Soma a duracao de todos os servicos do agendamento (carrinho).
+      const totalDuration = (a.services ?? []).reduce(
+        (acc: number, item: any) => acc + (item.duration ?? 0),
+        0,
+      );
+      const endMin = startMin + totalDuration; // buffer você pode embutir se quiser
       busy.push({ startMin, endMin, kind: 'APPOINTMENT' });
     }
 

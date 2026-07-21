@@ -13,12 +13,20 @@ import { GoogleStrategy } from './google.strategy';
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
-      useFactory: async (): Promise<JwtModuleOptions> => ({
-        secret: process.env.JWT_SECRET ?? 'dev_secret',
+      useFactory: async (): Promise<JwtModuleOptions> => {
+        const secret = process.env.JWT_SECRET;
+        if (!secret) {
+          throw new Error(
+            'JWT_SECRET nao configurada. Defina a variavel de ambiente antes de subir a API.',
+          );
+        }
+        return {
+        secret,
         signOptions: {
           expiresIn: (process.env.JWT_EXPIRES_IN ?? '15m') as SignOptions['expiresIn'],
         },
-      }),
+        };
+      },
     }),
     PaymentsModule, 
   ],

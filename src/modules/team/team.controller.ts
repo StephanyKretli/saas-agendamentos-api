@@ -4,6 +4,7 @@ import { TeamService } from './team.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
+import { UpdateMemberDto } from './dto/update-member.dto';
 
 @ApiTags('Team') 
 @ApiBearerAuth('jwt')
@@ -36,13 +37,11 @@ export default class TeamController {
   @ApiOperation({ summary: 'Atualizar dados/senha de um membro da equipe' })
   @ApiParam({ name: 'id', description: 'ID do profissional a ser editado' })
   async updateMember(
-    @Request() req, 
-    @Param('id') memberId: string, 
-    @Body() body: any // Deixamos o any aqui para não bloquear nada
+    @Request() req,
+    @Param('id') memberId: string,
+    @Body() body: UpdateMemberDto,
   ) {
-    // 🌟 O NOSSO ESPIÃO: Vai imprimir no terminal da VPS o que chegou do React
-    console.log('🔥 CHEGOU NO CONTROLLER DE UPDATE:', body); 
-    
+    // Nao logar o body aqui: ele pode conter a senha em texto puro.
     return this.teamService.updateMember(req.user.id, memberId, body);
   }
 }

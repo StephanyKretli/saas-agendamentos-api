@@ -11,7 +11,7 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
 async function bootstrap() {
   // 1. Inicialização do Sentry
   Sentry.init({
-    dsn: 'https://32dd4ef87b23f8c5eae472459ebb6e05@o4511197891067904.ingest.us.sentry.io/4511197892640768', 
+    dsn: process.env.SENTRY_DSN,
     integrations: [
       nodeProfilingIntegration(),
     ],

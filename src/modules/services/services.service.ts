@@ -12,6 +12,27 @@ export class ServicesService {
     private readonly uploadsService: UploadsService,
   ) {}
 
+  /**
+   * Garante que todos os profissionais informados pertencem ao salao.
+   * Sem isso, um dono podia vincular ao seu servico o id de um profissional
+   * de outro tenant.
+   */
+  private async assertProfessionalsBelongToShop(targetShopId: string, professionalIds: string[]) {
+    if (!professionalIds || professionalIds.length === 0) return;
+
+    const found = await this.prisma.user.findMany({
+      where: {
+        id: { in: professionalIds },
+        OR: [{ id: targetShopId }, { ownerId: targetShopId }],
+      },
+      select: { id: true },
+    });
+
+    if (found.length !== professionalIds.length) {
+      throw new ForbiddenException('Um ou mais profissionais nao pertencem a este estabelecimento.');
+    }
+  }
+
   async create(userId: string, dto: CreateServiceDto) {
     const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) throw new NotFoundException('Usuário não encontrado.');
@@ -22,6 +43,8 @@ export class ServicesService {
 
     // 2. Redirecionamento: Pega o ID da Dona do salão
     const targetShopId = currentUser.ownerId || currentUser.id;
+
+    await this.assertProfessionalsBelongToShop(targetShopId, dto.professionalIds ?? []);
 
     const professionalsData = dto.professionalIds && dto.professionalIds.length > 0
       ? { create: dto.professionalIds.map(id => ({ professional: { connect: { id } } })) }
@@ -79,6 +102,10 @@ export class ServicesService {
 
     let professionalsData;
     if (dto.professionalIds) {
+      const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
+      const targetShopId = currentUser?.ownerId || currentUser?.id || userId;
+      await this.assertProfessionalsBelongToShop(targetShopId, dto.professionalIds);
+
       await this.prisma.professionalService.deleteMany({
         where: { serviceId: id }
       });

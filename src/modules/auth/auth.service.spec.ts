@@ -17,12 +17,30 @@ describe('AuthService', () => {
     signAsync: jest.fn(),
   };
 
+  const asaasMock = {
+    createCustomer: jest.fn().mockResolvedValue({ id: 'cus_1' }),
+  };
+
+  const emailMock = {
+    sendWelcome: jest.fn().mockResolvedValue(undefined),
+    sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const whatsappMock = {
+    sendMessage: jest.fn().mockResolvedValue(undefined),
+    notifyNewSignup: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
+    // Ordem real do construtor: (prisma, asaas, jwt, email, whatsapp)
     service = new AuthService(
       prismaMock as any,
+      asaasMock as any,
       jwtMock as any as JwtService,
+      emailMock as any,
+      whatsappMock as any,
     );
   });
 
@@ -85,6 +103,28 @@ describe('AuthService', () => {
 
     expect(result.accessToken).toBe('token_123');
     expect(result.user.username).toBe('stephany');
+  });
+
+  it('normaliza e-mail em maiusculas no login (regressao da auditoria)', async () => {
+    const hashed = await bcrypt.hash('123456', 10);
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'user_1',
+      name: 'Stephany',
+      email: 'stephany@email.com',
+      username: 'stephany',
+      password: hashed,
+      role: 'USER',
+    });
+    jwtMock.signAsync.mockResolvedValue('token_123');
+
+    await service.login({ email: '  Stephany@Email.COM  ', password: '123456' });
+
+    // Antes o login so fazia .trim(): quem cadastrava com maiuscula nao
+    // conseguia mais entrar e via "Credenciais invalidas".
+    expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
+      where: { email: 'stephany@email.com' },
+    });
   });
 
   it('should throw on invalid credentials', async () => {

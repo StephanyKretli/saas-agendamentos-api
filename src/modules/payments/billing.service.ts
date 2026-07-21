@@ -124,19 +124,52 @@ export class BillingService {
         headers: { access_token: this.asaasApiKey }
       });
 
-      const activeSub = response.data.data.find((s: any) => s.status === 'ACTIVE' || s.status === 'OVERDUE');
+      const subscriptions: any[] = response.data?.data || [];
 
-      if (activeSub) {
-        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${activeSub.id}`, {
+      // 🔁 REUSO IDEMPOTENTE (anti-duplicata):
+      // Antes so reaproveitavamos assinatura com status ACTIVE/OVERDUE e o id
+      // salvo no banco (asaasSubscriptionId) nunca era consultado aqui. Se a
+      // assinatura recem-criada ainda nao estivesse ACTIVE (aguardando o 1o
+      // pagamento), o clique seguinte gerava OUTRA assinatura — cobranca
+      // duplicada no Asaas. Agora reaproveitamos qualquer assinatura viva (nao
+      // deletada), priorizando exatamente a que ja esta registrada no banco.
+      const reusableSub =
+        subscriptions.find(
+          (sub: any) => sub.id === user.asaasSubscriptionId && !sub.deleted,
+        ) ||
+        subscriptions.find(
+          (sub: any) => !sub.deleted && sub.status !== 'INACTIVE' && sub.status !== 'EXPIRED',
+        );
+
+      if (reusableSub) {
+        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${reusableSub.id}`, {
           headers: { access_token: this.asaasApiKey }
         });
-        const invoiceUrl = paymentsResponse.data.data[0]?.invoiceUrl;
+        const payments: any[] = paymentsResponse.data?.data || [];
+
+        // Prefere uma cobranca em aberto; se nao houver, a mais recente.
+        const openPayment =
+          payments.find((p: any) => p.status === 'PENDING' || p.status === 'OVERDUE') || payments[0];
+        const invoiceUrl = openPayment?.invoiceUrl;
 
         if (!invoiceUrl) throw new Error("Link da fatura não encontrado.");
-        return { manageUrl: invoiceUrl, hasActiveSubscription: true, currentPlan: user.plan };
+
+        // Mantem o banco apontando para a assinatura reutilizada.
+        if (user.asaasSubscriptionId !== reusableSub.id) {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: { asaasSubscriptionId: reusableSub.id },
+          });
+        }
+
+        return {
+          manageUrl: invoiceUrl,
+          hasActiveSubscription: reusableSub.status === 'ACTIVE',
+          currentPlan: user.plan,
+        };
       }
 
-      // ===== GERAÇÃO DE NOVO CHECKOUT =====
+      // ===== GERAÇÃO DE NOVO CHECKOUT (só quando o cliente nao tem nenhuma) =====
 
       // 🚨 TRAVA DE SEGURANÇA: Exige o CPF Real para gerar o link
       if (!user.document) {

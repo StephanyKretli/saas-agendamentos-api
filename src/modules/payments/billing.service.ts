@@ -126,50 +126,62 @@ export class BillingService {
 
       const subscriptions: any[] = response.data?.data || [];
 
-      // 🔁 REUSO IDEMPOTENTE (anti-duplicata):
-      // Antes so reaproveitavamos assinatura com status ACTIVE/OVERDUE e o id
-      // salvo no banco (asaasSubscriptionId) nunca era consultado aqui. Se a
-      // assinatura recem-criada ainda nao estivesse ACTIVE (aguardando o 1o
-      // pagamento), o clique seguinte gerava OUTRA assinatura — cobranca
-      // duplicada no Asaas. Agora reaproveitamos qualquer assinatura viva (nao
-      // deletada), priorizando exatamente a que ja esta registrada no banco.
-      const reusableSub =
-        subscriptions.find(
-          (sub: any) => sub.id === user.asaasSubscriptionId && !sub.deleted,
-        ) ||
-        subscriptions.find(
-          (sub: any) => !sub.deleted && sub.status !== 'INACTIVE' && sub.status !== 'EXPIRED',
-        );
+      // Considera apenas assinaturas vivas (nao deletadas). Neste SaaS de plano
+      // unico, um cliente deveria ter no maximo UMA assinatura — mais de uma e
+      // artefato do bug de duplicata anterior.
+      const liveSubs = subscriptions.filter((sub: any) => !sub.deleted);
 
-      if (reusableSub) {
-        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${reusableSub.id}`, {
+      // Ordena para tentar primeiro a assinatura ja registrada no nosso banco.
+      liveSubs.sort((a: any, b: any) => {
+        if (a.id === user.asaasSubscriptionId) return -1;
+        if (b.id === user.asaasSubscriptionId) return 1;
+        return 0;
+      });
+
+      // 🔁 REUSO IDEMPOTENTE (anti-duplicata):
+      // Procura a primeira assinatura viva que tenha uma cobranca acessivel e a
+      // reutiliza — em vez de criar outra a cada clique. Antes o filtro so
+      // aceitava status ACTIVE/OVERDUE e nunca consultava o asaasSubscriptionId,
+      // entao uma assinatura recem-criada (ainda PENDING) gerava duplicata.
+      for (const sub of liveSubs) {
+        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${sub.id}`, {
           headers: { access_token: this.asaasApiKey }
         });
         const payments: any[] = paymentsResponse.data?.data || [];
-
-        // Prefere uma cobranca em aberto; se nao houver, a mais recente.
         const openPayment =
           payments.find((p: any) => p.status === 'PENDING' || p.status === 'OVERDUE') || payments[0];
-        const invoiceUrl = openPayment?.invoiceUrl;
 
-        if (!invoiceUrl) throw new Error("Link da fatura não encontrado.");
-
-        // Mantem o banco apontando para a assinatura reutilizada.
-        if (user.asaasSubscriptionId !== reusableSub.id) {
-          await this.prisma.user.update({
-            where: { id: userId },
-            data: { asaasSubscriptionId: reusableSub.id },
-          });
+        if (openPayment?.invoiceUrl) {
+          if (user.asaasSubscriptionId !== sub.id) {
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: { asaasSubscriptionId: sub.id },
+            });
+          }
+          return {
+            manageUrl: openPayment.invoiceUrl,
+            hasActiveSubscription: sub.status === 'ACTIVE',
+            currentPlan: user.plan,
+          };
         }
-
-        return {
-          manageUrl: invoiceUrl,
-          hasActiveSubscription: reusableSub.status === 'ACTIVE',
-          currentPlan: user.plan,
-        };
       }
 
-      // ===== GERAÇÃO DE NOVO CHECKOUT (só quando o cliente nao tem nenhuma) =====
+      // Nenhuma assinatura viva tem cobranca utilizavel. Isso acontece quando as
+      // cobrancas foram excluidas manualmente no Asaas, deixando assinaturas
+      // orfas que ainda regenerariam cobranca no proximo ciclo. Remove essas
+      // orfas antes de gerar um checkout limpo — assim nao acumula nem duplica.
+      for (const sub of liveSubs) {
+        try {
+          await axios.delete(`${this.asaasApiUrl}/subscriptions/${sub.id}`, {
+            headers: { access_token: this.asaasApiKey },
+          });
+          this.logger.warn(`Assinatura orfa removida (sem cobranca): ${sub.id}`);
+        } catch (e: any) {
+          this.logger.error(`Falha ao remover assinatura orfa ${sub.id}: ${e?.message}`);
+        }
+      }
+
+      // ===== GERAÇÃO DE NOVO CHECKOUT =====
 
       // 🚨 TRAVA DE SEGURANÇA: Exige o CPF Real para gerar o link
       if (!user.document) {

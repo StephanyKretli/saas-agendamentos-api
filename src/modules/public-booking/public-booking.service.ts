@@ -20,7 +20,8 @@ export class PublicBookingService {
 
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
-      select: { id: true, name: true, username: true, avatarUrl: true, ownerId: true },
+      // maxBookingDays vai para o front limitar o calendario publico.
+      select: { id: true, name: true, username: true, avatarUrl: true, ownerId: true, maxBookingDays: true },
     });
 
     if (!user) {
@@ -142,9 +143,11 @@ export class PublicBookingService {
     }
 
     // 🌟 5. Retorna o PIX que já foi processado de forma limpa pelo appointmentsService
+    // O transactionId NAO volta mais para o cliente: era um identificador
+    // interno que servia de chave para forjar confirmacao de pagamento.
+    // O front so precisa do payload do QR Code.
     const pixData = appointment.pixPayload ? {
       qrCodePayload: appointment.pixPayload,
-      transactionId: appointment.transactionId
     } : null;
 
     return {

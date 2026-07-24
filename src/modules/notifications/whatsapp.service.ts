@@ -6,7 +6,10 @@ export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
   
   private readonly apiUrl = process.env.WHATSAPP_API_URL || 'http://127.0.0.1:8081';
-  private readonly apiKey = process.env.WHATSAPP_API_KEY || 'xxvcFp52rdBtlkjMMz7alkIyhqA3rggo';
+  // Chave da Evolution API: sem fallback hardcoded.
+  // A chave anterior estava versionada no repositorio (e continua no historico
+  // do git) — ROTACIONE-A no painel da Evolution API.
+  private readonly apiKey = process.env.WHATSAPP_API_KEY;
 
   // 🌟 INSTÂNCIA DO SISTEMA (SYNCRO)
   private readonly SYSTEM_INSTANCE = 'v2-cmns5c80m0000s101l3bzhssq'; 

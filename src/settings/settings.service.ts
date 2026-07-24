@@ -5,6 +5,17 @@ import { UploadsService } from '../modules/uploads/uploads.service';
 import { UpdateFinancialSettingsDto } from './dto/update-financial-settings.dto';
 import 'multer';
 
+/**
+ * Devolve apenas os ultimos 4 caracteres do segredo, para conferencia visual.
+ * Nunca exponha o token completo em respostas de API.
+ */
+function maskSecret(secret?: string | null): string | null {
+  if (!secret) return null;
+  const tail = secret.slice(-4);
+  return `****${tail}`;
+}
+
+
 @Injectable()
 export class SettingsService {
   constructor(
@@ -47,7 +58,11 @@ export class SettingsService {
       maxBookingDays: businessData.maxBookingDays,
       requirePixDeposit: businessData.requirePixDeposit,    
       pixDepositPercentage: businessData.pixDepositPercentage, 
-      mercadoPagoAccessToken: businessData.mercadoPagoAccessToken,
+      // O access token do Mercado Pago NAO volta mais em texto puro para o
+      // client. O front so precisa saber se esta configurado (e ver os ultimos
+      // digitos para conferencia). A escrita continua funcionando normalmente.
+      mercadoPagoAccessTokenConfigured: !!businessData.mercadoPagoAccessToken,
+      mercadoPagoAccessTokenPreview: maskSecret(businessData.mercadoPagoAccessToken),
       centralizePayments: businessData.centralizePayments,
       
       // 🌟 RETORNANDO A COMISSÃO PARA O FRONTEND LER
@@ -147,7 +162,11 @@ export class SettingsService {
       timezone: businessData.timezone,
       requirePixDeposit: businessData.requirePixDeposit,
       pixDepositPercentage: businessData.pixDepositPercentage,
-      mercadoPagoAccessToken: businessData.mercadoPagoAccessToken,
+      // O access token do Mercado Pago NAO volta mais em texto puro para o
+      // client. O front so precisa saber se esta configurado (e ver os ultimos
+      // digitos para conferencia). A escrita continua funcionando normalmente.
+      mercadoPagoAccessTokenConfigured: !!businessData.mercadoPagoAccessToken,
+      mercadoPagoAccessTokenPreview: maskSecret(businessData.mercadoPagoAccessToken),
       centralizePayments: businessData.centralizePayments,
       absorbPixFee: businessData.absorbPixFee,
       commissionType: businessData.commissionType,

@@ -46,6 +46,46 @@ export class AppointmentsService {
     return expiresAt;
   }
 
+  /**
+   * Resolve o tenant (salao) do usuario e valida que o profissional escolhido
+   * pertence a esse mesmo tenant.
+   *
+   * Sem esta validacao, o `professionalId` vinha do cliente sem checagem: um
+   * visitante anonimo na rota publica podia agendar em QUALQUER salao usando o
+   * id de um profissional de outro tenant (id exposto em GET /public/book/:username).
+   */
+  private async resolveTenantAndProfessional(userId: string, professionalId?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, ownerId: true },
+    });
+    if (!user) throw new BadRequestException('Usuario nao encontrado.');
+
+    const tenantId = user.ownerId ?? user.id;
+
+    const hasProfessional =
+      professionalId && professionalId !== 'undefined' && professionalId !== 'null';
+
+    if (!hasProfessional) {
+      return { tenantId, targetUserId: userId };
+    }
+
+    const professional = await this.prisma.user.findUnique({
+      where: { id: professionalId },
+      select: { id: true, ownerId: true },
+    });
+
+    if (!professional) throw new BadRequestException('Profissional nao encontrado.');
+
+    const professionalTenantId = professional.ownerId ?? professional.id;
+
+    if (professionalTenantId !== tenantId) {
+      throw new BadRequestException('Profissional nao pertence a este estabelecimento.');
+    }
+
+    return { tenantId, targetUserId: professional.id };
+  }
+
   private async getUserBookingSettings(idOrUsername: string, fallbackId?: string) {
     const idToSearch = (idOrUsername && idOrUsername !== 'undefined' && idOrUsername !== 'null') ? idOrUsername : fallbackId;
     if (!idToSearch) throw new BadRequestException('Identificador do profissional não fornecido.');
@@ -116,7 +156,8 @@ export class AppointmentsService {
       throw new BadRequestException('Não é possível agendar no passado.');
     }
 
-    const targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') ? professionalId : userId;
+    // Valida que o profissional pedido pertence ao mesmo salao do requisitante.
+    const { tenantId, targetUserId } = await this.resolveTenantAndProfessional(userId, professionalId);
     const settings = await this.getUserBookingSettings(targetUserId);
     const minLeadMinutes = settings.minBookingNoticeMinutes > 0 ? settings.minBookingNoticeMinutes : MIN_LEAD_MINUTES;
     const minStart = new Date(now.getTime() + minLeadMinutes * 60_000);
@@ -128,8 +169,9 @@ export class AppointmentsService {
 
     const newAppointment = await this.prisma.$transaction(async (tx) => {
       const serviceIds = servicesPayload.map(s => s.serviceId);
+      // Filtro de tenant: impede usar preco/duracao de um servico de outro salao.
       const dbServices = await tx.service.findMany({
-        where: { id: { in: serviceIds } },
+        where: { id: { in: serviceIds }, userId: tenantId },
       });
 
       if (dbServices.length !== serviceIds.length) throw new BadRequestException('Serviços inválidos.');
@@ -182,11 +224,11 @@ export class AppointmentsService {
       let resolvedClientId = clientId;
       if (!resolvedClientId && client) {
         const normalizedPhone = client.phone.replace(/\D/g, '');
-        const existingClient = await tx.client.findFirst({ where: { userId, phone: normalizedPhone } });
+        const existingClient = await tx.client.findFirst({ where: { userId: tenantId, phone: normalizedPhone } });
         if (existingClient) {
           resolvedClientId = existingClient.id;
         } else {
-          const createdClient = await tx.client.create({ data: { userId, name: client.name, phone: normalizedPhone, email: client.email || null } });
+          const createdClient = await tx.client.create({ data: { userId: tenantId, name: client.name, phone: normalizedPhone, email: client.email || null } });
           resolvedClientId = createdClient.id;
         }
       }
@@ -198,7 +240,7 @@ export class AppointmentsService {
 
       return (tx.appointment.create as any)({
         data: {
-          userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
+          userId: tenantId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
           
@@ -452,7 +494,10 @@ export class AppointmentsService {
     const priceCents = appt.priceCents || apptServices.reduce((acc, s) => acc + s.priceCents, 0);
 
     let pixFeeCents = 0;
-    if (appt.depositCents && appt.depositCents > 0) pixFeeCents = Math.round(appt.depositCents * 0.0099);
+    // Taxa do PIX configuravel por env (default 0,99% = comportamento anterior).
+    // Evita precisar de deploy se o Mercado Pago mudar a taxa.
+    const pixFeeRate = Number(process.env.PIX_FEE_RATE ?? 0.0099);
+    if (appt.depositCents && appt.depositCents > 0) pixFeeCents = Math.round(appt.depositCents * pixFeeRate);
 
     let teamCommissionsCents = 0;
     for (const item of apptServices) {
@@ -486,6 +531,8 @@ export class AppointmentsService {
     if (!serviceId && !cartItemsStr) throw new BadRequestException('Serviço ou Carrinho é obrigatório.');
     if (!date) throw new BadRequestException('date é obrigatório (YYYY-MM-DD).');
 
+    // Valida que o profissional pedido pertence ao mesmo salao (mesma regra do create).
+    const { tenantId } = await this.resolveTenantAndProfessional(userId, professionalId);
     let targetUserId = (professionalId && professionalId !== 'undefined' && professionalId !== 'null') ? professionalId : userId;
     const settings = await this.getUserBookingSettings(targetUserId, userId);
     targetUserId = settings.resolvedUserId;
@@ -501,7 +548,7 @@ export class AppointmentsService {
       try {
         const cartItems = JSON.parse(cartItemsStr);
         const sIds = cartItems.map((c: any) => c.serviceId);
-        const dbServices = await this.prisma.service.findMany({ where: { id: { in: sIds } } });
+        const dbServices = await this.prisma.service.findMany({ where: { id: { in: sIds }, userId: tenantId } });
         
         for (const item of cartItems) {
           const svc = dbServices.find(s => s.id === item.serviceId);
@@ -514,7 +561,7 @@ export class AppointmentsService {
         }
       } catch (e) { throw new BadRequestException('Carrinho inválido.'); }
     } else if (serviceId) {
-      const service = await this.prisma.service.findFirst({ where: { id: serviceId } });
+      const service = await this.prisma.service.findFirst({ where: { id: serviceId, userId: tenantId } });
       if (service) {
         totalServiceMinutes = service.duration;
         optimizeSlots = service.optimizeSlots || false;

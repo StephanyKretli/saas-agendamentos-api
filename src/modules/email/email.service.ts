@@ -20,11 +20,23 @@ type SendReminderInput = {
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   
-  // 👇 AQUI ESTÁ A BLINDAGEM: Se não achar a chave, usa uma falsa para não derrubar a API
-  private readonly resend = new Resend(process.env.RESEND_API_KEY || 're_123456789_chave_falsa_emergencia');
+  // A API nao cai se a chave faltar, mas o erro fica VISIVEL nos logs em vez
+  // de falhar silenciosamente (antes usava uma chave falsa e os e-mails de
+  // recuperacao de senha/confirmacao sumiam sem aviso).
+  private readonly isEmailEnabled = !!process.env.RESEND_API_KEY;
+  private readonly resend = new Resend(process.env.RESEND_API_KEY ?? 're_disabled_placeholder');
   
   private readonly from =
     process.env.EMAIL_FROM ?? 'Agendamentos <onboarding@resend.dev>';
+
+  constructor() {
+    if (!this.isEmailEnabled) {
+      this.logger.error(
+        'RESEND_API_KEY nao configurada — NENHUM e-mail sera entregue ' +
+          '(confirmacoes, recuperacao de senha). Configure a variavel de ambiente.',
+      );
+    }
+  }
 
   async sendBookingConfirmation({
     to,

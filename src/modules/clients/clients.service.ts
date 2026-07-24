@@ -116,24 +116,23 @@ export class ClientsService {
     const tenantId = await this.getTenantId(userId);
 
     const client = await this.prisma.client.findFirst({
-  where: {
-    id: clientId,
-    userId: userId
-  },
-  include: {
-    appointments: {
-      // ...
-      include: {
-        services: {
-          include: {
-            service: true 
-          }
-        }
+      where: {
+        id,
+        userId: tenantId,
       },
-      orderBy: { date: "desc" }
-    }
-  }
-});
+      include: {
+        appointments: {
+          include: {
+            services: {
+              include: {
+                service: true,
+              },
+            },
+          },
+          orderBy: { date: 'desc' },
+        },
+      },
+    });
 
     if (!client) throw new BadRequestException('Cliente não encontrado');
 

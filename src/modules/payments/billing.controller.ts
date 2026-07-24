@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get, Logger } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get, Logger, Headers, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BillingService, SUBSCRIPTION_PRICE_BRL } from './billing.service';
@@ -6,7 +6,9 @@ import { BillingService, SUBSCRIPTION_PRICE_BRL } from './billing.service';
 import { EmailService } from '../email/email.service';
 
 @Controller('billing')
-// 🚨 AVISO: NÃO coloque @UseGuards(JwtAuthGuard) aqui, ou o Asaas será bloqueado!
+// AVISO: nao coloque @UseGuards(JwtAuthGuard) no nivel da classe, ou o webhook do
+// Asaas seria bloqueado. O webhook e autenticado pelo header 'asaas-access-token'
+// (ver handleAsaasWebhook); as demais rotas usam @UseGuards(JwtAuthGuard) individualmente.
 export class BillingController {
   private readonly logger = new Logger(BillingController.name);
 
@@ -130,7 +132,28 @@ export class BillingController {
   // BillingService — fonte única de verdade para os eventos do Asaas.
   // =================================================================
   @Post('webhook')
-  async handleAsaasWebhook(@Body() body: any) {
+  async handleAsaasWebhook(
+    @Body() body: any,
+    @Headers('asaas-access-token') asaasToken?: string,
+  ) {
+    // Sem esta validacao, qualquer pessoa podia enviar um POST com
+    // { event: 'PAYMENT_CONFIRMED', payment: { customer: '<id da vitima>' } }
+    // e ativar plano PRO sem pagar nada.
+    const expectedToken = process.env.ASAAS_WEBHOOK_TOKEN;
+
+    if (!expectedToken) {
+      this.logger.error(
+        'ASAAS_WEBHOOK_TOKEN nao configurada. Webhook rejeitado por seguranca. ' +
+          'Defina o mesmo token no painel do Asaas (Configuracoes > Integracoes > Webhook) e na env var.',
+      );
+      return { received: false };
+    }
+
+    if (asaasToken !== expectedToken) {
+      this.logger.warn('Webhook Asaas com token invalido ou ausente. Rejeitado.');
+      return { received: false };
+    }
+
     this.logger.log(`Webhook Asaas recebido: ${body?.event}`);
 
     try {
@@ -151,6 +174,12 @@ export class BillingController {
   // =================================================================
   @Get('sandbox/test-rd')
   async testRdStation() {
+    // Rota de teste sem autenticacao: bloqueada em producao para nao permitir
+    // que qualquer pessoa dispare envio de e-mail / conversao no RD Station.
+    if (process.env.NODE_ENV === 'production') {
+      throw new NotFoundException();
+    }
+
     const emailTeste = 'teste.rd@meusyncro.com.br';
     const nomeTeste = 'Cliente Teste PRO';
     

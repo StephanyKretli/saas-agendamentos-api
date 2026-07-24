@@ -26,10 +26,16 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const emailExists = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    // Normaliza e-mail e username: sem isso, um cadastro com 'Ana@Gmail.com'
+    // so conseguia logar com essa capitalizacao exata — falha silenciosa que
+    // aparecia para a usuaria como "Credenciais invalidas".
+    const email = dto.email.trim().toLowerCase();
+    const username = dto.username.trim().toLowerCase();
+
+    const emailExists = await this.prisma.user.findUnique({ where: { email } });
     if (emailExists) throw new ConflictException('Email já está em uso');
 
-    const usernameExists = await this.prisma.user.findUnique({ where: { username: dto.username } });
+    const usernameExists = await this.prisma.user.findUnique({ where: { username } });
     if (usernameExists) throw new ConflictException('Username já está em uso');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -38,7 +44,7 @@ export class AuthService {
 
     let asaasCustomerId = null;
     try {
-      const asaasCustomer = await this.asaasService.createCustomer(dto.name, dto.email);
+      const asaasCustomer = await this.asaasService.createCustomer(dto.name, email);
       asaasCustomerId = asaasCustomer.id;
     } catch (error) {
       console.error('Aviso: Falha ao pré-criar cliente no Asaas.', error);
@@ -47,9 +53,9 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
-        email: dto.email,
+        email,
         password: passwordHash,
-        username: dto.username,
+        username,
         phone: dto.phone,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'TRIAL',
@@ -112,7 +118,7 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const normalizedEmail = dto.email.trim();
+    const normalizedEmail = dto.email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) throw new UnauthorizedException('Credenciais inválidas');
 

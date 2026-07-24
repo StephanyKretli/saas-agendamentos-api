@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class TeamService {
@@ -32,9 +33,15 @@ export class TeamService {
 
     let requestedRole = data.role && data.role !== '' ? data.role : 'PROFESSIONAL';
 
+    // Senha padrao previsivel ('Mudar@123') permitia que qualquer pessoa que
+    // descobrisse o e-mail/username de um funcionario tentasse login antes da
+    // primeira troca. Agora geramos uma senha aleatoria forte e a devolvemos
+    // UMA UNICA VEZ para a dona repassar pelo canal que preferir.
     let plainPassword = data.password;
+    let generatedPassword: string | null = null;
     if (!plainPassword || plainPassword.trim() === '') {
-      plainPassword = 'Mudar@123';
+      generatedPassword = randomBytes(9).toString('base64url'); // ~12 chars
+      plainPassword = generatedPassword;
     }
 
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
@@ -55,7 +62,9 @@ export class TeamService {
       },
     });
 
-    return newMember;
+    // `temporaryPassword` so vem preenchido quando a senha foi gerada pelo
+    // sistema — e nunca fica recuperavel depois (o banco guarda so o hash).
+    return { ...newMember, temporaryPassword: generatedPassword };
   }
 
   async listTeam(userId: string) {

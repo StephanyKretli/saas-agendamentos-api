@@ -124,16 +124,61 @@ export class BillingService {
         headers: { access_token: this.asaasApiKey }
       });
 
-      const activeSub = response.data.data.find((s: any) => s.status === 'ACTIVE' || s.status === 'OVERDUE');
+      const subscriptions: any[] = response.data?.data || [];
 
-      if (activeSub) {
-        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${activeSub.id}`, {
+      // Considera apenas assinaturas vivas (nao deletadas). Neste SaaS de plano
+      // unico, um cliente deveria ter no maximo UMA assinatura — mais de uma e
+      // artefato do bug de duplicata anterior.
+      const liveSubs = subscriptions.filter((sub: any) => !sub.deleted);
+
+      // Ordena para tentar primeiro a assinatura ja registrada no nosso banco.
+      liveSubs.sort((a: any, b: any) => {
+        if (a.id === user.asaasSubscriptionId) return -1;
+        if (b.id === user.asaasSubscriptionId) return 1;
+        return 0;
+      });
+
+      // 🔁 REUSO IDEMPOTENTE (anti-duplicata):
+      // Procura a primeira assinatura viva que tenha uma cobranca acessivel e a
+      // reutiliza — em vez de criar outra a cada clique. Antes o filtro so
+      // aceitava status ACTIVE/OVERDUE e nunca consultava o asaasSubscriptionId,
+      // entao uma assinatura recem-criada (ainda PENDING) gerava duplicata.
+      for (const sub of liveSubs) {
+        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${sub.id}`, {
           headers: { access_token: this.asaasApiKey }
         });
-        const invoiceUrl = paymentsResponse.data.data[0]?.invoiceUrl;
+        const payments: any[] = paymentsResponse.data?.data || [];
+        const openPayment =
+          payments.find((p: any) => p.status === 'PENDING' || p.status === 'OVERDUE') || payments[0];
 
-        if (!invoiceUrl) throw new Error("Link da fatura não encontrado.");
-        return { manageUrl: invoiceUrl, hasActiveSubscription: true, currentPlan: user.plan };
+        if (openPayment?.invoiceUrl) {
+          if (user.asaasSubscriptionId !== sub.id) {
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: { asaasSubscriptionId: sub.id },
+            });
+          }
+          return {
+            manageUrl: openPayment.invoiceUrl,
+            hasActiveSubscription: sub.status === 'ACTIVE',
+            currentPlan: user.plan,
+          };
+        }
+      }
+
+      // Nenhuma assinatura viva tem cobranca utilizavel. Isso acontece quando as
+      // cobrancas foram excluidas manualmente no Asaas, deixando assinaturas
+      // orfas que ainda regenerariam cobranca no proximo ciclo. Remove essas
+      // orfas antes de gerar um checkout limpo — assim nao acumula nem duplica.
+      for (const sub of liveSubs) {
+        try {
+          await axios.delete(`${this.asaasApiUrl}/subscriptions/${sub.id}`, {
+            headers: { access_token: this.asaasApiKey },
+          });
+          this.logger.warn(`Assinatura orfa removida (sem cobranca): ${sub.id}`);
+        } catch (e: any) {
+          this.logger.error(`Falha ao remover assinatura orfa ${sub.id}: ${e?.message}`);
+        }
       }
 
       // ===== GERAÇÃO DE NOVO CHECKOUT =====

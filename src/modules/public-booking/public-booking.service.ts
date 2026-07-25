@@ -31,7 +31,13 @@ export class PublicBookingService {
 
     const adminUser = await this.prisma.user.findUnique({
       where: { id: tenantId },
-      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
+      // requirePixDeposit/pixDepositPercentage vem do DONO do salao (tenant) —
+      // a pagina publica precisa disso para mostrar o sinal na tela de resumo,
+      // antes de criar o agendamento.
+      select: {
+        id: true, name: true, username: true, avatarUrl: true, role: true,
+        requirePixDeposit: true, pixDepositPercentage: true,
+      }
     });
 
     const teamMembers = await this.prisma.user.findMany({
@@ -68,7 +74,13 @@ export class PublicBookingService {
       };
     });
 
-    return { user, services: servicesWithFallback, professionals: allProfessionals };
+    const userWithDeposit = {
+      ...user,
+      requirePixDeposit: adminUser?.requirePixDeposit ?? false,
+      pixDepositPercentage: adminUser?.pixDepositPercentage ?? null,
+    };
+
+    return { user: userWithDeposit, services: servicesWithFallback, professionals: allProfessionals };
   }
 
   async getAvailability(username: string, serviceId: string, date: string, professionalId: string, cartItemsStr?: string, stepMinutes = 30) {

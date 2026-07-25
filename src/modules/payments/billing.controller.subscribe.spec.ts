@@ -19,6 +19,7 @@ describe('BillingController.subscribe — idempotencia', () => {
     ownerId: null,
     asaasCustomerId: 'cus_1',
     asaasSubscriptionId: null,
+    document: '12345678900',
   };
 
   beforeEach(() => {
@@ -31,6 +32,7 @@ describe('BillingController.subscribe — idempotencia', () => {
     };
     billingService = {
       createCustomer: jest.fn().mockResolvedValue({ id: 'cus_1' }),
+      ensureCustomerDocument: jest.fn().mockResolvedValue(undefined),
       findReusableSubscriptionCheckout: jest.fn(),
       createSubscription: jest.fn().mockResolvedValue({
         subscriptionId: 'sub_nova',
@@ -66,5 +68,25 @@ describe('BillingController.subscribe — idempotencia', () => {
 
     expect(billingService.createSubscription).toHaveBeenCalledTimes(1);
     expect(res.checkoutUrl).toBe('https://asaas.com/i/nova');
+  });
+
+  it('sincroniza o CPF no Asaas antes de gerar a cobranca', async () => {
+    billingService.findReusableSubscriptionCheckout.mockResolvedValue(null);
+
+    await controller.subscribe({ user: { id: 'dona_1' } });
+
+    // Conta nova: o cliente existia sem CPF; o documento do perfil precisa ser
+    // enviado ao Asaas antes de criar a cobranca, senao o Asaas recusa (400).
+    expect(billingService.ensureCustomerDocument).toHaveBeenCalledWith('cus_1', '12345678900');
+  });
+
+  it('propaga o erro amigavel quando nao ha CPF/CNPJ (ensureCustomerDocument lanca)', async () => {
+    prisma.user.findUnique.mockResolvedValue({ ...donaSemAssinatura, document: null });
+    billingService.ensureCustomerDocument.mockRejectedValue(
+      new Error('Preencha seu CPF ou CNPJ na aba de "Perfil" antes de assinar.'),
+    );
+
+    await expect(controller.subscribe({ user: { id: 'dona_1' } })).rejects.toThrow(/CPF/);
+    expect(billingService.createSubscription).not.toHaveBeenCalled();
   });
 });

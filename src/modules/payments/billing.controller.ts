@@ -51,6 +51,11 @@ export class BillingController {
       throw new BadRequestException('Erro interno: ID de cobrança não foi gerado.');
     }
 
+    // 🪪 Garante que o cliente no Asaas tem CPF/CNPJ — sem isso o Asaas recusa a
+    // cobranca. O cliente era criado so com nome/email e o CPF do perfil nunca
+    // era sincronizado, entao contas novas quebravam ao assinar.
+    await this.billingService.ensureCustomerDocument(customerId, billingUser.document);
+
     // 🔁 Idempotencia: se ja existe uma assinatura viva com cobranca em aberto,
     // reaproveita em vez de criar outra. Sem isto, cada clique em "Assinar agora"
     // gerava uma nova assinatura e uma nova cobranca no Asaas (duplicadas).

@@ -53,6 +53,30 @@ export class BillingController {
       throw new BadRequestException('Erro interno: ID de cobrança não foi gerado.');
     }
 
+    // 🔁 Idempotencia: se ja existe uma assinatura viva com cobranca em aberto,
+    // reaproveita em vez de criar outra. Sem isto, cada clique em "Assinar agora"
+    // gerava uma nova assinatura e uma nova cobranca no Asaas (duplicadas).
+    const existing = await this.billingService.findReusableSubscriptionCheckout(
+      customerId,
+      billingUser.asaasSubscriptionId,
+    );
+
+    if (existing) {
+      await this.prisma.user.update({
+        where: { id: billingUser.id },
+        data: {
+          asaasSubscriptionId: existing.subscriptionId,
+          plan: 'PRO',
+          subscriptionStatus: 'PENDING',
+        },
+      });
+
+      return {
+        message: 'Você já tem uma cobrança em aberto. Reabrindo o mesmo pagamento.',
+        checkoutUrl: existing.invoiceUrl,
+      };
+    }
+
     const subscription = await this.billingService.createSubscription(customerId, SUBSCRIPTION_PRICE_BRL, 'Profissional');
 
     await this.prisma.user.update({

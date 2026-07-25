@@ -106,6 +106,48 @@ export class BillingService {
   }
 
   // 4. Portal Inteligente: Gestão / Criação de Checkout
+  /**
+   * Procura no Asaas uma assinatura reutilizavel para o cliente e devolve a
+   * cobranca em aberto dela — ou null se nao houver nenhuma aproveitavel.
+   *
+   * Fonte unica de verdade do "reuso idempotente", usada tanto por /subscribe
+   * (botao Assinar agora) quanto por /manage (Portal de Pagamentos), para que
+   * nenhum dos dois crie assinatura/cobranca duplicada.
+   */
+  async findReusableSubscriptionCheckout(
+    customerId: string,
+    savedSubscriptionId?: string | null,
+  ): Promise<{ subscriptionId: string; invoiceUrl: string; status: string } | null> {
+    const response = await axios.get(
+      `${this.asaasApiUrl}/subscriptions?customer=${customerId}`,
+      { headers: { access_token: this.asaasApiKey } },
+    );
+    const subscriptions: any[] = response.data?.data || [];
+
+    // So assinaturas vivas; prioriza a que ja esta salva no nosso banco.
+    const liveSubs = subscriptions.filter((sub: any) => !sub.deleted);
+    liveSubs.sort((a: any, b: any) => {
+      if (a.id === savedSubscriptionId) return -1;
+      if (b.id === savedSubscriptionId) return 1;
+      return 0;
+    });
+
+    for (const sub of liveSubs) {
+      const paymentsResponse = await axios.get(
+        `${this.asaasApiUrl}/payments?subscription=${sub.id}`,
+        { headers: { access_token: this.asaasApiKey } },
+      );
+      const payments: any[] = paymentsResponse.data?.data || [];
+      const openPayment =
+        payments.find((p: any) => p.status === 'PENDING' || p.status === 'OVERDUE') ||
+        payments[0];
+      if (openPayment?.invoiceUrl) {
+        return { subscriptionId: sub.id, invoiceUrl: openPayment.invoiceUrl, status: sub.status };
+      }
+    }
+    return null;
+  }
+
   async getManageSubscriptionUrl(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
@@ -120,56 +162,34 @@ export class BillingService {
 
     try {
       const safeCustomerId = customerId as string;
-      const response = await axios.get(`${this.asaasApiUrl}/subscriptions?customer=${safeCustomerId}`, {
-        headers: { access_token: this.asaasApiKey }
-      });
 
-      const subscriptions: any[] = response.data?.data || [];
-
-      // Considera apenas assinaturas vivas (nao deletadas). Neste SaaS de plano
-      // unico, um cliente deveria ter no maximo UMA assinatura — mais de uma e
-      // artefato do bug de duplicata anterior.
-      const liveSubs = subscriptions.filter((sub: any) => !sub.deleted);
-
-      // Ordena para tentar primeiro a assinatura ja registrada no nosso banco.
-      liveSubs.sort((a: any, b: any) => {
-        if (a.id === user.asaasSubscriptionId) return -1;
-        if (b.id === user.asaasSubscriptionId) return 1;
-        return 0;
-      });
-
-      // 🔁 REUSO IDEMPOTENTE (anti-duplicata):
-      // Procura a primeira assinatura viva que tenha uma cobranca acessivel e a
-      // reutiliza — em vez de criar outra a cada clique. Antes o filtro so
-      // aceitava status ACTIVE/OVERDUE e nunca consultava o asaasSubscriptionId,
-      // entao uma assinatura recem-criada (ainda PENDING) gerava duplicata.
-      for (const sub of liveSubs) {
-        const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${sub.id}`, {
-          headers: { access_token: this.asaasApiKey }
-        });
-        const payments: any[] = paymentsResponse.data?.data || [];
-        const openPayment =
-          payments.find((p: any) => p.status === 'PENDING' || p.status === 'OVERDUE') || payments[0];
-
-        if (openPayment?.invoiceUrl) {
-          if (user.asaasSubscriptionId !== sub.id) {
-            await this.prisma.user.update({
-              where: { id: userId },
-              data: { asaasSubscriptionId: sub.id },
-            });
-          }
-          return {
-            manageUrl: openPayment.invoiceUrl,
-            hasActiveSubscription: sub.status === 'ACTIVE',
-            currentPlan: user.plan,
-          };
+      // 🔁 REUSO IDEMPOTENTE (anti-duplicata) — mesma logica do /subscribe.
+      const reusable = await this.findReusableSubscriptionCheckout(
+        safeCustomerId,
+        user.asaasSubscriptionId,
+      );
+      if (reusable) {
+        if (user.asaasSubscriptionId !== reusable.subscriptionId) {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: { asaasSubscriptionId: reusable.subscriptionId },
+          });
         }
+        return {
+          manageUrl: reusable.invoiceUrl,
+          hasActiveSubscription: reusable.status === 'ACTIVE',
+          currentPlan: user.plan,
+        };
       }
 
       // Nenhuma assinatura viva tem cobranca utilizavel. Isso acontece quando as
       // cobrancas foram excluidas manualmente no Asaas, deixando assinaturas
       // orfas que ainda regenerariam cobranca no proximo ciclo. Remove essas
       // orfas antes de gerar um checkout limpo — assim nao acumula nem duplica.
+      const subsResponse = await axios.get(`${this.asaasApiUrl}/subscriptions?customer=${safeCustomerId}`, {
+        headers: { access_token: this.asaasApiKey }
+      });
+      const liveSubs: any[] = (subsResponse.data?.data || []).filter((sub: any) => !sub.deleted);
       for (const sub of liveSubs) {
         try {
           await axios.delete(`${this.asaasApiUrl}/subscriptions/${sub.id}`, {

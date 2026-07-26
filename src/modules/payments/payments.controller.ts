@@ -80,21 +80,15 @@ export class PaymentsController {
   }
 
   /**
-   * Resolve o access token do Mercado Pago do salao dono do agendamento,
-   * respeitando a configuracao `centralizePayments` (mesma regra usada na
-   * criacao do PIX em appointments.service.ts).
+   * Resolve o access token do Mercado Pago do dono do salao. Pagamento sempre
+   * centralizado na conta do dono (modo descentralizado removido — ver ADR).
    */
   private resolveAccessToken(appointmentUser: any): string | undefined {
     if (!appointmentUser) return undefined;
 
+    // Pagamento sempre centralizado na conta do dono (modo descentralizado removido).
     const salonOwner = appointmentUser.owner ?? appointmentUser;
-    const centralize = salonOwner.centralizePayments ?? true;
-
-    const token = centralize
-      ? salonOwner.mercadoPagoAccessToken
-      : appointmentUser.mercadoPagoAccessToken;
-
-    return token || undefined;
+    return salonOwner.mercadoPagoAccessToken || undefined;
   }
 
   @Post('webhook')

@@ -57,11 +57,9 @@ export class AppointmentsService {
     if (!user) throw new BadRequestException(`Configurações não encontradas.`);
 
     const salonOwner = (user.ownerId && user.owner) ? user.owner : user;
-    let tokenParaUsar: string | null = null; 
-    const centralize = salonOwner.centralizePayments ?? true; 
-
-    if (centralize) tokenParaUsar = salonOwner.mercadoPagoAccessToken;
-    else tokenParaUsar = user.mercadoPagoAccessToken;
+    // Pagamento sempre centralizado na conta do dono do salao. O modo
+    // descentralizado (cair na conta de cada profissional) foi removido — ver ADR.
+    const tokenParaUsar: string | null = salonOwner.mercadoPagoAccessToken;
 
     return {
       resolvedUserId: user.id,
@@ -179,14 +177,18 @@ export class AppointmentsService {
         if (hasConflict) throw new BadRequestException('Conflito de horário.');
       }
 
+      // Sempre atribui ao DONO do salao (nao ao usuario cru, que pode ser um
+      // membro da equipe criando pelo painel). Corrige comissao e visibilidade.
+      const ownerId = settings.salonOwnerId;
+
       let resolvedClientId = clientId;
       if (!resolvedClientId && client) {
         const normalizedPhone = client.phone.replace(/\D/g, '');
-        const existingClient = await tx.client.findFirst({ where: { userId, phone: normalizedPhone } });
+        const existingClient = await tx.client.findFirst({ where: { userId: ownerId, phone: normalizedPhone } });
         if (existingClient) {
           resolvedClientId = existingClient.id;
         } else {
-          const createdClient = await tx.client.create({ data: { userId, name: client.name, phone: normalizedPhone, email: client.email || null } });
+          const createdClient = await tx.client.create({ data: { userId: ownerId, name: client.name, phone: normalizedPhone, email: client.email || null } });
           resolvedClientId = createdClient.id;
         }
       }
@@ -198,7 +200,7 @@ export class AppointmentsService {
 
       return (tx.appointment.create as any)({
         data: {
-          userId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
+          userId: ownerId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
           

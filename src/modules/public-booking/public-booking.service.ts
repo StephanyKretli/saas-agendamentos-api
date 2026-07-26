@@ -22,10 +22,9 @@ export class PublicBookingService {
   // Resolve o token do MP do salao (mesma regra do webhook e da criacao do PIX).
   private resolveAccessToken(appointmentUser: any): string | undefined {
     if (!appointmentUser) return undefined;
+    // Pagamento sempre centralizado na conta do dono (modo descentralizado removido).
     const salonOwner = appointmentUser.owner ?? appointmentUser;
-    const centralize = salonOwner.centralizePayments ?? true;
-    const token = centralize ? salonOwner.mercadoPagoAccessToken : appointmentUser.mercadoPagoAccessToken;
-    return token || undefined;
+    return salonOwner.mercadoPagoAccessToken || undefined;
   }
 
   /**

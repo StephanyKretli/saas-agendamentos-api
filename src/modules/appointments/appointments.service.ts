@@ -456,7 +456,14 @@ export class AppointmentsService {
     let pixFeeCents = 0;
     if (appt.depositCents && appt.depositCents > 0) pixFeeCents = Math.round(appt.depositCents * 0.0099);
 
-    let teamCommissionsCents = 0;
+    // Porcentagem: por servico (proporcional ao preco de cada item).
+    // Valor fixo: UMA VEZ por atendimento (nao por servico). Se houver valores
+    // fixos diferentes por servico, usa o maior — cobre o caso comum de valor
+    // unico e evita sub-pagar em combos.
+    let percentageCents = 0;
+    let fixedCentsPerAppointment = 0;
+    let hasFixed = false;
+
     for (const item of apptServices) {
       const specificRule = await this.prisma.professionalService.findUnique({
         where: { professionalId_serviceId: { professionalId: appt.professionalId, serviceId: item.serviceId } }
@@ -464,13 +471,18 @@ export class AppointmentsService {
       const commissionRate = specificRule?.commissionRate ?? adminConfig.defaultCommissionRate ?? 0;
       const commissionType = specificRule?.commissionType ?? adminConfig.commissionType ?? 'PERCENTAGE';
 
-      const ratio = priceCents > 0 ? (item.priceCents / priceCents) : 0;
-      const itemPixFee = Math.round(pixFeeCents * ratio);
-      const itemBase = adminConfig.absorbPixFee ? item.priceCents : (item.priceCents - itemPixFee);
-
-      if (commissionType === 'PERCENTAGE') teamCommissionsCents += Math.round(itemBase * (commissionRate / 100));
-      else if (commissionType === 'FIXED') teamCommissionsCents += Math.round(commissionRate * 100);
+      if (commissionType === 'PERCENTAGE') {
+        const ratio = priceCents > 0 ? (item.priceCents / priceCents) : 0;
+        const itemPixFee = Math.round(pixFeeCents * ratio);
+        const itemBase = adminConfig.absorbPixFee ? item.priceCents : (item.priceCents - itemPixFee);
+        percentageCents += Math.round(itemBase * (commissionRate / 100));
+      } else if (commissionType === 'FIXED') {
+        hasFixed = true;
+        fixedCentsPerAppointment = Math.max(fixedCentsPerAppointment, Math.round(commissionRate * 100));
+      }
     }
+
+    const teamCommissionsCents = percentageCents + (hasFixed ? fixedCentsPerAppointment : 0);
 
     const netRevenueCents = priceCents - teamCommissionsCents - pixFeeCents;
 

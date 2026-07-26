@@ -272,20 +272,49 @@ export class NotificationsCron {
     const cutoff = new Date(Date.now() - holdMinutes * 60_000);
 
     try {
-      const result = await this.prisma.appointment.updateMany({
+      const expiring = await this.prisma.appointment.findMany({
         where: {
           paymentStatus: 'PENDING',
           status: 'SCHEDULED',
           createdAt: { lt: cutoff },
         },
-        data: { status: 'CANCELED' },
+        include: {
+          client: true,
+          services: { include: { service: true } },
+          user: { select: { ownerId: true } },
+        },
       });
 
-      if (result.count > 0) {
-        this.logger.log(
-          `⏳ ${result.count} agendamento(s) com sinal não pago expiraram — horário liberado (janela de ${holdMinutes} min).`,
-        );
+      if (expiring.length === 0) return;
+
+      for (const apt of expiring) {
+        // Libera o horario (CANCELED sai do filtro de disponibilidade).
+        await this.prisma.appointment.update({
+          where: { id: apt.id },
+          data: { status: 'CANCELED' },
+        });
+
+        // Avisa a cliente que o horario foi liberado (falha aqui nao trava os demais).
+        if (apt.client?.phone) {
+          try {
+            const salonOwnerId = apt.user?.ownerId ? apt.user.ownerId : apt.userId;
+            const comboNames = apt.services.map((s: any) => s.service?.name).join(' + ') || 'Serviço';
+            await this.whatsappService.sendDepositExpired(
+              salonOwnerId,
+              apt.client.name,
+              apt.client.phone,
+              comboNames,
+              apt.date,
+            );
+          } catch (e: any) {
+            this.logger.error(`Falha ao avisar cliente sobre horário liberado (${apt.id}): ${e?.message}`);
+          }
+        }
       }
+
+      this.logger.log(
+        `⏳ ${expiring.length} agendamento(s) com sinal não pago expiraram — horário liberado (janela de ${holdMinutes} min).`,
+      );
     } catch (error: any) {
       this.logger.error(`❌ Erro ao expirar agendamentos não pagos: ${error?.message}`);
     }

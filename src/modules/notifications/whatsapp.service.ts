@@ -141,6 +141,13 @@ export class WhatsappService {
     return this.sendMessage(salonId, clientPhone, message);
   }
 
+  async sendDepositExpired(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date) {
+    const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+    const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);
+    const message = `Ola, *${clientName}*.\n\nNao identificamos o pagamento do sinal, entao o horario de *${serviceName}* no dia ${formattedDate} as ${formattedTime} foi liberado.\n\nSe ainda quiser agendar, e so refazer a reserva pelo link. 💛`;
+    return this.sendMessage(salonId, clientPhone, message);
+  }
+
   async sendClientCancellation(salonId: string, clientName: string, clientPhone: string, serviceName: string, date: Date, professionalName: string) {
     const formattedDate = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(date);

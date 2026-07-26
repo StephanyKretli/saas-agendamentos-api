@@ -1,48 +1,89 @@
 import { NotificationsCron } from './notifications.cron';
 
 /**
- * Anti-no-show: agendamento com sinal PIX nao pago deve liberar o horario.
- * Sem esta rotina, um PENDING/SCHEDULED ficava bloqueando a agenda para sempre.
+ * Anti-no-show: agendamento com sinal PIX nao pago deve liberar o horario e
+ * avisar a cliente. Sem isto, um PENDING/SCHEDULED ficava bloqueando a agenda.
  */
 describe('NotificationsCron.expireUnpaidAppointments', () => {
   let cron: any;
   let prisma: any;
+  let whatsapp: any;
+
+  const aptExpirado = {
+    id: 'appt_1',
+    userId: 'salao_1',
+    date: new Date('2026-08-01T14:00:00Z'),
+    client: { name: 'Maria', phone: '31999999999' },
+    services: [{ service: { name: 'Volume russo' } }],
+    user: { ownerId: null },
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.PIX_HOLD_MINUTES;
-    prisma = { appointment: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) } };
-    cron = new NotificationsCron(prisma, {} as any);
+    prisma = {
+      appointment: {
+        findMany: jest.fn().mockResolvedValue([aptExpirado]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    whatsapp = { sendDepositExpired: jest.fn().mockResolvedValue(undefined) };
+    cron = new NotificationsCron(prisma, whatsapp);
   });
 
-  it('cancela agendamentos PENDING/SCHEDULED antigos, liberando o horario', async () => {
+  it('busca PENDING/SCHEDULED antigos, cancela e avisa a cliente', async () => {
     await cron.expireUnpaidAppointments();
 
-    const arg = prisma.appointment.updateMany.mock.calls[0][0];
-    expect(arg.where.paymentStatus).toBe('PENDING');
-    expect(arg.where.status).toBe('SCHEDULED');
-    expect(arg.where.createdAt.lt).toBeInstanceOf(Date);
-    // CANCELED sai do filtro de disponibilidade (status IN [SCHEDULED, COMPLETED]).
-    expect(arg.data.status).toBe('CANCELED');
+    const where = prisma.appointment.findMany.mock.calls[0][0].where;
+    expect(where.paymentStatus).toBe('PENDING');
+    expect(where.status).toBe('SCHEDULED');
+    expect(where.createdAt.lt).toBeInstanceOf(Date);
+
+    // Libera o horario.
+    expect(prisma.appointment.update).toHaveBeenCalledWith({
+      where: { id: 'appt_1' },
+      data: { status: 'CANCELED' },
+    });
+
+    // Avisa a cliente pelo WhatsApp do salao.
+    expect(whatsapp.sendDepositExpired).toHaveBeenCalledWith(
+      'salao_1',
+      'Maria',
+      '31999999999',
+      'Volume russo',
+      aptExpirado.date,
+    );
   });
 
-  it('usa a janela padrao de 30 min', async () => {
-    const esperado = Date.now() - 30 * 60_000;
+  it('usa o ownerId como salao quando o agendamento e de um membro da equipe', async () => {
+    prisma.appointment.findMany.mockResolvedValue([{ ...aptExpirado, userId: 'membro_1', user: { ownerId: 'salao_1' } }]);
     await cron.expireUnpaidAppointments();
-    const cutoff = prisma.appointment.updateMany.mock.calls[0][0].where.createdAt.lt.getTime();
-    expect(Math.abs(cutoff - esperado)).toBeLessThan(5000);
+    expect(whatsapp.sendDepositExpired).toHaveBeenCalledWith(
+      'salao_1', 'Maria', '31999999999', 'Volume russo', aptExpirado.date,
+    );
   });
 
   it('respeita PIX_HOLD_MINUTES configuravel', async () => {
     process.env.PIX_HOLD_MINUTES = '15';
     const esperado = Date.now() - 15 * 60_000;
     await cron.expireUnpaidAppointments();
-    const cutoff = prisma.appointment.updateMany.mock.calls[0][0].where.createdAt.lt.getTime();
+    const cutoff = prisma.appointment.findMany.mock.calls[0][0].where.createdAt.lt.getTime();
     expect(Math.abs(cutoff - esperado)).toBeLessThan(5000);
   });
 
-  it('nao quebra se o banco falhar', async () => {
-    prisma.appointment.updateMany.mockRejectedValue(new Error('db down'));
-    await expect(cron.expireUnpaidAppointments()).resolves.toBeUndefined();
+  it('cancela mesmo se o aviso de WhatsApp falhar', async () => {
+    whatsapp.sendDepositExpired.mockRejectedValue(new Error('wpp down'));
+    await cron.expireUnpaidAppointments();
+    expect(prisma.appointment.update).toHaveBeenCalledWith({
+      where: { id: 'appt_1' },
+      data: { status: 'CANCELED' },
+    });
+  });
+
+  it('nao faz nada quando nao ha agendamentos a expirar', async () => {
+    prisma.appointment.findMany.mockResolvedValue([]);
+    await cron.expireUnpaidAppointments();
+    expect(prisma.appointment.update).not.toHaveBeenCalled();
+    expect(whatsapp.sendDepositExpired).not.toHaveBeenCalled();
   });
 });

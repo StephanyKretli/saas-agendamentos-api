@@ -259,4 +259,36 @@ export class NotificationsCron {
       this.logger.error('❌ Erro na varredura do banco (Resgate 24h):', error);
     }
   }
+
+  // ==========================================
+  // EXPIRAÇÃO DE SINAL PIX NÃO PAGO
+  // Libera o horário quando o sinal não é pago dentro da janela. Sem isto, um
+  // agendamento PENDING (não pago) ficava com status SCHEDULED bloqueando a
+  // agenda para sempre — o oposto do anti-no-show.
+  // ==========================================
+  @Cron('*/10 * * * *')
+  async expireUnpaidAppointments() {
+    const holdMinutes = Number(process.env.PIX_HOLD_MINUTES ?? 30);
+    const cutoff = new Date(Date.now() - holdMinutes * 60_000);
+
+    try {
+      const result = await this.prisma.appointment.updateMany({
+        where: {
+          paymentStatus: 'PENDING',
+          status: 'SCHEDULED',
+          createdAt: { lt: cutoff },
+        },
+        data: { status: 'CANCELED' },
+      });
+
+      if (result.count > 0) {
+        this.logger.log(
+          `⏳ ${result.count} agendamento(s) com sinal não pago expiraram — horário liberado (janela de ${holdMinutes} min).`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(`❌ Erro ao expirar agendamentos não pagos: ${error?.message}`);
+    }
+  }
+
 }

@@ -59,12 +59,40 @@ export class MercadoPagoService {
     }
   }
 
+  /**
+   * Consulta o status real de um pagamento no Mercado Pago.
+   *
+   * ATENCAO: esta funcao NUNCA pode devolver 'approved' sem confirmacao da API
+   * do Mercado Pago. A versao anterior retornava `{ status: 'approved' }` quando
+   * o accessToken estava ausente, o que fazia o webhook aprovar qualquer PIX
+   * forjado sem pagamento real.
+   */
   async getPaymentInfo(paymentId: string, accessToken?: string) {
-    if (!accessToken || accessToken === 'SUA_CHAVE_AQUI') return { status: 'approved' };
-    const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }, 
-    });
-    const data = await response.json();
-    return { status: data.status }; 
+    if (!accessToken || accessToken === 'SUA_CHAVE_AQUI') {
+      this.logger.error(
+        `Tentativa de verificar o pagamento ${paymentId} sem access token do Mercado Pago. ` +
+          'Status devolvido como "unknown" — o pagamento NAO sera considerado aprovado.',
+      );
+      return { status: 'unknown' };
+    }
+
+    try {
+      const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        this.logger.error(
+          `Mercado Pago devolveu ${response.status} ao consultar o pagamento ${paymentId}.`,
+        );
+        return { status: 'unknown' };
+      }
+
+      const data = await response.json();
+      return { status: data.status };
+    } catch (error) {
+      this.logger.error(`Falha de comunicacao com o MP ao consultar ${paymentId}`, error);
+      return { status: 'unknown' };
+    }
   }
 }

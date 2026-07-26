@@ -12,6 +12,10 @@ describe('PublicBookingService', () => {
     service: {
       findMany: jest.fn(),
     },
+    appointment: {
+      findFirst: jest.fn(),
+      updateMany: jest.fn(),
+    },
   };
 
   const appointmentsServiceMock = {
@@ -21,6 +25,10 @@ describe('PublicBookingService', () => {
 
   const emailServiceMock = { sendBookingConfirmation: jest.fn().mockResolvedValue(undefined) };
   const mercadoPagoServiceMock = { createPixPayment: jest.fn(), getPaymentInfo: jest.fn() };
+  const whatsappServiceMock = {
+    sendAppointmentConfirmation: jest.fn().mockResolvedValue(undefined),
+    notifyProfessionalNewAppointment: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -30,6 +38,7 @@ describe('PublicBookingService', () => {
       appointmentsServiceMock as any,
       emailServiceMock as any,
       mercadoPagoServiceMock as any,
+      whatsappServiceMock as any,
     );
   });
 
@@ -65,6 +74,48 @@ describe('PublicBookingService', () => {
   it('should throw if professional is not found', async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     await expect(service.getProfile('inexistente')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('getPaymentStatus: confirma PAGO ao consultar o MP quando o webhook nao chegou', async () => {
+    prismaMock.appointment.findFirst.mockResolvedValue({
+      id: 'appt_1', userId: 'salao_1', paymentStatus: 'PENDING', transactionId: 'tx_1',
+      publicCancelToken: 'tok', date: new Date(),
+      client: { name: 'Maria', phone: '31999999999' },
+      services: [{ service: { name: 'Volume' } }],
+      professional: { name: 'Stephany', phone: '31988888888' },
+      user: { ownerId: null, centralizePayments: true, mercadoPagoAccessToken: 'APP_USR-x', owner: null },
+    });
+    mercadoPagoServiceMock.getPaymentInfo.mockResolvedValue({ status: 'approved' });
+    prismaMock.appointment.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await service.getPaymentStatus('tok');
+
+    expect(res.paymentStatus).toBe('PAID');
+    // Verificou no MP com o token do salao.
+    expect(mercadoPagoServiceMock.getPaymentInfo).toHaveBeenCalledWith('tx_1', 'APP_USR-x');
+    // Marcou PAGO e notificou a cliente.
+    expect(prismaMock.appointment.updateMany).toHaveBeenCalled();
+    expect(whatsappServiceMock.sendAppointmentConfirmation).toHaveBeenCalled();
+  });
+
+  it('getPaymentStatus: continua PENDING quando o MP ainda nao aprovou', async () => {
+    prismaMock.appointment.findFirst.mockResolvedValue({
+      id: 'appt_1', userId: 'salao_1', paymentStatus: 'PENDING', transactionId: 'tx_1',
+      user: { ownerId: null, centralizePayments: true, mercadoPagoAccessToken: 'APP_USR-x', owner: null },
+      client: {}, services: [], professional: {},
+    });
+    mercadoPagoServiceMock.getPaymentInfo.mockResolvedValue({ status: 'pending' });
+
+    const res = await service.getPaymentStatus('tok');
+    expect(res.paymentStatus).toBe('PENDING');
+    expect(prismaMock.appointment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('getPaymentStatus: se ja esta PAGO, nao consulta o MP', async () => {
+    prismaMock.appointment.findFirst.mockResolvedValue({ id: 'appt_1', paymentStatus: 'PAID', transactionId: 'tx_1' });
+    const res = await service.getPaymentStatus('tok');
+    expect(res.paymentStatus).toBe('PAID');
+    expect(mercadoPagoServiceMock.getPaymentInfo).not.toHaveBeenCalled();
   });
 
   it('should delegate availability lookup', async () => {

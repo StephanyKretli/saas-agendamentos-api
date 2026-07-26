@@ -114,6 +114,18 @@ export class PublicBookingController {
     return this.service.createAppointment(username, dto);
   }
 
+  @Get('status/:token')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Get payment status of a public appointment',
+    description:
+      'Verifica o status do pagamento; se ainda pendente, consulta ativamente o Mercado Pago (fallback ao webhook). Usado pelo polling da tela do PIX.',
+  })
+  @ApiParam({ name: 'token', example: 'abc123token', description: 'Public cancel token do agendamento' })
+  getPaymentStatus(@Param('token') token: string) {
+    return this.service.getPaymentStatus(token);
+  }
+
   @Get('cancel/:token')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({

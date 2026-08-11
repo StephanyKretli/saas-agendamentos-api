@@ -250,7 +250,7 @@ export class AuthService {
 
       const url = `https://graph.facebook.com/v19.0/${pixelId}/events?access_token=${accessToken}`;
 
-      const payload = {
+      const payload: any = {
         data: [
           {
             event_name: 'CompleteRegistration',
@@ -265,8 +265,15 @@ export class AuthService {
         ]
       };
 
-      await axios.post(url, payload);
-      console.log(`🎯 [Meta CAPI] Evento de cadastro enviado para: ${email}`);
+      // Se um codigo de teste estiver configurado, o evento aparece na aba
+      // "Testar eventos" do Gerenciador em tempo real. Remova a env em producao.
+      const testEventCode = process.env.META_CAPI_TEST_EVENT_CODE;
+      if (testEventCode) payload.test_event_code = testEventCode;
+
+      const resp = await axios.post(url, payload);
+      // Loga a resposta real do Meta: { events_received, messages, fbtrace_id }.
+      // events_received=1 e messages vazio => aceito. messages com aviso => problema.
+      console.log(`🎯 [Meta CAPI] Enviado para ${email} | resposta:`, JSON.stringify(resp.data));
       
     } catch (error: any) {
       console.error("🚨 [Meta CAPI] Erro:", error?.response?.data || error.message);

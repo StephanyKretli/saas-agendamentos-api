@@ -234,11 +234,14 @@ export class AuthService {
 
   private async notificarMetaCAPI(email: string, ip: string = '', userAgent: string = '') {
     try {
-      const pixelId = process.env.META_PIXEL_ID;
-      const accessToken = process.env.META_ACCESS_TOKEN;
+      // Pixel/dataset: usa o mesmo ID do Pixel do site como padrao (so precisa
+      // configurar o token). Token da CAPI: aceita META_CAPI_ACCESS_TOKEN (nome
+      // preferido) com fallback para META_ACCESS_TOKEN (compatibilidade).
+      const pixelId = process.env.META_PIXEL_ID || '1092047139463333';
+      const accessToken = process.env.META_CAPI_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
 
       if (!pixelId || !accessToken) {
-        console.warn('⚠️ Credenciais da Meta ausentes no .env');
+        console.warn('⚠️ [Meta CAPI] Token ausente — defina META_CAPI_ACCESS_TOKEN no .env.');
         return;
       }
 

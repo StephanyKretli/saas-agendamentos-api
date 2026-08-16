@@ -120,7 +120,9 @@ describe('PaymentsController — webhook do PIX', () => {
     expect(whatsapp.sendAppointmentConfirmation).not.toHaveBeenCalled();
   });
 
-  it('usa o token do FUNCIONARIO quando centralizePayments = false', async () => {
+  it('usa SEMPRE o token do DONO, mesmo para agendamento de um membro da equipe', async () => {
+    // Modo descentralizado removido: o pagamento e sempre centralizado na conta
+    // do dono, entao o token do funcionario nao e mais usado.
     prisma.appointment.findUnique.mockResolvedValue({
       ...agendamentoPendente,
       user: {
@@ -134,7 +136,7 @@ describe('PaymentsController — webhook do PIX', () => {
 
     await controller.handleWebhook({ data: { id: 'tx_1' } });
 
-    expect(mercadoPago.getPaymentInfo).toHaveBeenCalledWith('tx_1', 'TOKEN-DO-FUNCIONARIO');
+    expect(mercadoPago.getPaymentInfo).toHaveBeenCalledWith('tx_1', 'TOKEN-DA-DONA');
   });
 
   describe('validacao de assinatura', () => {

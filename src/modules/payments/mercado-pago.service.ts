@@ -34,6 +34,11 @@ export class MercadoPagoService {
           transaction_amount: amountReais,
           description: `Sinal de agendamento - ${appointmentId}`,
           payment_method_id: 'pix',
+          // Diz ao Mercado Pago para onde enviar o aviso de pagamento DESTE PIX.
+          // Assim o webhook chega ao Syncro automaticamente, na conta de qualquer
+          // salao, sem a profissional precisar configurar nada no painel dela.
+          notification_url:
+            process.env.MP_WEBHOOK_URL || 'https://api.meusyncro.com.br/payments/webhook',
           payer: {
             email: clientEmail || 'cliente@sem-email.com',
             first_name: clientName,

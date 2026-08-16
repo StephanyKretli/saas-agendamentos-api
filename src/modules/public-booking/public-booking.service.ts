@@ -1,10 +1,11 @@
 // @ts-nocheck
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { CreatePublicAppointmentDto } from './dto/create-public-appointment.dto';
 import { EmailService } from '../email/email.service';
 import { MercadoPagoService } from '../payments/mercado-pago.service';
+import { WhatsappService } from '../notifications/whatsapp.service';
 
 @Injectable()
 export class PublicBookingService {
@@ -13,7 +14,77 @@ export class PublicBookingService {
     private readonly appointmentsService: AppointmentsService,
     private readonly emailService: EmailService,
     private readonly mercadoPagoService: MercadoPagoService,
+    private readonly whatsappService: WhatsappService,
   ) {}
+
+  private readonly logger = new Logger(PublicBookingService.name);
+
+  // Resolve o token do MP do salao (mesma regra do webhook e da criacao do PIX).
+  private resolveAccessToken(appointmentUser: any): string | undefined {
+    if (!appointmentUser) return undefined;
+    // Pagamento sempre centralizado na conta do dono (modo descentralizado removido).
+    const salonOwner = appointmentUser.owner ?? appointmentUser;
+    return salonOwner.mercadoPagoAccessToken || undefined;
+  }
+
+  /**
+   * Status de pagamento de um agendamento (usado pelo polling da tela do PIX).
+   * Se ainda estiver PENDING, PERGUNTA ATIVAMENTE ao Mercado Pago — assim o
+   * agendamento confirma mesmo que o webhook nao chegue (fallback resiliente).
+   */
+  async getPaymentStatus(token: string) {
+    const appt = await this.prisma.appointment.findFirst({
+      where: { publicCancelToken: token },
+      include: {
+        client: true,
+        services: { include: { service: true } },
+        professional: true,
+        user: { include: { owner: true } },
+      },
+    });
+    if (!appt) throw new BadRequestException('Agendamento nao encontrado.');
+
+    if (appt.paymentStatus !== 'PENDING' || !appt.transactionId) {
+      return { paymentStatus: appt.paymentStatus };
+    }
+
+    const accessToken = this.resolveAccessToken(appt.user);
+    if (!accessToken) return { paymentStatus: appt.paymentStatus };
+
+    const info = await this.mercadoPagoService.getPaymentInfo(appt.transactionId, accessToken);
+    if (info.status !== 'approved') return { paymentStatus: appt.paymentStatus };
+
+    // Marca PAGO de forma race-safe (so notifica se ESTA chamada fez a virada,
+    // evitando aviso duplicado caso o webhook confirme ao mesmo tempo).
+    const flipped = await this.prisma.appointment.updateMany({
+      where: { id: appt.id, paymentStatus: 'PENDING' },
+      data: { paymentStatus: 'PAID', status: 'SCHEDULED' },
+    });
+
+    if (flipped.count === 1) {
+      try {
+        const salonOwnerId = appt.user?.ownerId ? appt.user.ownerId : appt.userId;
+        const comboNames = appt.services.map((x: any) => x.service?.name).join(' + ') || 'Servico';
+        const frontendUrl = process.env.FRONTEND_URL || process.env.APP_WEB_URL || 'https://meusyncro.com.br';
+        const manageLink = `${frontendUrl}/agendamento/${appt.publicCancelToken}`;
+        if (appt.client?.phone) {
+          await this.whatsappService.sendAppointmentConfirmation(
+            salonOwnerId, appt.client.name, appt.client.phone, comboNames, appt.date,
+            appt.professional?.name || 'Equipe', manageLink,
+          );
+        }
+        if (appt.professional?.phone) {
+          await this.whatsappService.notifyProfessionalNewAppointment(
+            salonOwnerId, appt.professional.phone, appt.client?.name || 'Cliente', appt.date, comboNames,
+          );
+        }
+      } catch (e: any) {
+        this.logger.error(`Falha ao notificar confirmacao (polling) ${appt.id}: ${e?.message}`);
+      }
+    }
+
+    return { paymentStatus: 'PAID' };
+  }
 
   async getProfile(username: string) {
     const normalizedUsername = username.trim().toLowerCase();
@@ -32,7 +103,13 @@ export class PublicBookingService {
 
     const adminUser = await this.prisma.user.findUnique({
       where: { id: tenantId },
-      select: { id: true, name: true, username: true, avatarUrl: true, role: true }
+      // requirePixDeposit/pixDepositPercentage vem do DONO do salao (tenant) —
+      // a pagina publica precisa disso para mostrar o sinal na tela de resumo,
+      // antes de criar o agendamento.
+      select: {
+        id: true, name: true, username: true, avatarUrl: true, role: true,
+        requirePixDeposit: true, pixDepositPercentage: true,
+      }
     });
 
     const teamMembers = await this.prisma.user.findMany({
@@ -69,7 +146,13 @@ export class PublicBookingService {
       };
     });
 
-    return { user, services: servicesWithFallback, professionals: allProfessionals };
+    const userWithDeposit = {
+      ...user,
+      requirePixDeposit: adminUser?.requirePixDeposit ?? false,
+      pixDepositPercentage: adminUser?.pixDepositPercentage ?? null,
+    };
+
+    return { user: userWithDeposit, services: servicesWithFallback, professionals: allProfessionals };
   }
 
   async getAvailability(username: string, serviceId: string, date: string, professionalId: string, cartItemsStr?: string, stepMinutes = 30) {

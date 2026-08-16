@@ -97,11 +97,9 @@ export class AppointmentsService {
     if (!user) throw new BadRequestException(`Configurações não encontradas.`);
 
     const salonOwner = (user.ownerId && user.owner) ? user.owner : user;
-    let tokenParaUsar: string | null = null; 
-    const centralize = salonOwner.centralizePayments ?? true; 
-
-    if (centralize) tokenParaUsar = salonOwner.mercadoPagoAccessToken;
-    else tokenParaUsar = user.mercadoPagoAccessToken;
+    // Pagamento sempre centralizado na conta do dono do salao. O modo
+    // descentralizado (cair na conta de cada profissional) foi removido — ver ADR.
+    const tokenParaUsar: string | null = salonOwner.mercadoPagoAccessToken;
 
     return {
       resolvedUserId: user.id,
@@ -221,14 +219,18 @@ export class AppointmentsService {
         if (hasConflict) throw new BadRequestException('Conflito de horário.');
       }
 
+      // Sempre atribui ao DONO do salao (nao ao usuario cru, que pode ser um
+      // membro da equipe criando pelo painel). Corrige comissao e visibilidade.
+      const ownerId = settings.salonOwnerId;
+
       let resolvedClientId = clientId;
       if (!resolvedClientId && client) {
         const normalizedPhone = client.phone.replace(/\D/g, '');
-        const existingClient = await tx.client.findFirst({ where: { userId: tenantId, phone: normalizedPhone } });
+        const existingClient = await tx.client.findFirst({ where: { userId: ownerId, phone: normalizedPhone } });
         if (existingClient) {
           resolvedClientId = existingClient.id;
         } else {
-          const createdClient = await tx.client.create({ data: { userId: tenantId, name: client.name, phone: normalizedPhone, email: client.email || null } });
+          const createdClient = await tx.client.create({ data: { userId: ownerId, name: client.name, phone: normalizedPhone, email: client.email || null } });
           resolvedClientId = createdClient.id;
         }
       }
@@ -240,7 +242,7 @@ export class AppointmentsService {
 
       return (tx.appointment.create as any)({
         data: {
-          userId: tenantId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
+          userId: ownerId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
           
@@ -499,7 +501,14 @@ export class AppointmentsService {
     const pixFeeRate = Number(process.env.PIX_FEE_RATE ?? 0.0099);
     if (appt.depositCents && appt.depositCents > 0) pixFeeCents = Math.round(appt.depositCents * pixFeeRate);
 
-    let teamCommissionsCents = 0;
+    // Porcentagem: por servico (proporcional ao preco de cada item).
+    // Valor fixo: UMA VEZ por atendimento (nao por servico). Se houver valores
+    // fixos diferentes por servico, usa o maior — cobre o caso comum de valor
+    // unico e evita sub-pagar em combos.
+    let percentageCents = 0;
+    let fixedCentsPerAppointment = 0;
+    let hasFixed = false;
+
     for (const item of apptServices) {
       const specificRule = await this.prisma.professionalService.findUnique({
         where: { professionalId_serviceId: { professionalId: appt.professionalId, serviceId: item.serviceId } }
@@ -507,13 +516,18 @@ export class AppointmentsService {
       const commissionRate = specificRule?.commissionRate ?? adminConfig.defaultCommissionRate ?? 0;
       const commissionType = specificRule?.commissionType ?? adminConfig.commissionType ?? 'PERCENTAGE';
 
-      const ratio = priceCents > 0 ? (item.priceCents / priceCents) : 0;
-      const itemPixFee = Math.round(pixFeeCents * ratio);
-      const itemBase = adminConfig.absorbPixFee ? item.priceCents : (item.priceCents - itemPixFee);
-
-      if (commissionType === 'PERCENTAGE') teamCommissionsCents += Math.round(itemBase * (commissionRate / 100));
-      else if (commissionType === 'FIXED') teamCommissionsCents += Math.round(commissionRate * 100);
+      if (commissionType === 'PERCENTAGE') {
+        const ratio = priceCents > 0 ? (item.priceCents / priceCents) : 0;
+        const itemPixFee = Math.round(pixFeeCents * ratio);
+        const itemBase = adminConfig.absorbPixFee ? item.priceCents : (item.priceCents - itemPixFee);
+        percentageCents += Math.round(itemBase * (commissionRate / 100));
+      } else if (commissionType === 'FIXED') {
+        hasFixed = true;
+        fixedCentsPerAppointment = Math.max(fixedCentsPerAppointment, Math.round(commissionRate * 100));
+      }
     }
+
+    const teamCommissionsCents = percentageCents + (hasFixed ? fixedCentsPerAppointment : 0);
 
     const netRevenueCents = priceCents - teamCommissionsCents - pixFeeCents;
 

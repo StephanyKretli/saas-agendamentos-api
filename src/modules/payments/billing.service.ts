@@ -107,6 +107,32 @@ export class BillingService {
 
   // 4. Portal Inteligente: Gestão / Criação de Checkout
   /**
+   * Garante que o cliente no Asaas tem CPF/CNPJ antes de gerar qualquer cobranca.
+   * O Asaas recusa a cobranca sem esse dado ("necessario preencher o CPF ou CNPJ").
+   * Exige o documento (erro amigavel se faltar) e sincroniza o valor do perfil.
+   */
+  async ensureCustomerDocument(customerId: string, document?: string | null) {
+    if (!document) {
+      throw new BadRequestException(
+        'Preencha seu CPF ou CNPJ na aba de "Perfil" antes de assinar.',
+      );
+    }
+    try {
+      await axios.post(
+        `${this.asaasApiUrl}/customers/${customerId}`,
+        { cpfCnpj: document },
+        { headers: { access_token: this.asaasApiKey } },
+      );
+    } catch (e: any) {
+      // Nao derruba se o Asaas reclamar que o CPF ja esta igual; qualquer outro
+      // problema real de documento aparece depois na criacao da cobranca.
+      this.logger.warn(
+        `Nao foi possivel atualizar o CPF/CNPJ do cliente ${customerId}: ${e?.response?.data?.errors?.[0]?.description || e?.message}`,
+      );
+    }
+  }
+
+  /**
    * Procura no Asaas uma assinatura reutilizavel para o cliente e devolve a
    * cobranca em aberto dela — ou null se nao houver nenhuma aproveitavel.
    *
@@ -203,19 +229,8 @@ export class BillingService {
 
       // ===== GERAÇÃO DE NOVO CHECKOUT =====
 
-      // 🚨 TRAVA DE SEGURANÇA: Exige o CPF Real para gerar o link
-      if (!user.document) {
-        throw new BadRequestException('Preencha seu CPF ou CNPJ na aba de "Perfil" para acessar o portal de pagamentos.');
-      }
-
-      // 🌟 ATUALIZA COM O CPF REAL NO ASAAS ANTES DE COBRAR
-      try {
-        await axios.post(`${this.asaasApiUrl}/customers/${safeCustomerId}`, {
-          cpfCnpj: user.document
-        }, { headers: { access_token: this.asaasApiKey } });
-      } catch (e) {
-         // Ignora se o asaas disser que o CPF já tá lá
-      }
+      // Exige e sincroniza o CPF/CNPJ no Asaas antes de cobrar (mesma regra do /subscribe).
+      await this.ensureCustomerDocument(safeCustomerId, user.document);
 
       const newSub = await this.createSubscription(safeCustomerId, SUBSCRIPTION_PRICE_BRL, 'Profissional');
 

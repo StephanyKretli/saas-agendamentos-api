@@ -25,7 +25,7 @@ export class AuthService {
     private whatsappService: WhatsappService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, ip?: string) {
     // Normaliza e-mail e username: sem isso, um cadastro com 'Ana@Gmail.com'
     // so conseguia logar com essa capitalizacao exata — falha silenciosa que
     // aparecia para a usuaria como "Credenciais invalidas".
@@ -50,6 +50,8 @@ export class AuthService {
       console.error('Aviso: Falha ao pré-criar cliente no Asaas.', error);
     }
 
+    const whatsappOptin = dto.whatsappOptin === true;
+
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
@@ -59,8 +61,16 @@ export class AuthService {
         phone: dto.phone,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'TRIAL',
-        plan: 'PRO', 
+        plan: 'PRO',
         asaasCustomerId: asaasCustomerId,
+        // Consentimento do WhatsApp: só grava rastro de opt-in quando ela
+        // de fato marcou a caixa — desmarcado não vira "opt-in negativo",
+        // fica tudo null (nunca perguntamos, nada pra provar).
+        whatsappOptin,
+        whatsappOptinAt: whatsappOptin ? new Date() : null,
+        whatsappOptinOrigem: whatsappOptin ? 'cadastro_web' : null,
+        whatsappOptinTexto: whatsappOptin ? (dto.whatsappOptinTexto || null) : null,
+        whatsappOptinIp: whatsappOptin ? (ip || null) : null,
       },
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
@@ -68,40 +78,44 @@ export class AuthService {
     await this.notificarMetaCAPI(user.email);
 
     // 👇 ROTA CORRETA DA RD STATION: /platform/conversions
-    try {
-      if (!process.env.RD_STATION_TOKEN) {
-        console.error('❌ ERRO CRÍTICO: RD_STATION_TOKEN não foi encontrado! O Docker não está lendo o .env.');
-      }
+    // Mesma regra do Meta CAPI acima: teste nunca fala com a internet.
+    if (process.env.NODE_ENV !== 'test') {
+      try {
+        if (!process.env.RD_STATION_TOKEN) {
+          console.error('❌ ERRO CRÍTICO: RD_STATION_TOKEN não foi encontrado! O Docker não está lendo o .env.');
+        }
 
-      const rdResponse = await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event_type: 'CONVERSION',
-          event_family: 'CDP',
-          payload: {
-            conversion_identifier: 'cadastro_syncro',
-            email: user.email,
-            name: user.name,
-            cf_username: user.username 
-          }
-        })
-      });
+        const rdResponse = await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event_type: 'CONVERSION',
+            event_family: 'CDP',
+            payload: {
+              conversion_identifier: 'cadastro_syncro',
+              email: user.email,
+              name: user.name,
+              cf_username: user.username
+            }
+          })
+        });
 
-      if (!rdResponse.ok) {
-        const rdError = await rdResponse.text();
-        console.error(`❌ Erro retornado pela RD Station (${rdResponse.status}):`, rdError);
-      } else {
-        console.log('✅ Conversão enviada com sucesso para a RD Station (Via Form)!');
+        if (!rdResponse.ok) {
+          const rdError = await rdResponse.text();
+          console.error(`❌ Erro retornado pela RD Station (${rdResponse.status}):`, rdError);
+        } else {
+          console.log('✅ Conversão enviada com sucesso para a RD Station (Via Form)!');
+        }
+      } catch (error) {
+        console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
       }
-    } catch (error) {
-      console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
     }
     // 👆 FIM DA INTEGRAÇÃO
 
     // 👇 O E-MAIL FOI REMOVIDO, MANTENDO APENAS O DISPARO DE WHATSAPP
+    // Telefone sozinho não autoriza nada — precisa do opt-in marcado (LGPD/Meta).
     try {
-      if (dto.phone) {
+      if (dto.phone && whatsappOptin) {
         // 🌟 Formatação para a Evolution API (Injeta o 55 do Brasil)
         let telefoneWhatsApp = dto.phone;
         if (telefoneWhatsApp.length === 10 || telefoneWhatsApp.length === 11) {
@@ -201,34 +215,37 @@ export class AuthService {
       await this.notificarMetaCAPI(user.email);
 
       // 👇 ROTA CORRETA DA RD STATION: /platform/conversions (OAuth)
-      try {
-        if (!process.env.RD_STATION_TOKEN) {
-          console.error('❌ ERRO CRÍTICO: RD_STATION_TOKEN não foi encontrado! O Docker não está lendo o .env.');
-        }
+      // Mesma regra do Meta CAPI acima: teste nunca fala com a internet.
+      if (process.env.NODE_ENV !== 'test') {
+        try {
+          if (!process.env.RD_STATION_TOKEN) {
+            console.error('❌ ERRO CRÍTICO: RD_STATION_TOKEN não foi encontrado! O Docker não está lendo o .env.');
+          }
 
-        const rdResponse = await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            event_type: 'CONVERSION',
-            event_family: 'CDP',
-            payload: {
-              conversion_identifier: 'cadastro_syncro',
-              email: user.email,
-              name: user.name,
-              cf_username: user.username
-            }
-          })
-        });
+          const rdResponse = await fetch(`https://api.rd.services/platform/conversions?api_key=${process.env.RD_STATION_TOKEN}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event_type: 'CONVERSION',
+              event_family: 'CDP',
+              payload: {
+                conversion_identifier: 'cadastro_syncro',
+                email: user.email,
+                name: user.name,
+                cf_username: user.username
+              }
+            })
+          });
 
-        if (!rdResponse.ok) {
-          const rdError = await rdResponse.text();
-          console.error(`❌ Erro retornado pela RD Station (OAuth): (${rdResponse.status}):`, rdError);
-        } else {
-          console.log('✅ Conversão enviada com sucesso para a RD Station (Via OAuth)!');
+          if (!rdResponse.ok) {
+            const rdError = await rdResponse.text();
+            console.error(`❌ Erro retornado pela RD Station (OAuth): (${rdResponse.status}):`, rdError);
+          } else {
+            console.log('✅ Conversão enviada com sucesso para a RD Station (Via OAuth)!');
+          }
+        } catch (error) {
+          console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
         }
-      } catch (error) {
-        console.error('❌ Erro de rede ao tentar falar com a RD Station:', error);
       }
       // 👆 FIM DA INTEGRAÇÃO
     }
@@ -240,6 +257,11 @@ export class AuthService {
 
   private async notificarMetaCAPI(email: string, ip: string = '', userAgent: string = '') {
     try {
+      // Teste nunca fala com a internet: sem isso, rodar a suite dispara
+      // eventos reais no pixel de producao (foi o que causou as rajadas
+      // fantasmas de CompleteRegistration investigadas em 18/08).
+      if (process.env.NODE_ENV === 'test') return;
+
       // Pixel/dataset: usa o mesmo ID do Pixel do site como padrao (so precisa
       // configurar o token). Token da CAPI: aceita META_CAPI_ACCESS_TOKEN (nome
       // preferido) com fallback para META_ACCESS_TOKEN (compatibilidade).

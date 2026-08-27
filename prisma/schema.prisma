@@ -26,6 +26,14 @@ enum AppointmentStatus {
   COMPLETED
 }
 
+// Quem criou o agendamento: a profissional lançando (ela mesma testando o
+// próprio link, ou pelo dashboard) vs. uma cliente real marcando sozinha.
+// Distinção crítica pra régua de ativação do trial — ver REGUA_RELACIONAMENTO_WHATSAPP.md §8.
+enum BookingOrigem {
+  PROFISSIONAL
+  CLIENTE
+}
+
 model User {
   id                String    @id @default(cuid())
   email             String    @unique
@@ -92,6 +100,49 @@ model User {
 
   trialWarningSentAt   DateTime? // Carimbo de quando enviou o aviso de 2 dias
   trialExpiredSentAt   DateTime? // Carimbo de quando enviou o aviso de expirado
+
+  // Última vez que algo aconteceu no produto para este tenant (agendamento
+  // criado, próprio ou de cliente). Base do estado RESFRIANDO (>72h parado).
+  lastProductEventAt DateTime?
+
+  // Marco de ativação (S3): primeira vez que uma CLIENTE real marcou —
+  // definitivo, não desfaz se aquele agendamento for cancelado depois.
+  activatedAt DateTime?
+  // Controla o envio do T4 (o toque mais importante da régua) — evita
+  // reenvio e segura o disparo fora da janela 9h-20h.
+  t4SentAt    DateTime?
+
+  trialTouches TrialTouch[]
+
+  // Opt-in explícito pra Syncro mandar mensagem no WhatsApp dela durante o
+  // trial — sem isso marcado, NENHUM toque da régua sai (o telefone
+  // obrigatório não basta). Ver REGUA_RELACIONAMENTO_WHATSAPP.md §12.
+  whatsappOptin       Boolean   @default(false)
+  whatsappOptinAt     DateTime?
+  whatsappOptinOrigem String? // "cadastro_web" | "anuncio_ctwa" | "resposta_dm"
+  whatsappOptinTexto  String?   @db.Text // texto exato exibido no checkbox — vem do front, nunca reconstruído aqui
+  whatsappOptinIp     String?
+
+  // Saída da régua (resposta negativa clara, ou clique no link de opt-out
+  // das mensagens de Marketing). Independente do whatsappOptin — uma vez
+  // opt-out, não volta sozinho.
+  optOut   Boolean   @default(false)
+  optOutAt DateTime?
+}
+
+// Log de disparo dos toques por calendário/estado da régua de trial (T1, T3,
+// T6, T8, T10, T13, T14...). Uma linha por toque efetivamente enviado — a
+// unicidade (userId, touch) é a garantia de que nunca reenvia.
+model TrialTouch {
+  id     String   @id @default(cuid())
+  userId String
+  touch  String // "T1" | "T3" | "T6" | "T8" | "T10" | "T13" | "T14" | ...
+  sentAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, touch])
+  @@index([userId])
 }
 
 model Service {
@@ -175,6 +226,10 @@ model Appointment {
   @@map("appointments")
 
   isVIP Boolean @default(false)
+
+  // Default PROFISSIONAL: falha fechado. Um agendamento sem origem
+  // explícita nunca deve contar como ativação (S3) por engano.
+  origem BookingOrigem @default(PROFISSIONAL)
 }
 
 model BlockedDate {

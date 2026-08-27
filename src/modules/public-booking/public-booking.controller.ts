@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards, Patch } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { PublicBookingService } from './public-booking.service';
 import { CreatePublicAppointmentDto } from './dto/create-public-appointment.dto';
+import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 
 @ApiTags('Public Booking')
 @UseGuards(ThrottlerGuard)
@@ -92,11 +93,12 @@ export class PublicBookingController {
   }
 
   @Post(':username/appointments')
+  @UseGuards(OptionalJwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Create a public appointment',
     description:
-      'Creates an appointment through the public booking flow without authentication.',
+      'Creates an appointment through the public booking flow. Autenticação é opcional — não exigida para agendar, mas usada (quando presente) para distinguir a própria dona testando o link de uma cliente real.',
   })
   @ApiParam({
     name: 'username',
@@ -110,8 +112,9 @@ export class PublicBookingController {
   createAppointment(
     @Param('username') username: string,
     @Body() dto: CreatePublicAppointmentDto,
+    @Req() req: any,
   ) {
-    return this.service.createAppointment(username, dto);
+    return this.service.createAppointment(username, dto, req.user?.id);
   }
 
   @Get('status/:token')

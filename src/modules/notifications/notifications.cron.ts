@@ -1,8 +1,39 @@
 // @ts-nocheck
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsappService } from './whatsapp.service';
+import { ActivationStateService, ActivationSnapshot } from '../growth/activation-state.service';
+
+// Régua por calendário + estado. "dias" é sempre D+N desde o cadastro;
+// "hora" é o horário local de Brasília em que o toque deve sair. "condicao"
+// recebe o snapshot inteiro (não só o estado) porque T9 depende de
+// nProfissionais, não de S1-S5. Se ausente, o toque vale pra qualquer estado
+// (só depende do dia e de não ter assinado). Ver REGUA_RELACIONAMENTO_WHATSAPP.md §4.
+interface TouchRule {
+  touch: string;
+  dias: number;
+  hora: number;
+  condicao?: (snap: ActivationSnapshot) => boolean;
+}
+
+const TOUCH_RULES: TouchRule[] = [
+  { touch: 'T1', dias: 1, hora: 10, condicao: (s) => s.state === 'S1' }, // "S0 ou S1" no doc — S0 nao existe na pratica
+  { touch: 'T3', dias: 2, hora: 10, condicao: (s) => s.state === 'S2' },
+  { touch: 'T6', dias: 4, hora: 10, condicao: (s) => s.state === 'S2' }, // "S2 ainda" — mesmo teste, dia mais tarde
+  { touch: 'T7', dias: 5, hora: 15, condicao: (s) => s.state === 'S3' || s.state === 'S5' }, // "S3+"
+  { touch: 'T8', dias: 7, hora: 10 },
+  { touch: 'T9', dias: 8, hora: 15, condicao: (s) => s.nProfissionais >= 2 }, // so pra quem tem equipe
+  { touch: 'T10', dias: 10, hora: 10 },
+  { touch: 'T11', dias: 11, hora: 15 }, // ramifica na mensagem (dispatchTouch), nao no envio
+  { touch: 'T13', dias: 13, hora: 10 },
+  { touch: 'T14', dias: 14, hora: 9 },
+  // Doc não define hora pra T15/T16 (só "D+16" e "D+21") — 10h por padrão,
+  // dentro da janela 9h-20h, mesma hora da maioria dos outros toques.
+  { touch: 'T15', dias: 16, hora: 10, condicao: (s) => s.state !== 'S1' }, // "chegou a S2+"
+  { touch: 'T16', dias: 21, hora: 10 },
+];
+const MAX_DIAS_REGUA = Math.max(...TOUCH_RULES.map((r) => r.dias));
 
 @Injectable()
 export class NotificationsCron {
@@ -11,21 +42,22 @@ export class NotificationsCron {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsappService: WhatsappService,
+    private readonly activationStateService: ActivationStateService,
     // ❌ Removi o emailService daqui para o NestJS voltar a compilar perfeitamente
   ) {}
 
-  // ==========================================
-  // FUNÇÃO AUXILIAR PARA A RÉGUA DE DIAS
-  // ==========================================
-  private getTargetDate(daysAgo: number) {
-    const start = new Date();
-    start.setDate(start.getDate() - daysAgo);
-    start.setHours(0, 0, 0, 0);
+  // Hora local de Brasília — calculada por Intl (não pelo TZ do servidor)
+  // porque o cron pode rodar num container em UTC.
+  private brasiliaHour(now: Date = new Date()): number {
+    return Number(
+      new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' }).format(now),
+    );
+  }
 
-    const end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-
-    return { start, end };
+  // Janela de disparo da régua: 9h às 20h — nunca antes nem depois.
+  private isWithinSendWindow(now: Date = new Date()): boolean {
+    const hour = this.brasiliaHour(now);
+    return hour >= 9 && hour < 20;
   }
 
   // ==========================================
@@ -137,165 +169,193 @@ export class NotificationsCron {
   }
 
   // ==========================================
-  // 3. AVISOS DO SISTEMA SYNCRO (TRIAL ENDING / EXPIRED)
+  // T4 · O MOMENTO — primeira cliente REAL marcou (origem=CLIENTE), disparado
+  // por evento (activatedAt setado em appointments.service.ts). É o toque mais
+  // importante da régua: ver REGUA_RELACIONAMENTO_WHATSAPP.md.
+  //
+  // Roda a cada 5 min (chega em minutos, como o documento pede) e segura fora
+  // da janela 9h-20h — o mesmo agendamento pendente que "chegaria de manhã"
+  // simplesmente não bate a query até a janela abrir.
   // ==========================================
-  @Cron('0 * * * *')
-  async processSaaSLifecycle() {
-    const now = new Date();
+  @Cron('*/5 * * * *')
+  async processFirstClientBookingCelebration() {
+    if (!this.isWithinSendWindow()) return;
 
-    // AVISO DE 48 HORAS (DIA 12)
-    const target48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    const expiringUsers = await this.prisma.user.findMany({
+    const pendentes = await this.prisma.user.findMany({
       where: {
-        subscriptionStatus: 'TRIAL',
-        trialEndsAt: { lte: target48h, gt: now },
-        trialWarningSentAt: null, 
+        activatedAt: { not: null },
+        t4SentAt: null,
+        phone: { not: null },
+        whatsappOptin: true, // sem consentimento, nenhum toque sai — nem o mais importante
+        optOut: false,
       },
+      select: { id: true, name: true, phone: true },
     });
+    if (pendentes.length === 0) return;
 
-    for (const user of expiringUsers) {
-      let notificacaoEnviada = false;
-      if (user.phone) {
-        try {
-          await this.whatsappService.sendTrialEnding(user.phone, user.name);
-          notificacaoEnviada = true;
-        } catch (error) { this.logger.error(`❌ Falha WPP (48h) para ${user.name}`); }
-      }
-      if (user.email) {
-        try {
-          // 👇 A interrogação '?' protege o código caso a função de email não exista neste contexto
-          await this.emailService?.sendTrialEnding(user.email, user.name);
-          notificacaoEnviada = true;
-        } catch (error) { this.logger.error(`❌ Falha E-MAIL (48h) para ${user.name}`); }
-      }
-      if (notificacaoEnviada) {
-        await this.prisma.user.update({ where: { id: user.id }, data: { trialWarningSentAt: new Date() } });
-        this.logger.log(`⚠️ Avisos de 48h enviados para: ${user.name} (WPP/Email)`);
-      }
-    }
-
-    // TRIAL EXPIRADO (DIA 14)
-    const expiredUsers = await this.prisma.user.findMany({
-      where: {
-        subscriptionStatus: 'TRIAL',
-        trialEndsAt: { lte: now },
-        trialExpiredSentAt: null,
-      },
-    });
-
-    for (const user of expiredUsers) {
-      let notificacaoEnviada = false;
-      if (user.phone) {
-        try {
-          await this.whatsappService.sendTrialExpired(user.phone, user.name);
-          notificacaoEnviada = true;
-        } catch (error) { this.logger.error(`❌ Falha WPP (Expirado) para ${user.name}`); }
-      }
-      if (user.email) {
-        try {
-          // 👇 A interrogação '?' protege o código
-          await this.emailService?.sendTrialExpired(user.email, user.name);
-          notificacaoEnviada = true;
-        } catch (error) { this.logger.error(`❌ Falha E-MAIL (Expirado) para ${user.name}`); }
-      }
-      if (notificacaoEnviada) {
-        await this.prisma.user.update({ where: { id: user.id }, data: { trialExpiredSentAt: new Date(), subscriptionStatus: 'PAST_DUE' } });
-        this.logger.log(`❌ Avisos de Trial Expirado enviados para: ${user.name}`);
-      }
-    }
-  }
-
-  // ==========================================
-  // 4. NOVA RÉGUA DE ENGAJAMENTO (DIAS 3, 5 E 10)
-  // ==========================================
-  @Cron(CronExpression.EVERY_DAY_AT_10AM)
-  async processOnboardingJourney() {
-    this.logger.log('🚀 Iniciando régua de engajamento (Onboarding)...');
-
-    // --- DIA 3: A Funcionalidade "Uau" ---
-    const day3 = this.getTargetDate(3);
-    const usersDay3 = await this.prisma.user.findMany({
-      where: { createdAt: { gte: day3.start, lte: day3.end }, phone: { not: null } }
-    });
-
-    for (const user of usersDay3) {
-      const firstName = user.name.split(' ')[0];
-      const textDay3 = `${firstName}, sabe qual é o maior pesadelo de quem tem uma agenda lotada? *Faltas.* 📉\n\nCom o Syncro, você ativa o *Sinal via PIX* em 2 cliques. O seu cliente paga uma percentagem para confirmar o agendamento, e você blinda a sua receita. Adeus horários vazios!\n\nAtive a proteção contra faltas nas suas configurações financeiras: https://meusyncro.com.br/settings 🛡️⚡`;
-      await this.whatsappService.sendEngagementMessage(user.phone, textDay3).catch(e => this.logger.error(e));
-    }
-
-    // --- DIA 5: Dica de Ouro ---
-    const day5 = this.getTargetDate(5);
-    const usersDay5 = await this.prisma.user.findMany({
-      where: { createdAt: { gte: day5.start, lte: day5.end }, phone: { not: null } }
-    });
-
-    for (const user of usersDay5) {
-      const firstName = user.name.split(' ')[0];
-      const textDay5 = `Dica de ouro para você hoje, ${firstName}! 🏆\n\nA melhor plataforma do mundo não funciona se o seu cliente não achar o link. A mágica acontece quando você coloca o link da sua vitrine do Syncro na bio do seu Instagram.\n\nCopie o seu link e cole lá no Insta. Você vai começar a receber agendamentos enquanto dorme. 🚀🖤`;
-      await this.whatsappService.sendEngagementMessage(user.phone, textDay5).catch(e => this.logger.error(e));
-    }
-
-    // --- DIA 10: Prova Social & FOMO ---
-    const day10 = this.getTargetDate(10);
-    const usersDay10 = await this.prisma.user.findMany({
-      where: { createdAt: { gte: day10.start, lte: day10.end }, phone: { not: null }, subscriptionStatus: 'TRIAL' }
-    });
-
-    for (const user of usersDay10) {
-      const firstName = user.name.split(' ')[0];
-      const textDay10 = `O seu período de teste do Syncro termina em 4 dias, ${firstName}... ⏳\n\nEnquanto isso, centenas de profissionais já estão a faturar mais e a perder *zero tempo* com marcações manuais por mensagens. Não fique para trás nessa revolução digital.\n\nGaranta a sua paz de espírito e não deixe a sua vitrine sair do ar. Faça o upgrade para o PRO agora: https://meusyncro.com.br/billing ⚡`;
-      await this.whatsappService.sendEngagementMessage(user.phone, textDay10).catch(e => this.logger.error(e));
-    }
-
-    this.logger.log('✅ Régua de engajamento concluída.');
-  }
-
-  // ==========================================
-  // 5. RESGATE DE 24 HORAS (CLIENTES INATIVOS)
-  // ==========================================
-  @Cron(CronExpression.EVERY_HOUR)
-  async processDay1Rescue() {
-    this.logger.log('⏳ Iniciando varredura de resgate (24h) para inativos...');
-
-    const now = new Date();
-    // Cria uma janela que pega quem se cadastrou entre 25h e 24h atrás
-    const twentyFiveHoursAgo = new Date(now.getTime() - 25 * 60 * 60 * 1000);
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-    try {
-      const idleUsers = await this.prisma.user.findMany({
-        where: {
-          createdAt: {
-            gte: twentyFiveHoursAgo,
-            lt: twentyFourHoursAgo,
-          },
-          phone: { not: null },
-          // A trava que garante que o sistema só chame quem não configurou nada.
-          // Neste exemplo, filtra usuários que ainda não têm nenhum serviço criado:
-          services: {
-            none: {} 
-          }
-        },
+    for (const user of pendentes) {
+      const primeiroAgendamentoCliente = await this.prisma.appointment.findFirst({
+        where: { userId: user.id, origem: 'CLIENTE' },
+        orderBy: { createdAt: 'asc' },
+        include: { client: true, services: { include: { service: true } } },
       });
+      if (!primeiroAgendamentoCliente) continue; // nao deveria acontecer (activatedAt so seta junto)
 
-      for (const user of idleUsers) {
-        try {
-          await this.whatsappService.sendDay1Rescue(user.phone, user.name);
-          this.logger.log(`✅ Mensagem de resgate (24h) enviada para: ${user.name}`);
-          
-          // Pausa de 2 segundos entre os disparos para evitar bloqueio na API
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch (error) {
-          this.logger.error(`❌ Erro ao enviar resgate (24h) para ${user.name}`);
-        }
+      // Reserva antes de enviar: se outra rodada do cron ja pegou este tenant
+      // (nao deveria com 5 em 5 min, mas o guard e barato), o updateMany
+      // devolve count 0 e pulamos — evita reenvio duplicado do T4.
+      const reservado = await this.prisma.user.updateMany({
+        where: { id: user.id, t4SentAt: null },
+        data: { t4SentAt: new Date() },
+      });
+      if (reservado.count === 0) continue;
+
+      try {
+        const comboNames = primeiroAgendamentoCliente.services.map((s: any) => s.service?.name).join(' + ') || 'Serviço';
+        const enviado = await this.whatsappService.sendPrimeiroAgendamentoCliente(
+          user.phone,
+          user.name,
+          primeiroAgendamentoCliente.client?.name || 'Sua cliente',
+          comboNames,
+          primeiroAgendamentoCliente.date,
+        );
+        // sendMessage devolve false (nao lanca) quando o Evolution responde
+        // erro — instancia desconectada, 4xx. Sem este check, um false passava
+        // batido e o T4 ficava marcado como enviado sem ter saido.
+        if (!enviado) throw new Error('Evolution API retornou falha no envio');
+        this.logger.log(`🎉 T4 (primeiro agendamento de cliente real) enviado para ${user.name}`);
+      } catch (error: any) {
+        // Libera a reserva pra proxima rodada tentar de novo (mesmo padrao dos
+        // toques T1-T16). Sem isto, uma falha transitoria do Evolution perde o
+        // T4 pra sempre — e ele e o toque mais importante da regua.
+        await this.prisma.user.updateMany({
+          where: { id: user.id },
+          data: { t4SentAt: null },
+        }).catch(() => {});
+        this.logger.error(`❌ Falha ao enviar T4 para ${user.name}: ${error?.message}`);
       }
-      
-      if (idleUsers.length > 0) {
-        this.logger.log(`✅ Resgate concluído: ${idleUsers.length} inativos notificados.`);
+    }
+  }
+
+  // ==========================================
+  // T1 / T3 / T6 / T7 / T8 / T9 / T10 / T11 / T13 / T14 — régua por
+  // calendário + estado. Roda a cada 15 min; só age nas horas em que alguma
+  // regra bate (9h, 10h ou 15h, Brasília). Volume da conta cabe folgado numa
+  // varredura em memória — nada aqui precisa ser otimizado em SQL.
+  // Ver REGUA_RELACIONAMENTO_WHATSAPP.md §4.
+  // ==========================================
+  @Cron('*/15 * * * *')
+  async processStateBasedTouches() {
+    const horaAtual = this.brasiliaHour();
+    const regrasDaHora = TOUCH_RULES.filter((r) => r.hora === horaAtual);
+    if (regrasDaHora.length === 0) return;
+
+    const cutoff = new Date(Date.now() - (MAX_DIAS_REGUA + 1) * 24 * 60 * 60 * 1000);
+    const candidatos = await this.prisma.user.findMany({
+      where: {
+        subscriptionStatus: 'TRIAL', // "não assinou" é condição implícita de toda a régua a partir daqui
+        phone: { not: null },
+        whatsappOptin: true, // sem consentimento, nenhum toque sai
+        optOut: false,
+        createdAt: { gte: cutoff },
+      },
+      select: { id: true, name: true, phone: true, username: true, createdAt: true, trialEndsAt: true },
+    });
+
+    for (const user of candidatos) {
+      const diasDesdeCadastro = Math.floor((Date.now() - user.createdAt.getTime()) / (24 * 60 * 60 * 1000));
+      const regra = regrasDaHora.find((r) => r.dias === diasDesdeCadastro);
+      if (!regra) continue;
+
+      let snap: ActivationSnapshot | undefined;
+      if (regra.condicao) {
+        snap = await this.activationStateService.compute(user.id);
+        if (!regra.condicao(snap)) continue;
       }
-    } catch (error) {
-      this.logger.error('❌ Erro na varredura do banco (Resgate 24h):', error);
+
+      // Reserva o toque (o unique constraint é a trava real). Se já existe —
+      // de uma rodada anterior, ou porque o estado bateu em dois ticks da
+      // mesma hora — pula sem reenviar.
+      try {
+        await this.prisma.trialTouch.create({ data: { userId: user.id, touch: regra.touch } });
+      } catch {
+        continue;
+      }
+
+      try {
+        const enviado = await this.dispatchTouch(regra.touch, user, snap);
+        // Mesmo motivo do T4: sendMessage devolve false em vez de lançar
+        // quando o Evolution recusa. Sem este check o TrialTouch ficava
+        // gravado e o toque não era reenviado.
+        if (!enviado) throw new Error('Evolution API retornou falha no envio');
+        this.logger.log(`✅ ${regra.touch} enviado para ${user.name}`);
+      } catch (error: any) {
+        // Libera a reserva pra próxima rodada tentar de novo (mesmo padrão dos lembretes).
+        await this.prisma.trialTouch.delete({ where: { userId_touch: { userId: user.id, touch: regra.touch } } }).catch(() => {});
+        this.logger.error(`❌ Falha ao enviar ${regra.touch} para ${user.name}: ${error?.message}`);
+      }
+    }
+  }
+
+  private linkAssinatura(): string {
+    return `${process.env.APP_WEB_URL || 'https://meusyncro.com.br'}/billing`;
+  }
+
+  // Link público de saída fácil — obrigatório em toda mensagem de Marketing
+  // (T11, T16). Sem auth de propósito: é um unsubscribe, igual e-mail.
+  private optOutUrl(userId: string): string {
+    const apiUrl = process.env.API_PUBLIC_URL || 'https://api.meusyncro.com.br';
+    return `${apiUrl}/trial-touches/opt-out/${userId}`;
+  }
+
+  private async dispatchTouch(
+    touch: string,
+    user: { id: string; name: string; phone: string; username: string; trialEndsAt: Date | null },
+    // Snapshot já calculado pelo loop, quando a regra tinha condição de
+    // entrada. T11 não tem condição de entrada mas precisa do snapshot pra
+    // decidir o ramo da oferta — nesse caso computa na hora.
+    snapPrecalculado?: ActivationSnapshot,
+  ) {
+    switch (touch) {
+      case 'T1':
+        return this.whatsappService.sendBarreiraNomeada(user.phone, user.name, user.username);
+      case 'T3':
+        return this.whatsappService.sendDivulgarLink(user.phone, user.name, user.username);
+      case 'T6':
+        return this.whatsappService.sendLinkParado(user.phone, user.name, user.username);
+      case 'T7':
+        return this.whatsappService.sendSinalPix(user.phone, user.name);
+      case 'T8':
+        return this.whatsappService.sendMeioDoTeste(user.phone, user.name);
+      case 'T9': {
+        const nProfissionais = snapPrecalculado!.nProfissionais;
+        return this.whatsappService.sendComissao(user.phone, user.name, nProfissionais);
+      }
+      case 'T10':
+        return this.whatsappService.sendOQueAcontece(user.phone, user.name);
+      case 'T11': {
+        const snap = snapPrecalculado ?? (await this.activationStateService.compute(user.id));
+        return snap.nProfissionais >= 2
+          ? this.whatsappService.sendOfertaEquipe(user.phone, user.name, snap.nProfissionais, this.linkAssinatura(), this.optOutUrl(user.id))
+          : this.whatsappService.sendOfertaSolo(user.phone, user.name, user.username, this.linkAssinatura(), this.optOutUrl(user.id));
+      }
+      case 'T13':
+        return this.whatsappService.sendVenceAmanha(user.phone, user.name, user.trialEndsAt || new Date(), this.linkAssinatura());
+      case 'T14': {
+        const [nHorarios, nClientes] = await Promise.all([
+          this.prisma.appointment.count({ where: { userId: user.id } }),
+          this.prisma.client.count({ where: { userId: user.id } }),
+        ]);
+        return this.whatsappService.sendUltimoDia(user.phone, user.name, nHorarios, nClientes, this.linkAssinatura());
+      }
+      case 'T15': {
+        const nClientes = await this.prisma.client.count({ where: { userId: user.id } });
+        return this.whatsappService.sendAgendaGuardada(user.phone, user.name, nClientes, this.linkAssinatura());
+      }
+      case 'T16':
+        return this.whatsappService.sendUltimaChamada(user.phone, user.name, this.linkAssinatura(), this.optOutUrl(user.id));
+      default:
+        throw new Error(`Toque desconhecido: ${touch}`);
     }
   }
 

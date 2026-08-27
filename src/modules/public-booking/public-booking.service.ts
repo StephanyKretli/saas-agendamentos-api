@@ -166,15 +166,42 @@ export class PublicBookingService {
     return this.appointmentsService.getAvailability(tenantId, serviceId, date, professionalId, cartItemsStr, stepMinutes);
   }
 
-  async createAppointment(username: string, dto: CreatePublicAppointmentDto) {
+  /**
+   * Resolve se quem está criando o agendamento é a própria dona/equipe do
+   * salão (testando o próprio link) ou uma cliente real. Nunca confia em
+   * nada vindo do body — só na sessão autenticada (opcional) do request.
+   * Sem isso, o primeiro horário que ela mesma lança pelo /book/ é
+   * confundido com o primeiro agendamento real de cliente (S3).
+   * Ver REGUA_RELACIONAMENTO_WHATSAPP.md §8.
+   */
+  private async resolveOrigem(tenantId: string, requestingUserId?: string): Promise<'PROFISSIONAL' | 'CLIENTE'> {
+    if (!requestingUserId) return 'CLIENTE';
+
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requestingUserId },
+      select: { id: true, ownerId: true },
+    });
+    // Token válido cujo usuário não existe mais (conta deletada). Anomalia
+    // rara — resolvemos como PROFISSIONAL de propósito: fail closed, igual ao
+    // default da coluna `origem`. Contar ativação (S3) por engano dispara o
+    // T4 falso ("sua primeira cliente marcou!"), o toque mais sensível da
+    // régua. Uma ativação perdida custa menos que um T4 falso.
+    if (!requester) return 'PROFISSIONAL';
+
+    const requesterTenantId = requester.ownerId ?? requester.id;
+    return requesterTenantId === tenantId ? 'PROFISSIONAL' : 'CLIENTE';
+  }
+
+  async createAppointment(username: string, dto: CreatePublicAppointmentDto, requestingUserId?: string) {
     const normalizedUsername = username.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
       where: { username: normalizedUsername },
-      select: { id: true, username: true, ownerId: true }, 
+      select: { id: true, username: true, ownerId: true },
     });
-    
+
     if (!user) throw new BadRequestException('Página não encontrada.');
     const tenantId = user.ownerId ? user.ownerId : user.id;
+    const origem = await this.resolveOrigem(tenantId, requestingUserId);
 
     // 🌟 1. Lê o carrinho do Front-end
     const cartServices = dto.services || [];
@@ -200,7 +227,7 @@ export class PublicBookingService {
     const appointment = await this.appointmentsService.create(tenantId, {
       serviceId: dto.serviceId, // Mantemos por segurança retroativa
       services: dto.services,   // O array novo maravilhoso
-      professionalId: dto.professionalId, 
+      professionalId: dto.professionalId,
       date: dto.date,
       notes: dto.notes,
       client: {
@@ -208,7 +235,7 @@ export class PublicBookingService {
         phone: dto.clientPhone,
         email: dto.clientEmail,
       },
-    });
+    }, origem);
 
     const publicCancelPath = `/cancel/${appointment.publicCancelToken}`;
     const appWebUrl = process.env.APP_WEB_URL ?? 'https://meusyncro.com.br';

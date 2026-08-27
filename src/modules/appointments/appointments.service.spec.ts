@@ -9,6 +9,8 @@ describe('AppointmentsService', () => {
     user: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     businessHour: {
       findMany: jest.fn(),

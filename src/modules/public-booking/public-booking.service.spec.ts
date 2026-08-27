@@ -193,4 +193,57 @@ describe('PublicBookingService', () => {
       30,
     );
   });
+
+  describe('createAppointment — origem (armadilha do auto-agendamento)', () => {
+    function mockLinkDoSalao() {
+      prismaMock.user.findUnique.mockImplementation(({ where }: any) => {
+        if (where.username === 'stephany') return Promise.resolve({ id: 'salao_1', username: 'stephany', ownerId: null });
+        if (where.id === 'salao_1') return Promise.resolve({ id: 'salao_1', ownerId: null }); // a propria dona
+        if (where.id === 'membro_1') return Promise.resolve({ id: 'membro_1', ownerId: 'salao_1' }); // membro da equipe
+        if (where.id === 'salao_2') return Promise.resolve({ id: 'salao_2', ownerId: null }); // dona de OUTRO salao
+        return Promise.resolve(null);
+      });
+      prismaMock.service.findMany.mockResolvedValue([{ id: 'service_1', name: 'Volume Russo', hasMaintenance: false }]);
+      appointmentsServiceMock.create.mockResolvedValue({
+        id: 'appt_1', publicCancelToken: 'tok', paymentStatus: 'NOT_REQUIRED', pixPayload: null, client: {},
+      });
+    }
+
+    const dto = {
+      serviceId: 'service_1',
+      date: '2026-03-10T10:00',
+      clientName: 'Maria',
+      clientPhone: '31999999999',
+    } as any;
+
+    it('visitante anonima (sem sessao) conta como CLIENTE', async () => {
+      mockLinkDoSalao();
+      await service.createAppointment('stephany', dto, undefined);
+      expect(appointmentsServiceMock.create).toHaveBeenCalledWith('salao_1', expect.anything(), 'CLIENTE');
+    });
+
+    it('a propria dona logada testando o proprio link conta como PROFISSIONAL', async () => {
+      mockLinkDoSalao();
+      await service.createAppointment('stephany', dto, 'salao_1');
+      expect(appointmentsServiceMock.create).toHaveBeenCalledWith('salao_1', expect.anything(), 'PROFISSIONAL');
+    });
+
+    it('membro da equipe logado testando o link do salao conta como PROFISSIONAL', async () => {
+      mockLinkDoSalao();
+      await service.createAppointment('stephany', dto, 'membro_1');
+      expect(appointmentsServiceMock.create).toHaveBeenCalledWith('salao_1', expect.anything(), 'PROFISSIONAL');
+    });
+
+    it('dona de OUTRO salao logada, marcando neste link, ainda conta como CLIENTE', async () => {
+      mockLinkDoSalao();
+      await service.createAppointment('stephany', dto, 'salao_2');
+      expect(appointmentsServiceMock.create).toHaveBeenCalledWith('salao_1', expect.anything(), 'CLIENTE');
+    });
+
+    it('token valido cujo usuario nao existe mais conta como PROFISSIONAL (fail closed, protege o T4)', async () => {
+      mockLinkDoSalao();
+      await service.createAppointment('stephany', dto, 'fantasma_999');
+      expect(appointmentsServiceMock.create).toHaveBeenCalledWith('salao_1', expect.anything(), 'PROFISSIONAL');
+    });
+  });
 });

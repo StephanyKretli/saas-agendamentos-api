@@ -133,7 +133,13 @@ export class AppointmentsService {
     });
   }
 
-  async create(userId: string, dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean, services?: { serviceId: string, isMaintenance: boolean }[] }) {
+  async create(
+    userId: string,
+    dto: CreateAppointmentDto & { professionalId?: string, isMaintenance?: boolean, services?: { serviceId: string, isMaintenance: boolean }[] },
+    // Nunca vem do DTO/body: quem chama a rota pública resolve isso a partir
+    // da sessão (ou ausência dela), não do que o request alega ser.
+    origem: 'PROFISSIONAL' | 'CLIENTE' = 'PROFISSIONAL',
+  ) {
     // 🌟 1. Extraímos a flag ignoreAvailabilityRules do DTO
     const { date, professionalId, clientId, notes, client, ignoreAvailabilityRules } = dto;
     
@@ -243,6 +249,7 @@ export class AppointmentsService {
       return (tx.appointment.create as any)({
         data: {
           userId: ownerId, professionalId: targetUserId, clientId: resolvedClientId || '', date: start, notes: notes || null, status: 'SCHEDULED', isVIP: ignoreAvailabilityRules || false,
+          origem,
           paymentStatus: depositCents > 0 ? 'PENDING' : 'NOT_REQUIRED', depositCents: depositCents > 0 ? depositCents : null,
           publicCancelToken: this.generatePublicCancelToken(), publicCancelTokenExpiresAt: this.getPublicCancelTokenExpiresAt(),
           
@@ -315,6 +322,24 @@ export class AppointmentsService {
         }
       }
     }
+
+    // Marca atividade do tenant pra régua de trial (estado RESFRIANDO). Não
+    // bloqueia a resposta do agendamento se falhar — é telemetria, não regra de negócio.
+    const nowTs = new Date();
+    this.prisma.user.update({
+      where: { id: settings.salonOwnerId },
+      data: { lastProductEventAt: nowTs },
+    }).catch((e: any) => this.logger.error(`Falha ao atualizar lastProductEventAt: ${e?.message}`));
+
+    if (origem === 'CLIENTE') {
+      // Marco de ativação (S3): só a PRIMEIRA vale. O guard "activatedAt: null"
+      // no where garante que uma cliente real seguinte nunca reescreve a data.
+      this.prisma.user.updateMany({
+        where: { id: settings.salonOwnerId, activatedAt: null },
+        data: { activatedAt: nowTs },
+      }).catch((e: any) => this.logger.error(`Falha ao marcar activatedAt: ${e?.message}`));
+    }
+
     return finalAppointment;
   }
 

@@ -24,9 +24,28 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    // ✅ Corrigido para chamar o service
-    return this.authService.register(dto);
+  register(@Body() dto: RegisterDto, @Req() req: any) {
+    // IP só é usado pra comprovar o opt-in do WhatsApp (LGPD/Meta) se ela
+    // marcar a caixa — ver register() no service.
+    //
+    // A VPS tem um unico Nginx na frente, sem CDN. Config padrao do Nginx usa
+    // $proxy_add_x_forwarded_for, que ACRESCENTA o peer ao XFF que veio do
+    // cliente em vez de substituir — pegar o primeiro valor (split(',')[0])
+    // pega exatamente o que um cliente malicioso forjou. O IP real e o
+    // ULTIMO valor da lista.
+    //
+    // X-Real-IP tambem e um header que o cliente pode mandar — só e confiavel
+    // se o Nginx estiver sobrescrevendo, e isso ainda NAO foi confirmado.
+    // Ate confirmar, XFF.pop() vem primeiro: no cenario padrao (Nginx so seta
+    // XFF, sem X-Real-IP) ele ja acerta; e se um atacante mandar um
+    // X-Real-IP forjado sem o Nginx sobrescrever, ele nao teria prioridade
+    // sobre o XFF de qualquer forma. Só promova X-Real-IP pra frente depois
+    // de confirmar via `grep proxy_set_header` que o Nginx o define.
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',').pop()?.trim() ||
+      (req.headers['x-real-ip'] as string) ||
+      req.ip;
+    return this.authService.register(dto, ip);
   }
 
   @Post('login')
@@ -68,7 +87,7 @@ export class AuthController {
   @UseGuards(AuthGuard('google')) // 👈 Este continua normal, sem o prompt
   async googleAuthRedirect(@Req() req, @Res() res: Response) {
     const result = await this.authService.validateOAuthLogin(req.user);
-    
+
     // Como estamos no Backend, temos de redirecionar de volta para o Frontend (Next.js)
     // Passamos o token na URL para o Frontend conseguir guardá-lo
     

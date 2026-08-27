@@ -22,7 +22,8 @@ import { SettingsModule } from './settings/settings.module';
 import { TeamModule } from './modules/team/team.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PaymentsModule } from './modules/payments/payments.module';
-import { SupportModule } from './modules/support/support.module'; 
+import { SupportModule } from './modules/support/support.module';
+import { GrowthModule } from './modules/growth/growth.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -46,7 +47,8 @@ import { AppController } from './app.controller';
     TeamModule,
     NotificationsModule, 
     PaymentsModule,
-    SupportModule, 
+    SupportModule,
+    GrowthModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

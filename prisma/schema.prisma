@@ -34,6 +34,12 @@ enum BookingOrigem {
   CLIENTE
 }
 
+enum TrialTouchStatus {
+  PENDENTE
+  ENVIADO
+  FALHOU
+}
+
 model User {
   id                String    @id @default(cuid())
   email             String    @unique
@@ -134,10 +140,13 @@ model User {
 // T6, T8, T10, T13, T14...). Uma linha por toque efetivamente enviado — a
 // unicidade (userId, touch) é a garantia de que nunca reenvia.
 model TrialTouch {
-  id     String   @id @default(cuid())
-  userId String
-  touch  String // "T1" | "T3" | "T6" | "T8" | "T10" | "T13" | "T14" | ...
-  sentAt DateTime @default(now())
+  id         String            @id @default(cuid())
+  userId     String
+  touch      String // "T1" | "T3" | "T6" | "T8" | "T10" | "T13" | "T14" | ...
+  sentAt     DateTime          @default(now())
+  status     TrialTouchStatus  @default(PENDENTE)
+  tentativas Int               @default(0)
+  erro       String?           @db.Text // mensagem do último erro de envio, quando status = FALHOU
 
   user User @relation(fields: [userId], references: [id])
 

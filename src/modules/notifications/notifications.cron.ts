@@ -35,6 +35,11 @@ const TOUCH_RULES: TouchRule[] = [
 ];
 const MAX_DIAS_REGUA = Math.max(...TOUCH_RULES.map((r) => r.dias));
 
+// Depois de N falhas de envio do mesmo toque, para de tentar — sem isto o
+// cron reintentava pra sempre, a cada 15 min, um número que nunca vai
+// funcionar (ex.: sem WhatsApp).
+const MAX_TENTATIVAS_TOQUE = 5;
+
 @Injectable()
 export class NotificationsCron {
   private readonly logger = new Logger(NotificationsCron.name);
@@ -275,11 +280,23 @@ export class NotificationsCron {
 
       // Reserva o toque (o unique constraint é a trava real). Se já existe —
       // de uma rodada anterior, ou porque o estado bateu em dois ticks da
-      // mesma hora — pula sem reenviar.
+      // mesma hora — só reserva de novo se a tentativa anterior falhou e
+      // ainda não estourou o limite. Já ENVIADO, ou já esgotado, pula.
       try {
-        await this.prisma.trialTouch.create({ data: { userId: user.id, touch: regra.touch } });
+        await this.prisma.trialTouch.create({
+          data: { userId: user.id, touch: regra.touch, status: 'PENDENTE', tentativas: 1 },
+        });
       } catch {
-        continue;
+        const reservado = await this.prisma.trialTouch.updateMany({
+          where: {
+            userId: user.id,
+            touch: regra.touch,
+            status: 'FALHOU',
+            tentativas: { lt: MAX_TENTATIVAS_TOQUE },
+          },
+          data: { status: 'PENDENTE', tentativas: { increment: 1 } },
+        });
+        if (reservado.count === 0) continue;
       }
 
       try {
@@ -288,10 +305,19 @@ export class NotificationsCron {
         // quando o Evolution recusa. Sem este check o TrialTouch ficava
         // gravado e o toque não era reenviado.
         if (!enviado) throw new Error('Evolution API retornou falha no envio');
+        await this.prisma.trialTouch.update({
+          where: { userId_touch: { userId: user.id, touch: regra.touch } },
+          data: { status: 'ENVIADO', erro: null },
+        });
         this.logger.log(`✅ ${regra.touch} enviado para ${user.name}`);
       } catch (error: any) {
-        // Libera a reserva pra próxima rodada tentar de novo (mesmo padrão dos lembretes).
-        await this.prisma.trialTouch.delete({ where: { userId_touch: { userId: user.id, touch: regra.touch } } }).catch(() => {});
+        // Marca a falha em vez de apagar a reserva — assim "falhou 500 vezes"
+        // fica visível e diferente de "nunca rodou". O retry na próxima
+        // rodada continua acontecendo (via updateMany acima), até o limite.
+        await this.prisma.trialTouch.update({
+          where: { userId_touch: { userId: user.id, touch: regra.touch } },
+          data: { status: 'FALHOU', erro: String(error?.message ?? 'Erro desconhecido').slice(0, 1000) },
+        }).catch(() => {});
         this.logger.error(`❌ Falha ao enviar ${regra.touch} para ${user.name}: ${error?.message}`);
       }
     }

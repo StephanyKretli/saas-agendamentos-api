@@ -42,7 +42,8 @@ describe('NotificationsCron.processStateBasedTouches', () => {
       },
       trialTouch: {
         create: jest.fn().mockResolvedValue({}),
-        delete: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       appointment: {
         count: jest.fn().mockResolvedValue(0),
@@ -85,8 +86,14 @@ describe('NotificationsCron.processStateBasedTouches', () => {
 
     await cron.processStateBasedTouches();
 
-    expect(prisma.trialTouch.create).toHaveBeenCalledWith({ data: { userId: 'salao_1', touch: 'T1' } });
+    expect(prisma.trialTouch.create).toHaveBeenCalledWith({
+      data: { userId: 'salao_1', touch: 'T1', status: 'PENDENTE', tentativas: 1 },
+    });
     expect(whatsapp.sendBarreiraNomeada).toHaveBeenCalledWith('31999999999', 'Stephany Kretli', 'stephany');
+    expect(prisma.trialTouch.update).toHaveBeenCalledWith({
+      where: { userId_touch: { userId: 'salao_1', touch: 'T1' } },
+      data: { status: 'ENVIADO', erro: null },
+    });
   });
 
   it('T1: NAO dispara se ela ja passou pra S2 (condicao de supressao)', async () => {
@@ -159,7 +166,7 @@ describe('NotificationsCron.processStateBasedTouches', () => {
     expect(whatsapp.sendMeioDoTeste).not.toHaveBeenCalled();
   });
 
-  it('se o envio falhar, libera a reserva (deleta o TrialTouch) pra proxima rodada tentar de novo', async () => {
+  it('se o envio falhar, marca o TrialTouch como FALHOU com o erro (nao apaga mais)', async () => {
     const now = new Date(DEZ_HORAS_BRASILIA_UTC);
     jest.setSystemTime(now);
     prisma.user.findMany.mockResolvedValue([mockUser({ createdAt: diasAtras(now, 7) })]);
@@ -167,10 +174,13 @@ describe('NotificationsCron.processStateBasedTouches', () => {
 
     await cron.processStateBasedTouches();
 
-    expect(prisma.trialTouch.delete).toHaveBeenCalledWith({ where: { userId_touch: { userId: 'salao_1', touch: 'T8' } } });
+    expect(prisma.trialTouch.update).toHaveBeenCalledWith({
+      where: { userId_touch: { userId: 'salao_1', touch: 'T8' } },
+      data: { status: 'FALHOU', erro: 'wpp down' },
+    });
   });
 
-  it('se o envio devolver false (Evolution recusou, sem lançar), tambem libera a reserva', async () => {
+  it('se o envio devolver false (Evolution recusou, sem lançar), tambem marca FALHOU', async () => {
     const now = new Date(DEZ_HORAS_BRASILIA_UTC);
     jest.setSystemTime(now);
     prisma.user.findMany.mockResolvedValue([mockUser({ createdAt: diasAtras(now, 7) })]);
@@ -178,7 +188,38 @@ describe('NotificationsCron.processStateBasedTouches', () => {
 
     await cron.processStateBasedTouches();
 
-    expect(prisma.trialTouch.delete).toHaveBeenCalledWith({ where: { userId_touch: { userId: 'salao_1', touch: 'T8' } } });
+    expect(prisma.trialTouch.update).toHaveBeenCalledWith({
+      where: { userId_touch: { userId: 'salao_1', touch: 'T8' } },
+      data: { status: 'FALHOU', erro: 'Evolution API retornou falha no envio' },
+    });
+  });
+
+  it('depois de esgotar as tentativas, para de tentar (nao reserva de novo)', async () => {
+    const now = new Date(DEZ_HORAS_BRASILIA_UTC);
+    jest.setSystemTime(now);
+    prisma.user.findMany.mockResolvedValue([mockUser({ createdAt: diasAtras(now, 7) })]);
+    prisma.trialTouch.create.mockRejectedValue(new Error('Unique constraint failed on the fields: (`userId`,`touch`)'));
+    prisma.trialTouch.updateMany.mockResolvedValue({ count: 0 }); // ja tem 5 tentativas ou ja foi ENVIADO
+
+    await cron.processStateBasedTouches();
+
+    expect(prisma.trialTouch.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'salao_1', touch: 'T8', status: 'FALHOU', tentativas: { lt: 5 } },
+      data: { status: 'PENDENTE', tentativas: { increment: 1 } },
+    });
+    expect(whatsapp.sendMeioDoTeste).not.toHaveBeenCalled();
+  });
+
+  it('se ainda nao esgotou as tentativas, reserva de novo e reenvia', async () => {
+    const now = new Date(DEZ_HORAS_BRASILIA_UTC);
+    jest.setSystemTime(now);
+    prisma.user.findMany.mockResolvedValue([mockUser({ createdAt: diasAtras(now, 7) })]);
+    prisma.trialTouch.create.mockRejectedValue(new Error('Unique constraint failed on the fields: (`userId`,`touch`)'));
+    prisma.trialTouch.updateMany.mockResolvedValue({ count: 1 });
+
+    await cron.processStateBasedTouches();
+
+    expect(whatsapp.sendMeioDoTeste).toHaveBeenCalledWith('31999999999', 'Stephany Kretli');
   });
 
   it('T7: dispara às 15h de D+5 quando o estado ja e S3+', async () => {

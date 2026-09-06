@@ -134,6 +134,14 @@ model User {
   // opt-out, não volta sozinho.
   optOut   Boolean   @default(false)
   optOutAt DateTime?
+
+  // Fim do fluxo de onboarding guiado (/onboarding): existe link público e ele
+  // funciona. NÃO é o mesmo que `activatedAt` (primeira CLIENTE real marcou) —
+  // aquele é marco da régua e alimenta o T4; este só diz que ela terminou a
+  // configuração mínima. Marcado ao renderizar o passo "seu link está pronto".
+  onboardingCompletedAt DateTime?
+
+  onboardingEvents OnboardingEvent[]
 }
 
 // Log de disparo dos toques por calendário/estado da régua de trial (T1, T3,
@@ -321,4 +329,18 @@ model ProcessedWebhookEvent {
   id          String   @id @default(cuid())
   eventKey    String   @unique // ex: "asaas:PAYMENT_CONFIRMED:pay_xxx"
   processedAt DateTime @default(now())
+}
+
+// Telemetria do funil de onboarding guiado (/onboarding). Uma linha por
+// transição de passo — responde "em que passo a pessoa parou?" sem palpite.
+// Aditivo, nunca destrutivo. Não alimenta nenhuma regra de negócio.
+model OnboardingEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  step      Int // 1..5
+  action    String // 'entrou' | 'concluiu' | 'pulou'
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, step])
 }

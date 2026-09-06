@@ -24,6 +24,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SupportModule } from './modules/support/support.module';
 import { GrowthModule } from './modules/growth/growth.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -49,6 +50,7 @@ import { AppController } from './app.controller';
     PaymentsModule,
     SupportModule,
     GrowthModule,
+    OnboardingModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

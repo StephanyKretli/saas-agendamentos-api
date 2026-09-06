@@ -50,6 +50,9 @@ export class SettingsService {
       plan: currentUser.plan,
       maxMembers: currentUser.maxMembers,
       ownerId: currentUser.ownerId,
+      // Fim do onboarding guiado — o painel usa pra só então mostrar o wizard
+      // antigo (config avançada) em vez do fluxo novo.
+      onboardingCompletedAt: currentUser.onboardingCompletedAt,
 
       // --- DADOS DO NEGÓCIO/FINANCEIRO ---
       timezone: businessData.timezone,

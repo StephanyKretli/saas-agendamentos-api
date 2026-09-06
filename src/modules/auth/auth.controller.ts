@@ -4,8 +4,9 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { Body, Controller, Get, Post, Req, Res, UseGuards, Injectable, ExecutionContext } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards, Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 
 // 👇 Nova classe que força a escolha da conta para não dar erro no TypeScript
@@ -52,6 +53,14 @@ export class AuthController {
   login(@Body() dto: LoginDto) {
     // ✅ Corrigido para chamar o service
     return this.authService.login(dto);
+  }
+
+  // Público (usado no debounce do passo 1 do onboarding e no cadastro).
+  // Throttle próprio, mais apertado que o global, por ser sem auth.
+  @Get('username-available')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  checkUsername(@Query('u') u: string) {
+    return this.authService.checkUsernameAvailable(u ?? '');
   }
 
   @ApiBearerAuth('jwt')

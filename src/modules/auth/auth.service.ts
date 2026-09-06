@@ -12,6 +12,10 @@ import { LoginDto } from './dto/login.dto';
 import { AsaasService } from '../payments/asaas.service'; 
 import { EmailService } from '../email/email.service';
 import { WhatsappService } from '../notifications/whatsapp.service';
+import {
+  slugifyUsername,
+  suggestAvailableUsername,
+} from '../../common/username';
 import axios from 'axios';
 import * as crypto from 'crypto';
 
@@ -131,6 +135,26 @@ export class AuthService {
     return user;
   }
 
+  /**
+   * Checagem pública (com debounce no front) da disponibilidade do link.
+   * Devolve o slug normalizado, se está livre e — quando ocupado — uma
+   * sugestão livre (`slug-2`, `slug-3`...).
+   */
+  async checkUsernameAvailable(raw: string) {
+    const slug = slugifyUsername(raw || '');
+    if (slug.length < 3) {
+      return { slug, available: false, reason: 'muito-curto' as const };
+    }
+    const existing = await this.prisma.user.findUnique({
+      where: { username: slug },
+      select: { id: true },
+    });
+    if (!existing) return { slug, available: true };
+
+    const suggestion = await suggestAvailableUsername(this.prisma, slug);
+    return { slug, available: false, suggestion };
+  }
+
   async login(dto: LoginDto) {
     const normalizedEmail = dto.email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -195,16 +219,18 @@ export class AuthService {
         asaasCustomerId = asaasCustomer.id;
       } catch (error) {}
 
-      const randomPassword = crypto.randomUUID(); 
+      const randomPassword = crypto.randomUUID();
       const passwordHash = await bcrypt.hash(randomPassword, 10);
-      let baseUsername = email.split('@')[0];
-       
+      // `email.split('@')[0]` colide (joao@x.com e joao@y.com) e estourava
+      // P2002 no segundo cadastro Google. Resolve com sufixo incremental.
+      const username = await suggestAvailableUsername(this.prisma, email.split('@')[0]);
+
       user = await this.prisma.user.create({
         data: {
           name: `${googleUser.firstName} ${googleUser.lastName}`,
           email: email,
           password: passwordHash,
-          username: baseUsername, 
+          username,
           trialEndsAt: trialEndsAt,
           subscriptionStatus: 'TRIAL',
           plan: 'PRO',

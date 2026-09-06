@@ -19,6 +19,7 @@ describe('AuthService', () => {
   const prismaMock = {
     user: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
   };
@@ -208,5 +209,36 @@ describe('AuthService', () => {
         password: '123456',
       }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  describe('checkUsernameAvailable', () => {
+    it('slug livre: available=true, sem sugestão', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      const res = await service.checkUsernameAvailable('Studio Beauty');
+
+      expect(res).toEqual({ slug: 'studio-beauty', available: true });
+      expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
+        where: { username: 'studio-beauty' },
+        select: { id: true },
+      });
+    });
+
+    it('slug ocupado: available=false + sugestão livre (slug-2)', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ id: 'outro' });
+      prismaMock.user.findMany.mockResolvedValue([{ username: 'studio-beauty' }]);
+
+      const res = await service.checkUsernameAvailable('studio beauty');
+
+      expect(res.available).toBe(false);
+      expect(res.suggestion).toBe('studio-beauty-2');
+    });
+
+    it('menos de 3 chars: available=false com motivo, sem ir ao banco', async () => {
+      const res = await service.checkUsernameAvailable('ab');
+
+      expect(res).toEqual({ slug: 'ab', available: false, reason: 'muito-curto' });
+      expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    });
   });
 });

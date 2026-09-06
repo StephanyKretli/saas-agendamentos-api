@@ -84,6 +84,7 @@ export class OnboardingEmailCron {
         createdAt: { lt: cutoff },
         onboardingCompletedAt: null,
         optOut: false,
+        isTest: false, // conta de teste da fundadora nunca entra na régua
         trialTouches: { none: { touch: EMAIL_1 } },
       },
       select: { id: true },
@@ -114,6 +115,7 @@ export class OnboardingEmailCron {
       where: {
         onboardingCompletedAt: null,
         optOut: false,
+        isTest: false, // conta de teste da fundadora nunca entra na régua
         trialTouches: {
           some: {
             touch: EMAIL_1,
@@ -165,7 +167,12 @@ export class OnboardingEmailCron {
    */
   private async retryFailed(step: Step, touch: string): Promise<void> {
     const falhas = await this.prisma.trialTouch.findMany({
-      where: { touch, status: 'FALHOU', tentativas: { lt: MAX_TENTATIVAS } },
+      where: {
+        touch,
+        status: 'FALHOU',
+        tentativas: { lt: MAX_TENTATIVAS },
+        user: { isTest: false }, // não reprocessa toque de conta de teste
+      },
       select: { userId: true },
       take: BATCH,
     });

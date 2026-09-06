@@ -59,6 +59,7 @@ describe('OnboardingEmailCron', () => {
     const w = whereEmail1();
     expect(w.onboardingCompletedAt).toBeNull();
     expect(w.optOut).toBe(false);
+    expect(w.isTest).toBe(false); // conta de teste da fundadora fica de fora
     expect(w.trialTouches).toEqual({ none: { touch: 'EMAIL_ONB_1' } });
     expect(w.createdAt.lt).toBeInstanceOf(Date);
   });
@@ -80,6 +81,7 @@ describe('OnboardingEmailCron', () => {
     expect(w.trialTouches.none).toEqual({ touch: 'EMAIL_ONB_2' });
     expect(w.onboardingCompletedAt).toBeNull();
     expect(w.optOut).toBe(false);
+    expect(w.isTest).toBe(false); // conta de teste da fundadora fica de fora
   });
 
   // -------------------------------------------------------------------------
@@ -196,6 +198,7 @@ describe('OnboardingEmailCron', () => {
     expect(retryQuery.where).toMatchObject({
       status: 'FALHOU',
       tentativas: { lt: 5 },
+      user: { isTest: false }, // retentativa também ignora conta de teste
     });
     expect(prisma.trialTouch.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -151,6 +151,11 @@ model User {
   // configuração mínima. Marcado ao renderizar o passo "seu link está pronto".
   onboardingCompletedAt DateTime?
 
+  // Conta de teste da fundadora (não é cadastro real). Retroativa por natureza
+  // — ninguém sabe no momento do cadastro. Marcada por SQL manual. Toda métrica
+  // de funil e a régua de notificações filtram `isTest = false`.
+  isTest Boolean @default(false)
+
   onboardingEvents OnboardingEvent[]
 }
 

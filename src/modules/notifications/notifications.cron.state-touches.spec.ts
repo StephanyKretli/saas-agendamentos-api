@@ -78,6 +78,24 @@ describe('NotificationsCron.processStateBasedTouches', () => {
     jest.useRealTimers();
   });
 
+  it('conta de teste (isTest=true) nunca entra: a selecao de candidatos filtra isTest: false', async () => {
+    jest.setSystemTime(new Date(DEZ_HORAS_BRASILIA_UTC)); // 10h → alguma regra bate
+    prisma.user.findMany.mockResolvedValue([]);
+
+    await cron.processStateBasedTouches();
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          subscriptionStatus: 'TRIAL',
+          whatsappOptin: true,
+          optOut: false,
+          isTest: false,
+        }),
+      }),
+    );
+  });
+
   it('T1: dispara às 10h de D+1 quando o estado é S1', async () => {
     const now = new Date(DEZ_HORAS_BRASILIA_UTC);
     jest.setSystemTime(now);

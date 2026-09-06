@@ -193,6 +193,7 @@ export class NotificationsCron {
         phone: { not: null },
         whatsappOptin: true, // sem consentimento, nenhum toque sai — nem o mais importante
         optOut: false,
+        isTest: false, // conta de teste da fundadora nunca entra na régua
       },
       select: { id: true, name: true, phone: true },
     });
@@ -262,6 +263,7 @@ export class NotificationsCron {
         phone: { not: null },
         whatsappOptin: true, // sem consentimento, nenhum toque sai
         optOut: false,
+        isTest: false, // conta de teste da fundadora nunca entra na régua
         createdAt: { gte: cutoff },
       },
       select: { id: true, name: true, phone: true, username: true, createdAt: true, trialEndsAt: true },

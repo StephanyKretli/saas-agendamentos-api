@@ -48,6 +48,16 @@ describe('NotificationsCron.processFirstClientBookingCelebration', () => {
     );
   });
 
+  it('conta de teste (isTest=true) nunca entra: a selecao filtra isTest: false', async () => {
+    await cron.processFirstClientBookingCelebration();
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ isTest: false }),
+      }),
+    );
+  });
+
   it('envia a celebracao com os dados do primeiro agendamento de cliente real', async () => {
     prisma.user.findMany.mockResolvedValue([{ id: 'salao_1', name: 'Stephany', phone: '31999999999' }]);
     prisma.appointment.findFirst.mockResolvedValue({

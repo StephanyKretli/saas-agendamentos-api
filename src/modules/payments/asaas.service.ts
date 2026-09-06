@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { brDateString } from '../../common/date/br-date';
 
 @Injectable()
 export class AsaasService {
@@ -48,9 +49,10 @@ export class AsaasService {
       return { id: `sub_simulated_${Date.now()}`, invoiceUrl: 'https://sandbox.asaas.com/simulacao' };
     }
 
-    // A primeira cobrança vence hoje (ou amanhã)
-    const nextDueDate = new Date();
-    
+    // Vencimento no fuso de Brasília — `new Date().toISOString()` no container
+    // (UTC) devolvia a data errada entre 21h e 24h BRT.
+    const nextDueDate = brDateString();
+
     try {
       const response = await fetch(`${this.apiUrl}/subscriptions`, {
         method: 'POST',
@@ -62,7 +64,7 @@ export class AsaasService {
           customer: customerId,
           billingType: 'UNDEFINED', // Deixa o Asaas gerar um link onde o salão escolhe como quer pagar (Cartão ou PIX)
           value,
-          nextDueDate: nextDueDate.toISOString().split('T')[0],
+          nextDueDate,
           cycle,
           description: 'Mensalidade - SaaS Agendamentos Premium',
         }),

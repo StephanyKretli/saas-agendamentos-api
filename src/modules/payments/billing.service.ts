@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { brDateStringPlusDays } from '../../common/date/br-date';
 import axios from 'axios';
 
 // Plano único (unificação Starter/Pro). O Asaas não tem conceito de "produto"
@@ -8,6 +9,14 @@ import axios from 'axios';
 // então não há um "ID de plano" para mover pra env var. O que era hardcoded
 // de verdade era o VALOR; é isso que vira configurável aqui.
 export const SUBSCRIPTION_PRICE_BRL = Number(process.env.ASAAS_SUBSCRIPTION_VALUE) || 97.0;
+
+// Depois de N processamentos que FALHARAM para o mesmo evento de webhook, para
+// de reprocessar e devolve 2xx pro Asaas (o log de erro fica gritando). Mesmo
+// teto da régua de WhatsApp (MAX_TENTATIVAS_TOQUE).
+export const MAX_TENTATIVAS_WEBHOOK = 5;
+
+/** Resultado do processamento de um webhook — o controller mapeia pra HTTP. */
+export type WebhookOutcome = 'PROCESSADO' | 'IGNORADO' | 'DUPLICADO' | 'FALHOU';
 
 @Injectable()
 export class BillingService {
@@ -36,48 +45,74 @@ export class BillingService {
     }
   }
 
-  // 2. Cria Assinatura com Super Radar de Erros 📡
-  async createSubscription(customerId: string, value: number, planName: string) {
-    const today = new Date();
-    today.setDate(today.getDate() + 1); // Joga para amanhã
-
+  // 2. Cria Assinatura. Dois passos SEPARADOS: criar a assinatura, depois
+  //    buscar a 1ª cobrança. Se o passo 1 falhar, a assinatura não existe. Se
+  //    o passo 2 falhar (ou o Asaas ainda não gerou a cobrança), a assinatura
+  //    JÁ EXISTE — devolvemos o subscriptionId com invoiceUrl null para o
+  //    controller persistir o id e não deixar assinatura órfã no Asaas.
+  async createSubscription(
+    customerId: string,
+    value: number,
+    planName: string,
+  ): Promise<{ subscriptionId: string; invoiceUrl: string | null }> {
     const payload = {
       customer: customerId,
       billingType: 'UNDEFINED',
       value: value,
-      nextDueDate: today.toISOString().split('T')[0],
+      // Fuso de Brasília — `new Date().toISOString()` no container (UTC) pulava
+      // o dia entre 21h e 24h BRT.
+      nextDueDate: brDateStringPlusDays(1),
       cycle: 'MONTHLY',
       description: `Assinatura Syncro - Plano ${planName}`,
     };
 
+    // --- Passo 1: criar a assinatura ---
+    let subscriptionId: string;
     try {
       const subResponse = await axios.post(`${this.asaasApiUrl}/subscriptions`, payload, {
-        headers: { access_token: this.asaasApiKey }
+        headers: { access_token: this.asaasApiKey },
       });
-
-      const subscriptionId = subResponse.data.id;
-
-      const paymentsResponse = await axios.get(`${this.asaasApiUrl}/payments?subscription=${subscriptionId}`, {
-        headers: { access_token: this.asaasApiKey }
-      });
-
-      const firstPayment = paymentsResponse.data.data[0];
-
-      if (!firstPayment || !firstPayment.invoiceUrl) {
-        throw new Error("Link de pagamento não retornado pelo Asaas.");
+      subscriptionId = subResponse.data?.id;
+      if (!subscriptionId) {
+        throw new Error('Asaas respondeu 2xx mas sem "id" da assinatura.');
       }
-
-      return {
-        subscriptionId: subscriptionId,
-        invoiceUrl: firstPayment.invoiceUrl
-      };
     } catch (error: any) {
-      console.error('\n❌ --- ERRO DETALHADO ASAAS --- ❌');
-      console.error('Payload Enviado:', payload);
-      console.error('Resposta do Asaas:', JSON.stringify(error.response?.data, null, 2));
-      console.error('------------------------------------\n');
-      throw new BadRequestException('Erro do Asaas ao gerar o checkout. Olhe o terminal da VPS.');
+      this.logger.error(
+        `Falha ao CRIAR assinatura no Asaas. ` +
+          `payload=${JSON.stringify(payload)} ` +
+          `httpStatus=${error?.response?.status ?? 'n/a'} ` +
+          `body=${JSON.stringify(error?.response?.data ?? error?.message)}`,
+      );
+      throw new BadRequestException(
+        'Não foi possível criar a assinatura no gateway de pagamento. Tente novamente em instantes.',
+      );
     }
+
+    // --- Passo 2: buscar a 1ª cobrança (a assinatura já existe daqui pra frente) ---
+    let invoiceUrl: string | null = null;
+    try {
+      const paymentsResponse = await axios.get(
+        `${this.asaasApiUrl}/payments?subscription=${subscriptionId}`,
+        { headers: { access_token: this.asaasApiKey } },
+      );
+      invoiceUrl = paymentsResponse.data?.data?.[0]?.invoiceUrl ?? null;
+      if (!invoiceUrl) {
+        this.logger.warn(
+          `Assinatura ${subscriptionId} criada, mas o Asaas ainda NÃO gerou a 1ª cobrança. ` +
+            `httpStatus=${paymentsResponse.status} ` +
+            `body=${JSON.stringify(paymentsResponse.data)}`,
+        );
+      }
+    } catch (error: any) {
+      // Não relança: a assinatura existe e o id precisa ser persistido.
+      this.logger.error(
+        `Assinatura ${subscriptionId} criada, mas FALHOU ao buscar a 1ª cobrança. ` +
+          `httpStatus=${error?.response?.status ?? 'n/a'} ` +
+          `body=${JSON.stringify(error?.response?.data ?? error?.message)}`,
+      );
+    }
+
+    return { subscriptionId, invoiceUrl };
   }
 
   // 3. Cancela a Assinatura
@@ -235,10 +270,19 @@ export class BillingService {
       const newSub = await this.createSubscription(safeCustomerId, SUBSCRIPTION_PRICE_BRL, 'Profissional');
 
       // 🌟 CORREÇÃO DO BLOQUEIO: Salva no banco, mas não muda o status para PENDING (Assim você não fica presa)
+      // Persiste o id ANTES de qualquer retorno — assinatura criada no Asaas
+      // sem id no nosso banco vira órfã (regenera cobrança todo ciclo).
       await this.prisma.user.update({
         where: { id: userId },
-        data: { asaasSubscriptionId: newSub.subscriptionId } 
+        data: { asaasSubscriptionId: newSub.subscriptionId }
       });
+
+      if (!newSub.invoiceUrl) {
+        this.logger.warn(
+          `getManageSubscriptionUrl: assinatura ${newSub.subscriptionId} criada para userId=${userId}, ` +
+            `mas sem invoiceUrl (Asaas ainda não gerou a cobrança). manageUrl virá null desta vez.`,
+        );
+      }
 
       return { manageUrl: newSub.invoiceUrl, hasActiveSubscription: false };
 
@@ -282,75 +326,154 @@ export class BillingService {
   }
 
   /**
-   * Fonte única de verdade para os eventos do Asaas. Um handler por evento,
-   * sem sobreposição. `plan` continua sendo escrito por coerência com o
-   * restante do sistema (a Fase 2B remove os gates que dependem dele) —
-   * `subscriptionStatus` é o campo crítico, é o que o SubscriptionGuard lê.
+   * Fonte única de verdade para os eventos do Asaas. Devolve um WebhookOutcome
+   * que o controller mapeia pra HTTP: PROCESSADO/IGNORADO/DUPLICADO -> 2xx,
+   * FALHOU -> não-2xx (o Asaas reenvia).
+   *
+   * Idempotência com retry visível (mesmo desenho do TrialTouch): a linha em
+   * ProcessedWebhookEvent é reservada como PENDENTE, vira PROCESSADO no sucesso
+   * ou FALHOU (com `erro` + `tentativas++`) no erro. Reenvio de PROCESSADO é
+   * descartado; de FALHOU/PENDENTE com tentativas < MAX é reprocessado.
    */
-  async handleAsaasWebhook(payload: any): Promise<void> {
+  async handleAsaasWebhook(payload: any): Promise<WebhookOutcome> {
     const event = payload?.event;
     if (!event) {
       this.logger.warn('Webhook Asaas sem "event" no payload — ignorado.');
-      return;
+      return 'IGNORADO';
     }
 
-    // Idempotência: o Asaas reenvia o mesmo evento em caso de timeout/falha.
-    // Sem isso, um reenvio duplicaria a notificação ao RD Station.
     const resourceId = payload?.payment?.id || payload?.subscription?.id;
-    if (resourceId) {
-      const eventKey = `asaas:${event}:${resourceId}`;
-      const alreadyProcessed = await this.claimWebhookEvent(eventKey);
-      if (alreadyProcessed) {
-        this.logger.log(`Evento ${eventKey} já processado — ignorando (idempotência).`);
-        return;
-      }
-    } else {
+    const eventKey = resourceId ? `asaas:${event}:${resourceId}` : null;
+
+    // Sem resourceId não dá pra reservar linha nem garantir idempotência.
+    // Processa best-effort e deixa o warn (comportamento anterior), mas agora
+    // um erro daqui propaga como FALHOU em vez de sumir.
+    if (!eventKey) {
       this.logger.warn(
-        `Evento Asaas "${event}" sem payment.id/subscription.id — idempotência não garantida para este evento.`
+        `Evento Asaas "${event}" sem payment.id/subscription.id — sem idempotência/registro.`,
       );
+      try {
+        return await this.dispatchWebhookEvent(event, payload);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Falha ao processar evento sem eventKey "${event}": ${msg}`);
+        return 'FALHOU';
+      }
     }
 
+    const claim = await this.claimWebhookEvent(eventKey);
+    if (claim === 'JA_PROCESSADO') {
+      this.logger.log(`Evento ${eventKey} já processado — ignorando (idempotência).`);
+      return 'DUPLICADO';
+    }
+    if (claim === 'ESGOTADO') {
+      // Já falhou MAX_TENTATIVAS_WEBHOOK vezes. Para de aceitar reenvio (2xx),
+      // mas grita no log — é intervenção manual.
+      this.logger.error(
+        `Evento ${eventKey} FALHOU ${MAX_TENTATIVAS_WEBHOOK}x e não será mais reprocessado. ` +
+          `Verifique manualmente: pode ser um pagamento que nunca virou ACTIVE.`,
+      );
+      return 'DUPLICADO';
+    }
+
+    try {
+      const outcome = await this.dispatchWebhookEvent(event, payload);
+      await this.prisma.processedWebhookEvent.update({
+        where: { eventKey },
+        data: { status: 'PROCESSADO', erro: null },
+      });
+      return outcome;
+    } catch (error) {
+      const msg = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+      await this.prisma.processedWebhookEvent
+        .update({
+          where: { eventKey },
+          data: { status: 'FALHOU', erro: msg, tentativas: { increment: 1 } },
+        })
+        .catch((e: any) =>
+          this.logger.error(`Não consegui marcar ${eventKey} como FALHOU: ${e?.message}`),
+        );
+      this.logger.error(`Falha ao processar ${eventKey}: ${msg}`);
+      return 'FALHOU';
+    }
+  }
+
+  /** Roteia o evento pro handler certo. Lança se o handler lançar. */
+  private async dispatchWebhookEvent(event: string, payload: any): Promise<WebhookOutcome> {
     const asaasCustomerId = payload?.payment?.customer || payload?.subscription?.customer;
     if (!asaasCustomerId) {
+      // Evento malformado do Asaas — reprocessar não adiciona um customer.
       this.logger.warn(`Webhook Asaas evento "${event}" sem customer — ignorado.`);
-      return;
+      return 'IGNORADO';
     }
 
     switch (event) {
       case 'PAYMENT_CONFIRMED':
       case 'PAYMENT_RECEIVED':
-        await this.activateSubscription(asaasCustomerId);
-        break;
+        await this.activateSubscription(asaasCustomerId, payload);
+        return 'PROCESSADO';
 
       case 'PAYMENT_OVERDUE':
         // NÃO é INACTIVE: dá chance de regularizar antes de cortar o acesso.
-        await this.markPastDue(asaasCustomerId);
-        break;
+        await this.markPastDue(asaasCustomerId, payload);
+        return 'PROCESSADO';
 
       case 'SUBSCRIPTION_DELETED':
       case 'SUBSCRIPTION_CANCELLED':
-        await this.deactivateSubscription(asaasCustomerId);
-        break;
+        await this.deactivateSubscription(asaasCustomerId, payload);
+        return 'PROCESSADO';
 
       default:
         this.logger.log(`Evento Asaas "${event}" não tratado — ignorado sem alterar estado.`);
+        return 'IGNORADO';
     }
   }
 
-  /** Registra o evento como processado. Retorna true se ele já tinha sido processado antes. */
-  private async claimWebhookEvent(eventKey: string): Promise<boolean> {
+  /**
+   * Reserva a linha de idempotência. Retorna:
+   * - 'RESERVADO'      → pode processar (linha nova, ou retry de FALHOU/PENDENTE)
+   * - 'JA_PROCESSADO'  → descartar (idempotência)
+   * - 'ESGOTADO'       → já falhou MAX_TENTATIVAS_WEBHOOK vezes, não reprocessa
+   */
+  private async claimWebhookEvent(
+    eventKey: string,
+  ): Promise<'RESERVADO' | 'JA_PROCESSADO' | 'ESGOTADO'> {
     try {
-      await this.prisma.processedWebhookEvent.create({ data: { eventKey } });
-      return false;
+      await this.prisma.processedWebhookEvent.create({
+        data: { eventKey, status: 'PENDENTE', tentativas: 0 },
+      });
+      return 'RESERVADO';
     } catch (error: any) {
-      if (error.code === 'P2002') return true; // unique constraint: já existia
-      throw error;
+      if (error?.code !== 'P2002') throw error; // erro real de banco propaga
+
+      const row = await this.prisma.processedWebhookEvent.findUnique({ where: { eventKey } });
+      if (!row) return 'RESERVADO'; // corrida improvável entre create e findUnique
+      if (row.status === 'PROCESSADO') return 'JA_PROCESSADO';
+      if (row.tentativas >= MAX_TENTATIVAS_WEBHOOK) return 'ESGOTADO';
+
+      // FALHOU (< MAX) ou PENDENTE (processo morreu no meio antes do catch):
+      // reprocessa. Volta pra PENDENTE pra marcar a tentativa em curso.
+      await this.prisma.processedWebhookEvent.update({
+        where: { eventKey },
+        data: { status: 'PENDENTE' },
+      });
+      return 'RESERVADO';
     }
   }
 
-  private async activateSubscription(asaasCustomerId: string) {
+  private async activateSubscription(asaasCustomerId: string, payload?: any) {
     const user = await this.prisma.user.findFirst({ where: { asaasCustomerId } });
-    if (!user) return;
+    if (!user) {
+      // Pagamento CONFIRMADO de uma conta que não existe no banco: grave.
+      // Não relança (reprocessar não faz o usuário aparecer) — mas grita.
+      this.logger.error(
+        `Webhook de pagamento confirmado sem usuário correspondente. ` +
+          `asaasCustomerId=${asaasCustomerId} ` +
+          `asaasSubscriptionId=${payload?.payment?.subscription ?? payload?.subscription?.id ?? 'null'} ` +
+          `paymentId=${payload?.payment?.id ?? 'null'} — verificar manualmente.`,
+      );
+      return;
+    }
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -361,9 +484,15 @@ export class BillingService {
     await this.emailService.sendUpgradeConversion(user.email, user.name);
   }
 
-  private async markPastDue(asaasCustomerId: string) {
+  private async markPastDue(asaasCustomerId: string, payload?: any) {
     const user = await this.prisma.user.findFirst({ where: { asaasCustomerId } });
-    if (!user) return;
+    if (!user) {
+      this.logger.warn(
+        `Webhook PAYMENT_OVERDUE sem usuário. asaasCustomerId=${asaasCustomerId} ` +
+          `paymentId=${payload?.payment?.id ?? 'null'}.`,
+      );
+      return;
+    }
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -372,9 +501,15 @@ export class BillingService {
     this.logger.log(`Pagamento em atraso: ${user.email}`);
   }
 
-  private async deactivateSubscription(asaasCustomerId: string) {
+  private async deactivateSubscription(asaasCustomerId: string, payload?: any) {
     const user = await this.prisma.user.findFirst({ where: { asaasCustomerId } });
-    if (!user) return;
+    if (!user) {
+      this.logger.warn(
+        `Webhook de cancelamento sem usuário. asaasCustomerId=${asaasCustomerId} ` +
+          `subscriptionId=${payload?.subscription?.id ?? 'null'}.`,
+      );
+      return;
+    }
 
     await this.prisma.user.update({
       where: { id: user.id },

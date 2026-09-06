@@ -40,6 +40,16 @@ enum TrialTouchStatus {
   FALHOU
 }
 
+// Estado de processamento de um webhook do Asaas. Mesmo desenho do
+// TrialTouchStatus: reservar PENDENTE -> PROCESSADO no sucesso, FALHOU no erro
+// (com `erro` e `tentativas`). Sem isto, um pagamento confirmado que falha ao
+// processar era descartado no reenvio "porque já tinha linha".
+enum WebhookEventStatus {
+  PENDENTE
+  PROCESSADO
+  FALHOU
+}
+
 model User {
   id                String    @id @default(cuid())
   email             String    @unique
@@ -326,9 +336,12 @@ model AppointmentService {
 // Idempotência de webhooks: garante que o mesmo evento (ex: reenvio do Asaas
 // após timeout) nunca é processado (nem notificado ao RD Station) duas vezes.
 model ProcessedWebhookEvent {
-  id          String   @id @default(cuid())
-  eventKey    String   @unique // ex: "asaas:PAYMENT_CONFIRMED:pay_xxx"
-  processedAt DateTime @default(now())
+  id          String             @id @default(cuid())
+  eventKey    String             @unique // ex: "asaas:PAYMENT_CONFIRMED:pay_xxx"
+  processedAt DateTime           @default(now()) // criação da linha (reserva)
+  status      WebhookEventStatus @default(PENDENTE)
+  tentativas  Int                @default(0) // nº de processamentos que FALHARAM
+  erro        String?            @db.Text // mensagem do último erro, quando status = FALHOU
 }
 
 // Telemetria do funil de onboarding guiado (/onboarding). Uma linha por

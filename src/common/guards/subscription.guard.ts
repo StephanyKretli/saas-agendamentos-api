@@ -1,23 +1,26 @@
-import { 
-  CanActivate, 
-  ExecutionContext, 
-  Injectable, 
-  HttpException, 
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  HttpException,
   HttpStatus,
   Inject,
-  forwardRef
+  forwardRef,
+  Logger
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service'; 
+import { PrismaService } from '../../prisma/prisma.service';
 import { BillingService } from '../../modules/payments/billing.service';
 
 
 @Injectable()
 export class SubscriptionGuard implements CanActivate {
+  private readonly logger = new Logger(SubscriptionGuard.name);
+
   constructor(
     private prisma: PrismaService,
     // Usamos forwardRef caso haja dependência circular entre BillingService e este Guard
     @Inject(forwardRef(() => BillingService))
-    private billingService: BillingService 
+    private billingService: BillingService
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -44,17 +47,36 @@ export class SubscriptionGuard implements CanActivate {
         if (boss) salonOwner = boss;
       }
 
-      const isActive = salonOwner.subscriptionStatus === 'ACTIVE';
-      const isTrial = salonOwner.subscriptionStatus === 'TRIAL';
+      const status = salonOwner.subscriptionStatus;
 
-      // Verifica se está ativo
-      if (isActive) return true;
+      // Assinatura paga e confirmada pelo webhook.
+      if (status === 'ACTIVE') return true;
 
-      // Verifica se o trial ainda é válido
-      if (isTrial && salonOwner.trialEndsAt) {
-        if (new Date().getTime() <= new Date(salonOwner.trialEndsAt).getTime()) {
-          return true; 
-        }
+      // Trial ainda válido. `trialEndsAt` nulo = SEM trial válido → bloqueia
+      // (nunca "libera na dúvida"). PENDING entra aqui junto com TRIAL: a
+      // pessoa clicou em assinar durante o trial e ainda não pagou — é quem
+      // mais quer usar o produto, não pode ser expulsa no ato.
+      const trialEndsAt = salonOwner.trialEndsAt
+        ? new Date(salonOwner.trialEndsAt)
+        : null;
+      const trialAindaVale =
+        trialEndsAt !== null && Date.now() <= trialEndsAt.getTime();
+
+      if ((status === 'TRIAL' || status === 'PENDING') && trialAindaVale) {
+        return true;
+      }
+
+      // PENDING com trial vencido: OU a pessoa iniciou a assinatura e desistiu,
+      // OU pagou e o webhook do Asaas não chegou. Hoje os dois casos produzem o
+      // mesmo silêncio — este log é o que os separa numa investigação.
+      if (status === 'PENDING') {
+        this.logger.warn(
+          `SubscriptionGuard: usuário PENDING bloqueado (trial ${trialEndsAt ? 'vencido' : 'nulo'}). ` +
+            `userId=${salonOwner.id} ` +
+            `subscriptionStatus=${status} ` +
+            `trialEndsAt=${trialEndsAt ? trialEndsAt.toISOString() : 'null'} ` +
+            `asaasSubscriptionId=${salonOwner.asaasSubscriptionId ?? 'null'}`,
+        );
       }
 
       // 🌟 A MÁGICA: Busca o link antes de bloquear

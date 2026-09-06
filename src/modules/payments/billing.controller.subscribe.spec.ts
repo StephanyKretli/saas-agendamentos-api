@@ -89,4 +89,28 @@ describe('BillingController.subscribe — idempotencia', () => {
     await expect(controller.subscribe({ user: { id: 'dona_1' } })).rejects.toThrow(/CPF/);
     expect(billingService.createSubscription).not.toHaveBeenCalled();
   });
+
+  it('assinatura criada mas SEM invoiceUrl: persiste o asaasSubscriptionId e devolve 503 acionavel (nao 500 generico)', async () => {
+    billingService.findReusableSubscriptionCheckout.mockResolvedValue(null);
+    billingService.createSubscription.mockResolvedValue({
+      subscriptionId: 'sub_criada_sem_fatura',
+      invoiceUrl: null,
+    });
+
+    const erro: any = await controller.subscribe({ user: { id: 'dona_1' } }).catch((e) => e);
+
+    // 503, com codigo especifico — nao um Error generico / 500
+    expect(erro.getStatus()).toBe(503);
+    expect(erro.getResponse()).toMatchObject({ code: 'FATURA_AINDA_NAO_GERADA' });
+
+    // id persistido ANTES do erro — nada de assinatura orfa no Asaas
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          asaasSubscriptionId: 'sub_criada_sem_fatura',
+          subscriptionStatus: 'PENDING',
+        }),
+      }),
+    );
+  });
 });

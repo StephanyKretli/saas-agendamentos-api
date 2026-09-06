@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get, Logger, Headers, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, BadRequestException, Delete, Get, Logger, Headers, NotFoundException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BillingService, SUBSCRIPTION_PRICE_BRL } from './billing.service';
@@ -84,6 +84,9 @@ export class BillingController {
 
     const subscription = await this.billingService.createSubscription(customerId, SUBSCRIPTION_PRICE_BRL, 'Profissional');
 
+    // Persiste o id ANTES de qualquer caminho de erro abaixo. A assinatura já
+    // existe no Asaas; sem o id no nosso banco ela vira órfã (regenera cobrança
+    // todo ciclo e nunca é reaproveitada).
     await this.prisma.user.update({
       where: { id: billingUser.id },
       data: {
@@ -93,9 +96,26 @@ export class BillingController {
       }
     });
 
+    if (!subscription.invoiceUrl) {
+      // Assinatura criada, mas o Asaas ainda não gerou a 1ª fatura. Distinto de
+      // "a criação da assinatura falhou" (aquele é 400, vindo do service). O
+      // id já está salvo — no retry, /subscribe cai no findReusable e devolve
+      // a fatura assim que o Asaas a gerar.
+      this.logger.warn(
+        `subscribe: assinatura ${subscription.subscriptionId} criada para userId=${billingUser.id}, ` +
+          `sem invoiceUrl ainda. Devolvendo 503 acionável.`,
+      );
+      throw new ServiceUnavailableException({
+        message:
+          'Sua assinatura foi criada, mas o gateway ainda está gerando a fatura. ' +
+          'Aguarde alguns segundos e tente abrir o pagamento novamente.',
+        code: 'FATURA_AINDA_NAO_GERADA',
+      });
+    }
+
     return {
       message: 'Assinatura gerada com sucesso!',
-      checkoutUrl: subscription.invoiceUrl, 
+      checkoutUrl: subscription.invoiceUrl,
     };
   }
 
@@ -185,16 +205,26 @@ export class BillingController {
 
     this.logger.log(`Webhook Asaas recebido: ${body?.event}`);
 
+    let outcome: string;
     try {
-      await this.billingService.handleAsaasWebhook(body);
+      outcome = await this.billingService.handleAsaasWebhook(body);
     } catch (error: any) {
-      // Nunca deixa o Asaas martelar retries por um erro nosso — logamos e
-      // devolvemos 200 do mesmo jeito. A idempotência garante que um retry
-      // legítimo (reenvio por timeout) não duplica nada quando o processamento
-      // já tiver sido concluído.
-      this.logger.error('Erro ao processar webhook do Asaas', error?.stack || error);
+      // Erro fora do fluxo controlado do service (ex.: o próprio claim explodiu
+      // com um erro de banco que não é P2002). Trata como falha → 503.
+      this.logger.error('Erro não tratado ao processar webhook do Asaas', error?.stack || error);
+      outcome = 'FALHOU';
     }
 
+    if (outcome === 'FALHOU') {
+      // 5xx de propósito: o Asaas REENVIA. A linha ProcessedWebhookEvent ficou
+      // FALHOU com `erro` + `tentativas`; o reenvio reprocessa até
+      // MAX_TENTATIVAS_WEBHOOK e depois para (com logger.error). Isto reverte o
+      // comportamento antigo, que devolvia 200 e matava o retry — engolindo
+      // pagamento confirmado que falhava ao processar.
+      throw new ServiceUnavailableException({ received: false, outcome });
+    }
+
+    // PROCESSADO / IGNORADO (evento não tratado não é falha) / DUPLICADO → 2xx.
     return { received: true };
   }
 

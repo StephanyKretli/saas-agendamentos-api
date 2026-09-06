@@ -96,6 +96,21 @@ describe('NotificationsCron.processStateBasedTouches', () => {
     );
   });
 
+  it('numero comprovadamente sem WhatsApp fica de fora; null (nao verificado) continua dentro', async () => {
+    jest.setSystemTime(new Date(DEZ_HORAS_BRASILIA_UTC));
+    prisma.user.findMany.mockResolvedValue([]);
+
+    await cron.processStateBasedTouches();
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [{ whatsappNumberExists: null }, { whatsappNumberExists: true }],
+        }),
+      }),
+    );
+  });
+
   it('T1: dispara às 10h de D+1 quando o estado é S1', async () => {
     const now = new Date(DEZ_HORAS_BRASILIA_UTC);
     jest.setSystemTime(now);

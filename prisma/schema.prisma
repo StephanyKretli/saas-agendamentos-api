@@ -156,6 +156,16 @@ model User {
   // de funil e a régua de notificações filtram `isTest = false`.
   isTest Boolean @default(false)
 
+  // Verificação do número no WhatsApp (Evolution POST /chat/whatsappNumbers,
+  // instância do sistema). TRÊS estados:
+  //   true  = tem WhatsApp
+  //   false = comprovadamente não tem
+  //   null  = não verificado (Evolution fora/lenta/erro) — "não sei" ≠ "não tem"
+  // A régua de notificações só exclui os `false`; `null` continua entrando.
+  whatsappNumberExists Boolean?
+  whatsappJid          String? // JID canônico devolvido pela Evolution
+  whatsappCheckedAt    DateTime? // quando a verificação concluiu (só em resultado conclusivo)
+
   onboardingEvents OnboardingEvent[]
 }
 

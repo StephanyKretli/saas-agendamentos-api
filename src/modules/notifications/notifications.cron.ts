@@ -194,6 +194,14 @@ export class NotificationsCron {
         whatsappOptin: true, // sem consentimento, nenhum toque sai — nem o mais importante
         optOut: false,
         isTest: false, // conta de teste da fundadora nunca entra na régua
+        // Exclui só quem foi COMPROVADAMENTE verificado sem WhatsApp. `null`
+        // (não verificado) e `true` continuam entrando. Explícito de propósito:
+        // `{ not: false }` dependeria da regra do Prisma de "not inclui nulos",
+        // e se essa sutileza falhar a régua vai a zero em silêncio.
+        OR: [
+          { whatsappNumberExists: null },
+          { whatsappNumberExists: true },
+        ],
       },
       select: { id: true, name: true, phone: true },
     });
@@ -264,6 +272,14 @@ export class NotificationsCron {
         whatsappOptin: true, // sem consentimento, nenhum toque sai
         optOut: false,
         isTest: false, // conta de teste da fundadora nunca entra na régua
+        // Exclui só quem foi COMPROVADAMENTE verificado sem WhatsApp; `null`
+        // (não verificado) e `true` seguem entrando. Explícito de propósito
+        // (não `{ not: false }`): se a régua do Prisma de "not inclui nulos"
+        // falhar, isto vai a zero em silêncio.
+        OR: [
+          { whatsappNumberExists: null },
+          { whatsappNumberExists: true },
+        ],
         createdAt: { gte: cutoff },
       },
       select: { id: true, name: true, phone: true, username: true, createdAt: true, trialEndsAt: true },

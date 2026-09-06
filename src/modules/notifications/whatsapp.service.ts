@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { SUBSCRIPTION_PRICE_BRL } from '../payments/billing.service';
+import { brMobileVariants } from '../../common/phone/br-mobile';
 
 // "R$97" sem decimais quando o preço é redondo (o caso real hoje), "R$97,50"
 // caso contrário — nunca hardcoded, sempre a partir do preço de cobrança de verdade.
@@ -336,5 +337,81 @@ export class WhatsappService {
     const formattedTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date);
     const message = `${firstName}, aconteceu: a *${clientName}* marcou *${serviceName}* com você para ${formattedDate} às ${formattedTime}.\n\nRepara no que você não fez. Não respondeu mensagem, não conferiu se o horário estava livre, não anotou em lugar nenhum.\n\nE o lembrete dela já está programado: sai 24 horas antes e de novo 3 horas antes. Você não precisa fazer nada. ✅`;
     return this.sendMessage(systemInstanceId, phone, message);
+  }
+
+  /**
+   * Consulta a Evolution se um telefone tem WhatsApp
+   * (POST /chat/whatsappNumbers/{instance}). Usa a instância do SISTEMA
+   * (`SYSTEM_INSTANCE`, sempre conectada) — no cadastro a instância do próprio
+   * usuário nem existe.
+   *
+   * Manda as duas variantes de nono dígito na mesma chamada e aceita a que
+   * existir, guardando o JID canônico devolvido.
+   *
+   * FAIL-OPEN: qualquer problema (timeout de 3s, Evolution fora, 5xx, corpo
+   * inesperado) devolve `exists: null` ("não sei") — NUNCA `false`, e NUNCA
+   * lança para o chamador. `false` só sai quando a Evolution respondeu e
+   * nenhuma variante existe.
+   */
+  async checkWhatsappNumber(
+    rawPhone: string,
+  ): Promise<{ exists: boolean | null; jid: string | null }> {
+    const variants = brMobileVariants(rawPhone);
+    if (variants.length === 0) {
+      this.logger.warn(
+        `checkWhatsappNumber: telefone sem dígitos utilizáveis ("${rawPhone}") — exists=null.`,
+      );
+      return { exists: null, jid: null };
+    }
+
+    const url = `${this.baseUrl}/chat/whatsappNumbers/${this.SYSTEM_INSTANCE}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { apikey: this.apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: variants }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        this.logger.error(
+          `checkWhatsappNumber: Evolution respondeu ${res.status} (instância ${this.SYSTEM_INSTANCE}) — exists=null.`,
+        );
+        return { exists: null, jid: null };
+      }
+
+      const data = await res.json().catch(() => null);
+      const list: any[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.numbers)
+          ? data.numbers
+          : [];
+
+      if (list.length === 0) {
+        this.logger.error(
+          `checkWhatsappNumber: resposta da Evolution sem lista utilizável — exists=null. ` +
+            `body=${JSON.stringify(data).slice(0, 300)}`,
+        );
+        return { exists: null, jid: null };
+      }
+
+      const hit = list.find((n) => n?.exists === true);
+      if (hit) return { exists: true, jid: hit.jid ?? null };
+
+      // A Evolution respondeu e nenhuma variante existe → resultado conclusivo.
+      return { exists: false, jid: null };
+    } catch (err: any) {
+      const aborted = err?.name === 'AbortError';
+      this.logger.error(
+        `checkWhatsappNumber: ${aborted ? 'timeout (3s)' : 'falha'} ao consultar a Evolution — exists=null. ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { exists: null, jid: null };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

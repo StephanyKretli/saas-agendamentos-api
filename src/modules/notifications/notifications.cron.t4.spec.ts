@@ -58,6 +58,19 @@ describe('NotificationsCron.processFirstClientBookingCelebration', () => {
     );
   });
 
+  it('numero comprovadamente sem WhatsApp fica de fora; null (nao verificado) continua dentro', async () => {
+    await cron.processFirstClientBookingCelebration();
+
+    // OR explicito (nao `{ not: false }`): mantem `true` e `null`, exclui `false`.
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [{ whatsappNumberExists: null }, { whatsappNumberExists: true }],
+        }),
+      }),
+    );
+  });
+
   it('envia a celebracao com os dados do primeiro agendamento de cliente real', async () => {
     prisma.user.findMany.mockResolvedValue([{ id: 'salao_1', name: 'Stephany', phone: '31999999999' }]);
     prisma.appointment.findFirst.mockResolvedValue({

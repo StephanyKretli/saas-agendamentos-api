@@ -43,6 +43,10 @@ describe('AuthService', () => {
     sendWelcome: jest.fn().mockResolvedValue(undefined),
   };
 
+  const phoneVerificationMock = {
+    verifyAndPersist: jest.fn().mockResolvedValue(undefined),
+  };
+
   // RD Station usa fetch global (não axios) — mocka do mesmo jeito, pelo
   // mesmo motivo.
   global.fetch = jest.fn().mockResolvedValue({
@@ -54,13 +58,14 @@ describe('AuthService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Ordem real do construtor: (prisma, asaas, jwt, email, whatsapp)
+    // Ordem real do construtor: (prisma, asaas, jwt, email, whatsapp, phoneVerification)
     service = new AuthService(
       prismaMock as any,
       asaasMock as any,
       jwtMock as any as JwtService,
       emailMock as any,
       whatsappMock as any,
+      phoneVerificationMock as any,
     );
   });
 
@@ -113,6 +118,21 @@ describe('AuthService', () => {
         data: expect.objectContaining({ whatsappOptin: false, whatsappOptinAt: null, whatsappOptinIp: null }),
       }),
     );
+    // A verificação de WhatsApp roda mesmo sem opt-in (é independente do consentimento de mensagem).
+    expect(phoneVerificationMock.verifyAndPersist).toHaveBeenCalledWith('user_1', '11999999999');
+  });
+
+  it('cadastro por Google (sem telefone no dto) não dispara verificação de WhatsApp', async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    prismaMock.user.create.mockResolvedValue({
+      id: 'user_1', name: 'Stephany', email: 'stephany@email.com', username: 'stephany', role: 'USER', createdAt: new Date(),
+    });
+
+    await service.register({
+      name: 'Stephany', email: 'stephany@email.com', password: '123456', username: 'stephany',
+    } as any);
+
+    expect(phoneVerificationMock.verifyAndPersist).not.toHaveBeenCalled();
   });
 
   it('manda boas-vindas por WhatsApp e grava a prova do opt-in quando ela marca a caixa', async () => {

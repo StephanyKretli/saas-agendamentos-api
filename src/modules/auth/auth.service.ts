@@ -12,6 +12,7 @@ import { LoginDto } from './dto/login.dto';
 import { AsaasService } from '../payments/asaas.service'; 
 import { EmailService } from '../email/email.service';
 import { WhatsappService } from '../notifications/whatsapp.service';
+import { PhoneVerificationService } from '../notifications/phone-verification.service';
 import {
   slugifyUsername,
   suggestAvailableUsername,
@@ -27,6 +28,7 @@ export class AuthService {
     private jwt: JwtService,
     private emailService: EmailService,
     private whatsappService: WhatsappService,
+    private phoneVerificationService: PhoneVerificationService,
   ) {}
 
   async register(dto: RegisterDto, ip?: string) {
@@ -78,6 +80,13 @@ export class AuthService {
       },
       select: { id: true, name: true, email: true, username: true, role: true, createdAt: true },
     });
+
+    // Verifica se o telefone tem WhatsApp — ASSÍNCRONO, não segura a resposta
+    // do cadastro. Só quando o campo veio preenchido (a maioria entra por
+    // Google OAuth e não informa telefone aqui).
+    if (dto.phone) {
+      void this.phoneVerificationService.verifyAndPersist(user.id, dto.phone);
+    }
 
     await this.notificarMetaCAPI(user.email);
 

@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { UploadsService } from '../modules/uploads/uploads.service';
 import { UpdateFinancialSettingsDto } from './dto/update-financial-settings.dto';
+import { PhoneVerificationService } from '../modules/notifications/phone-verification.service';
 import 'multer';
 
 /**
@@ -21,6 +22,7 @@ export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadsService: UploadsService,
+    private readonly phoneVerificationService: PhoneVerificationService,
   ) {}
 
   async getSettings(userId: string) {
@@ -105,6 +107,11 @@ export class SettingsService {
         where: { id: userId },
         data: personalData
       });
+    }
+
+    // Telefone mudou → reverifica no WhatsApp (assíncrono, não segura a resposta).
+    if (data.phone !== undefined && data.phone && data.phone !== currentUser.phone) {
+      void this.phoneVerificationService.verifyAndPersist(userId, data.phone);
     }
 
     // 2. ATUALIZA DADOS DO NEGÓCIO

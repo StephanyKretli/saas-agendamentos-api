@@ -213,9 +213,24 @@ export class AuthService {
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + 14);
 
+      // Google manda familyName vazio pra conta mononome / de empresa, e o
+      // template antigo `${firstName} ${lastName}` gravava "Daniel undefined" /
+      // "SYNCRO undefined" — lixo que aparecia em e-mail e na régua. Junta só
+      // as partes de verdade; se sobrar nada, usa a parte local do e-mail.
+      const oauthName =
+        [googleUser.firstName, googleUser.lastName]
+          .filter(
+            (p: unknown) =>
+              typeof p === 'string' &&
+              p.trim() !== '' &&
+              p.trim().toLowerCase() !== 'undefined',
+          )
+          .join(' ')
+          .trim() || email.split('@')[0];
+
       let asaasCustomerId = null;
       try {
-        const asaasCustomer = await this.asaasService.createCustomer(`${googleUser.firstName} ${googleUser.lastName}`, email);
+        const asaasCustomer = await this.asaasService.createCustomer(oauthName, email);
         asaasCustomerId = asaasCustomer.id;
       } catch (error) {}
 
@@ -227,7 +242,7 @@ export class AuthService {
 
       user = await this.prisma.user.create({
         data: {
-          name: `${googleUser.firstName} ${googleUser.lastName}`,
+          name: oauthName,
           email: email,
           password: passwordHash,
           username,

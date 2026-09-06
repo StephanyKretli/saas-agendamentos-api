@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
+import {
+  renderOnboardingEmail,
+  type OnboardingEmailStep,
+} from './onboarding-email.templates';
 
 type SendBookingConfirmationInput = {
   to: string;
@@ -329,6 +333,57 @@ export class EmailService {
       throw error;
     } finally {
       this.logger.log('--- FORGOT PASSWORD EMAIL DEBUG END ---');
+    }
+  }
+
+  // =================================================================
+  // Régua de retomada do onboarding (2 e-mails). Diferente dos outros
+  // métodos daqui: se a chave faltar ou o Resend recusar, LANÇA — quem
+  // chama (OnboardingEmailCron) precisa disso pra marcar FALHOU + erro e
+  // reintentar. "Sucesso silencioso" aqui seria exatamente o bug que a
+  // task proíbe.
+  // =================================================================
+  private addressOnly(value: string): string {
+    const m = /<([^>]+)>/.exec(value);
+    return (m ? m[1] : value).trim();
+  }
+
+  async sendOnboardingEmail(params: {
+    step: OnboardingEmailStep;
+    to: string;
+    firstName: string | null;
+    optOutUrl: string;
+  }): Promise<void> {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error(
+        'RESEND_API_KEY não configurada — e-mail de onboarding não enviado.',
+      );
+    }
+
+    const ctaUrl = `${process.env.FRONTEND_URL || 'https://meusyncro.com.br'}/onboarding`;
+    const { subject, html } = renderOnboardingEmail(params.step, {
+      firstName: params.firstName,
+      ctaUrl,
+      optOutUrl: params.optOutUrl,
+    });
+
+    // Remetente = EMAIL_FROM inteiro, exatamente como vem do ambiente (nome +
+    // endereço são configuração, não código). Reply-To: EMAIL_REPLY_TO, ou o
+    // endereço extraído do EMAIL_FROM como fallback — precisa cair numa caixa
+    // real, o e-mail 2 pede resposta.
+    const replyTo = process.env.EMAIL_REPLY_TO || this.addressOnly(this.from);
+
+    // Nunca logar o destinatário (PII) — só o resultado.
+    const result = await this.resend.emails.send({
+      from: this.from,
+      to: params.to,
+      replyTo,
+      subject,
+      html,
+    });
+
+    if (result.error) {
+      throw new Error(result.error.message);
     }
   }
 

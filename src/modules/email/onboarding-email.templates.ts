@@ -205,14 +205,26 @@ export function renderOnboardingEmail(
 
 /**
  * E-mail de quem CONCLUIU o onboarding e ainda não teve cliente marcando.
- * Único objetivo: fazer o link aparecer na bio do Instagram. CTA aponta para a
- * página pública (ver funcionando + copiar o endereço), não para /onboarding.
+ * Único objetivo: fazer o link aparecer na bio. Copy trazida do toque T3 da
+ * régua de WhatsApp (whatsapp.service.ts / sendDivulgarLink) — escrita antes, na
+ * voz da fundadora, e melhor: enquadra o link como identidade ("só seu, igual
+ * ao @") e entrega a legenda pronta em vez de só explicar onde colar.
+ * CTA aponta para a página pública (ver funcionando + copiar o endereço).
+ *
+ * A legenda pronta é um bloco destacado, em itálico, com a URL como TEXTO (não
+ * dentro de <a>): quem seleciona e copia tem que levar o endereço escrito, não
+ * um link mascarado. O 🖤 vem da voz dela — charset utf-8 nas duas versões.
  */
 export function renderPostOnboardingEmail(
   v: PostOnboardingEmailVars,
 ): RenderedEmail {
   const g = greeting(v.firstName);
   const gt = greetingText(v.firstName);
+
+  const legenda = `"Agora dá pra marcar comigo direto por aqui, sem precisar esperar eu responder: ${escapeHtml(
+    v.publicUrl,
+  )} — você escolhe o horário que está livre e pronto. 🖤"`;
+  const legendaText = `"Agora dá pra marcar comigo direto por aqui, sem precisar esperar eu responder: ${v.publicUrl} — você escolhe o horário que está livre e pronto. 🖤"`;
 
   return {
     subject: 'Seu link está pronto. Falta ele aparecer em algum lugar.',
@@ -222,8 +234,12 @@ export function renderPostOnboardingEmail(
        <p style="margin:0 0 16px;font-weight:700;word-break:break-all;">
          <a href="${v.publicUrl}" style="color:#18181b;">${escapeHtml(v.publicUrl)}</a>
        </p>
-       <p style="margin:0 0 16px;">Ele só serve para alguma coisa se as suas clientes virem. O lugar que costuma funcionar melhor é a bio do Instagram, e leva menos de um minuto: abra seu perfil, toque em "Editar perfil", cole o link no campo de site e salve.</p>
-       <p style="margin:0 0 16px;">Feito isso, quem entrar no seu perfil marca sozinha — sem te mandar mensagem e sem você precisar responder.</p>
+       <p style="margin:0 0 16px;">Ele é só seu — nenhum outro salão pode usar esse nome. Funciona igual ao @ do Instagram.</p>
+       <p style="margin:0 0 12px;">Agora falta a parte que faz o Syncro trabalhar sozinho: colocar esse link na bio do Instagram e no seu status do WhatsApp. Se quiser, é só copiar:</p>
+       <div style="margin:0 0 16px;padding:14px 16px;background:#f4f4f5;border-left:3px solid #d4d4d8;border-radius:8px;font-style:italic;color:#3f3f46;word-break:break-word;">
+         ${legenda}
+       </div>
+       <p style="margin:0 0 16px;">Sua cliente não baixa nada e não cria senha.</p>
        ${ctaButton(v.publicUrl, 'Ver meu link')}
        <p style="margin:0;">Se travar em alguma parte, me responde este e-mail dizendo onde. Eu leio todas.</p>
        ${SIGNATURE}`,
@@ -234,8 +250,10 @@ export function renderPostOnboardingEmail(
         gt,
         'Seu link de agendamento está no ar:',
         v.publicUrl,
-        'Ele só serve para alguma coisa se as suas clientes virem. O lugar que costuma funcionar melhor é a bio do Instagram, e leva menos de um minuto: abra seu perfil, toque em "Editar perfil", cole o link no campo de site e salve.',
-        'Feito isso, quem entrar no seu perfil marca sozinha — sem te mandar mensagem e sem você precisar responder.',
+        'Ele é só seu — nenhum outro salão pode usar esse nome. Funciona igual ao @ do Instagram.',
+        'Agora falta a parte que faz o Syncro trabalhar sozinho: colocar esse link na bio do Instagram e no seu status do WhatsApp. Se quiser, é só copiar:',
+        legendaText,
+        'Sua cliente não baixa nada e não cria senha.',
         'Se travar em alguma parte, me responde este e-mail dizendo onde. Eu leio todas.',
       ],
       v.optOutUrl,

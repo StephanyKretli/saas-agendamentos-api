@@ -148,7 +148,12 @@ describe('onboarding-email.templates', () => {
       optOutUrl: 'https://api.meusyncro.com.br/trial-touches/opt-out/u1',
     };
 
-    it('assunto exato, saudação, link público como texto e no botão "Ver meu link"', () => {
+    // Trecho da legenda pronta com a URL no meio da frase. Só bate como
+    // substring literal se a URL estiver como TEXTO — um <a href>URL</a> quebra
+    // o casamento exato.
+    const legendaComUrl = `sem precisar esperar eu responder: ${vars.publicUrl} — você escolhe o horário que está livre e pronto. 🖤`;
+
+    it('assunto exato, saudação, URL pública, frase do "só seu" e legenda pronta no HTML', () => {
       const { subject, html } = renderPostOnboardingEmail({
         ...vars,
         firstName: 'Ana',
@@ -158,9 +163,23 @@ describe('onboarding-email.templates', () => {
       );
       expect(html).toContain('Oi, Ana!');
       expect(html).toContain('Ver meu link');
-      expect(html).toContain(`href="${vars.publicUrl}"`);
-      expect(html).toContain('Editar perfil');
+      expect(html).toContain(vars.publicUrl);
+      expect(html).toContain(
+        'Ele é só seu — nenhum outro salão pode usar esse nome. Funciona igual ao @ do Instagram.',
+      );
+      expect(html).toContain(legendaComUrl);
       expect(html).toContain(vars.optOutUrl);
+    });
+
+    it('a URL dentro da legenda não está dentro de uma tag <a>', () => {
+      const { html } = renderPostOnboardingEmail({ ...vars, firstName: 'Ana' });
+      // o bloco da legenda: da abertura de aspas até o </div> seguinte
+      const inicio = html.indexOf('"Agora dá pra marcar comigo');
+      const fim = html.indexOf('</div>', inicio);
+      expect(inicio).toBeGreaterThan(-1);
+      const blocoLegenda = html.slice(inicio, fim);
+      expect(blocoLegenda).toContain(vars.publicUrl);
+      expect(blocoLegenda).not.toMatch(/<a\b/i);
     });
 
     it('nome nulo → "Oi!" e nunca "undefined"/"null"', () => {
@@ -169,12 +188,29 @@ describe('onboarding-email.templates', () => {
       expect(html).not.toMatch(/undefined|null/i);
     });
 
-    it('versão text/plain não vazia, sem tags, com a URL pública legível', () => {
+    it.each([
+      ['Fulano undefined', 'Oi, Fulano!'],
+      ['SYNCRO undefined', 'Oi, SYNCRO!'],
+    ])(
+      'nome lixo %p → saudação atual (%p), sem "undefined" no corpo',
+      (raw, esperado) => {
+        const { html } = renderPostOnboardingEmail({
+          ...vars,
+          firstName: firstNameFromRaw(raw),
+        });
+        expect(html).toContain(esperado);
+        expect(html).not.toMatch(/undefined|null/i);
+      },
+    );
+
+    it('versão text/plain não vazia, sem tags, com legenda e URL pública por extenso', () => {
       const { text } = renderPostOnboardingEmail({ ...vars, firstName: 'Ana' });
       expect(text.trim().length).toBeGreaterThan(0);
       expect(text).not.toMatch(/<[a-z][\s\S]*>/i);
       expect(text).toContain(vars.publicUrl);
+      expect(text).toContain(legendaComUrl);
       expect(text).toContain(vars.optOutUrl);
+      expect(text).toContain('🖤');
     });
   });
 });

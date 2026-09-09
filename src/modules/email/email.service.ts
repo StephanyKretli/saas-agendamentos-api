@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import {
   renderOnboardingEmail,
   renderPostOnboardingEmail,
+  renderPosOnbAgendaEmail,
   type OnboardingEmailStep,
 } from './onboarding-email.templates';
 
@@ -423,6 +424,53 @@ export class EmailService {
 
     const publicUrl = `${process.env.FRONTEND_URL}/book/${params.username}`;
     const { subject, html, text } = renderPostOnboardingEmail({
+      firstName: params.firstName,
+      publicUrl,
+      optOutUrl: params.optOutUrl,
+    });
+
+    const replyTo = process.env.EMAIL_REPLY_TO || this.addressOnly(this.from);
+
+    const result = await this.resend.emails.send({
+      from: this.from,
+      to: params.to,
+      replyTo,
+      subject,
+      html,
+      text,
+    });
+
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+  }
+
+  /**
+   * EMAIL_POS_ONB_AGENDA — dia 1 depois de concluir, antes da mensagem da bio.
+   * Pede pra lançar os horários já marcados desta semana no próprio link. Mesma
+   * mecânica de "lança em vez de falhar em silêncio" — o cron precisa do throw
+   * pra marcar FALHOU + retentar. URL pública a partir de FRONTEND_URL, nunca
+   * string fixa: sem a variável, LANÇA.
+   */
+  async sendPosOnbAgendaEmail(params: {
+    to: string;
+    firstName: string | null;
+    username: string;
+    optOutUrl: string;
+  }): Promise<void> {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error(
+        'RESEND_API_KEY não configurada — e-mail da agenda não enviado.',
+      );
+    }
+    if (!process.env.FRONTEND_URL) {
+      throw new Error(
+        'FRONTEND_URL não configurada — não dá para montar o link público do e-mail da agenda.',
+      );
+    }
+
+    const publicUrl = `${process.env.FRONTEND_URL}/book/${params.username}`;
+    const { subject, html, text } = renderPosOnbAgendaEmail({
       firstName: params.firstName,
       publicUrl,
       optOutUrl: params.optOutUrl,

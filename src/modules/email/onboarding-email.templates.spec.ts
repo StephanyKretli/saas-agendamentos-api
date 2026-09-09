@@ -2,6 +2,7 @@ import {
   firstNameFromRaw,
   renderOnboardingEmail,
   renderPostOnboardingEmail,
+  renderPosOnbAgendaEmail,
 } from './onboarding-email.templates';
 
 describe('onboarding-email.templates', () => {
@@ -211,6 +212,61 @@ describe('onboarding-email.templates', () => {
       expect(text).toContain(legendaComUrl);
       expect(text).toContain(vars.optOutUrl);
       expect(text).toContain('🖤');
+    });
+  });
+
+  describe('renderPosOnbAgendaEmail', () => {
+    const vars = {
+      publicUrl: 'https://meusyncro.com.br/book/studio-ana',
+      optOutUrl: 'https://api.meusyncro.com.br/trial-touches/opt-out/u1',
+    };
+    // Nenhum horário/grade concreta pode aparecer — a mensagem tem que ser
+    // verdadeira tanto pra quem aceitou o padrão quanto pra quem abriu os 7 dias.
+    const HORARIO_CONCRETO =
+      /\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?h\b|\bseg\w*\s*(a|–|-|até)\s*sex|\bsegunda a sexta\b/i;
+
+    it('assunto, saudação, URL pública no corpo e botão "Abrir meu link"', () => {
+      const { subject, html } = renderPosOnbAgendaEmail({
+        ...vars,
+        firstName: 'Ana',
+      });
+      expect(subject).toBe('Sua agenda ainda está vazia');
+      expect(html).toContain('Oi, Ana!');
+      expect(html).toContain('Abrir meu link');
+      expect(html).toContain(vars.publicUrl);
+      expect(html).toContain('a agenda ainda está vazia');
+      expect(html).toContain(vars.optOutUrl);
+    });
+
+    it('o corpo NÃO menciona nenhum horário nem grade específica', () => {
+      const { html, text } = renderPosOnbAgendaEmail({
+        ...vars,
+        firstName: 'Ana',
+      });
+      // testa só o miolo, não a casca (estilos têm "8px" etc.)
+      const inner = html
+        .split('font-size:15px;line-height:1.6;">')[1]
+        .split('</td>')[0]
+        .replace(/<[^>]+>/g, ' ');
+      expect(inner).not.toMatch(HORARIO_CONCRETO);
+      expect(text).not.toMatch(HORARIO_CONCRETO);
+    });
+
+    it('nome lixo → saudação atual, sem "undefined" no corpo', () => {
+      const { html } = renderPosOnbAgendaEmail({
+        ...vars,
+        firstName: firstNameFromRaw('SYNCRO undefined'),
+      });
+      expect(html).toContain('Oi, SYNCRO!');
+      expect(html).not.toMatch(/undefined|null/i);
+    });
+
+    it('versão text/plain não vazia, sem tags, com a URL pública por extenso', () => {
+      const { text } = renderPosOnbAgendaEmail({ ...vars, firstName: 'Ana' });
+      expect(text.trim().length).toBeGreaterThan(0);
+      expect(text).not.toMatch(/<[a-z][\s\S]*>/i);
+      expect(text).toContain(vars.publicUrl);
+      expect(text).toContain(vars.optOutUrl);
     });
   });
 });

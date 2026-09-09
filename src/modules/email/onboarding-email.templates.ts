@@ -4,9 +4,12 @@
 //     E-mail 1 (D+20min): "Seu link está a 3 minutos de ficar pronto"
 //     E-mail 2 (D+2 dias): "Seu link do Syncro ainda não está no ar"
 //
-//   Pós-conclusão (quem terminou e ainda não teve cliente marcando):
-//     EMAIL_POS_ONB_1 (concluído + 1 dia): "Seu link está pronto. Falta ele
-//     aparecer em algum lugar."
+//   Pós-conclusão (quem terminou e ainda não teve cliente marcando) — ordem:
+//   primeiro ENCHER a agenda, depois DIVULGAR o link:
+//     EMAIL_POS_ONB_AGENDA (concluído + 1 dia): "Sua agenda ainda está vazia"
+//       — pede pra lançar a semana no próprio link (e, disfarçado, testar a grade)
+//     EMAIL_POS_ONB_1 (AGENDA + 2 dias): "Seu link está pronto. Falta ele
+//       aparecer em algum lugar." — a mensagem da bio, com legenda pronta
 //
 // Copy fixa (não editar sem alinhar com a Stephany — é a voz dela).
 
@@ -204,11 +207,13 @@ export function renderOnboardingEmail(
 }
 
 /**
- * E-mail de quem CONCLUIU o onboarding e ainda não teve cliente marcando.
- * Único objetivo: fazer o link aparecer na bio. Copy trazida do toque T3 da
- * régua de WhatsApp (whatsapp.service.ts / sendDivulgarLink) — escrita antes, na
- * voz da fundadora, e melhor: enquadra o link como identidade ("só seu, igual
- * ao @") e entrega a legenda pronta em vez de só explicar onde colar.
+ * E-mail de quem CONCLUIU o onboarding (dia 3, depois do e-mail da agenda).
+ * Único objetivo: fazer o link aparecer na bio — vale mesmo para quem já tem
+ * um agendamento (o e-mail anterior mandou marcar pelo link, o que ativa a
+ * conta). Nada aqui afirma que ninguém marcou ainda. Copy trazida do toque T3
+ * da régua de WhatsApp (whatsapp.service.ts / sendDivulgarLink) — escrita antes,
+ * na voz da fundadora: enquadra o link como identidade ("só seu, igual ao @") e
+ * entrega a legenda pronta em vez de só explicar onde colar.
  * CTA aponta para a página pública (ver funcionando + copiar o endereço).
  *
  * A legenda pronta é um bloco destacado, em itálico, com a URL como TEXTO (não
@@ -255,6 +260,50 @@ export function renderPostOnboardingEmail(
         legendaText,
         'Sua cliente não baixa nada e não cria senha.',
         'Se travar em alguma parte, me responde este e-mail dizendo onde. Eu leio todas.',
+      ],
+      v.optOutUrl,
+    ),
+  };
+}
+
+/**
+ * EMAIL_POS_ONB_AGENDA — dia 1 depois de concluir, ANTES da mensagem da bio.
+ * Copy trazida do toque T1 da régua de WhatsApp. Pede pra lançar os horários já
+ * marcados desta semana no próprio link, "como se fosse a cliente marcando".
+ * Isso enche a agenda E força a pessoa a usar o link como cliente — então ela
+ * descobre sozinha se a grade está errada, antes de divulgar.
+ *
+ * ⚠️ NÃO citar a grade da pessoa aqui. "o Syncro deixou marcado de seg a sex
+ * 9h–18h" é falso pra quem editou os 7 dias. O texto abaixo é verdadeiro pra
+ * todo mundo porque não afirma nenhum horário específico.
+ */
+export function renderPosOnbAgendaEmail(
+  v: PostOnboardingEmailVars,
+): RenderedEmail {
+  const g = greeting(v.firstName);
+  const gt = greetingText(v.firstName);
+
+  return {
+    subject: 'Sua agenda ainda está vazia',
+    html: shell(
+      `<p style="margin:0 0 16px;">${g}</p>
+       <p style="margin:0 0 16px;">Seu link está pronto, mas a agenda ainda está vazia. Isso quase nunca é falta de vontade — é que parece trabalhoso. E eu entendo, porque parece mesmo.</p>
+       <p style="margin:0 0 16px;">Só que é menor do que parece. Você não precisa cadastrar cliente por cliente: abra seu próprio link, <a href="${v.publicUrl}" style="color:#18181b;font-weight:700;word-break:break-all;">${escapeHtml(v.publicUrl)}</a>, e marque os horários que já estão na sua agenda desta semana, como se fosse a cliente marcando. Cada uma entra cadastrada junto.</p>
+       <p style="margin:0 0 16px;">Não precisa migrar histórico antigo. Só o que já está marcado nesta semana.</p>
+       <p style="margin:0 0 16px;">E aproveite para conferir se os horários que aparecem no link são mesmo os seus — muita gente passa batido por esse passo no começo, e é melhor descobrir agora do que quando uma cliente marcar num dia em que você não atende.</p>
+       ${ctaButton(v.publicUrl, 'Abrir meu link')}
+       <p style="margin:0;">Travou em alguma parte? Me responde este e-mail dizendo onde. Eu leio todas.</p>
+       ${SIGNATURE}`,
+      v.optOutUrl,
+    ),
+    text: textShell(
+      [
+        gt,
+        'Seu link está pronto, mas a agenda ainda está vazia. Isso quase nunca é falta de vontade — é que parece trabalhoso. E eu entendo, porque parece mesmo.',
+        `Só que é menor do que parece. Você não precisa cadastrar cliente por cliente: abra seu próprio link, ${v.publicUrl}, e marque os horários que já estão na sua agenda desta semana, como se fosse a cliente marcando. Cada uma entra cadastrada junto.`,
+        'Não precisa migrar histórico antigo. Só o que já está marcado nesta semana.',
+        'E aproveite para conferir se os horários que aparecem no link são mesmo os seus — muita gente passa batido por esse passo no começo, e é melhor descobrir agora do que quando uma cliente marcar num dia em que você não atende.',
+        'Travou em alguma parte? Me responde este e-mail dizendo onde. Eu leio todas.',
       ],
       v.optOutUrl,
     ),

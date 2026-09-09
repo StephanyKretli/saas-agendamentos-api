@@ -34,6 +34,7 @@ describe('OnboardingEmailCron', () => {
     email = {
       sendOnboardingEmail: jest.fn().mockResolvedValue(undefined),
       sendPostOnboardingEmail: jest.fn().mockResolvedValue(undefined),
+      sendPosOnbAgendaEmail: jest.fn().mockResolvedValue(undefined),
     };
     cron = new OnboardingEmailCron(prisma as any, email as any);
   });
@@ -52,11 +53,20 @@ describe('OnboardingEmailCron', () => {
     );
     return call?.[0]?.where;
   }
-  /** where do findMany de "novos envios" do EMAIL_POS_ONB_1. */
+  /** where do findMany de "novos envios" do EMAIL_POS_ONB_AGENDA (só `none`). */
+  function wherePosOnbAgenda(): any {
+    const call = prisma.user.findMany.mock.calls.find(
+      (c: any[]) =>
+        c[0]?.where?.trialTouches?.none?.touch === 'EMAIL_POS_ONB_AGENDA' &&
+        !c[0]?.where?.trialTouches?.some,
+    );
+    return call?.[0]?.where;
+  }
+  /** where do findMany de "novos envios" do EMAIL_POS_ONB_1 (`some AGENDA ENVIADO`). */
   function wherePosOnb1(): any {
     const call = prisma.user.findMany.mock.calls.find(
       (c: any[]) =>
-        c[0]?.where?.trialTouches?.none?.touch === 'EMAIL_POS_ONB_1',
+        c[0]?.where?.trialTouches?.some?.touch === 'EMAIL_POS_ONB_AGENDA',
     );
     return call?.[0]?.where;
   }
@@ -358,35 +368,193 @@ describe('OnboardingEmailCron', () => {
   });
 
   // =========================================================================
-  // EMAIL_POS_ONB_1 — quem CONCLUIU o onboarding e ainda não teve cliente
-  // marcando. Guarda invertida: precisa de onboardingCompletedAt, não pode ter
-  // activatedAt.
+  // EMAIL_POS_ONB_AGENDA — dia 1 pós-conclusão. Pede pra lançar a agenda da
+  // semana no próprio link, ANTES da mensagem da bio. Guarda invertida: precisa
+  // de onboardingCompletedAt, não pode ter activatedAt (agenda "vazia").
+  // =========================================================================
+  describe('EMAIL_POS_ONB_AGENDA', () => {
+    function mockCandidato() {
+      prisma.user.findMany.mockImplementation(async (args: any) =>
+        args?.where?.trialTouches?.none?.touch === 'EMAIL_POS_ONB_AGENDA' &&
+        !args?.where?.trialTouches?.some
+          ? [{ id: 'u1' }]
+          : [],
+      );
+    }
+    function userValido(over: Record<string, unknown> = {}) {
+      return {
+        email: 'x@x.com',
+        name: 'Ana',
+        username: 'studio-ana',
+        ownerId: null,
+        onboardingCompletedAt: new Date('2026-09-01T00:00:00Z'),
+        activatedAt: null,
+        optOut: false,
+        ...over,
+      };
+    }
+
+    it('seleção: concluído há ≥ 1 dia, activatedAt nulo, ownerId nulo, sem teste, sem toque prévio', async () => {
+      await cron.processOnboardingEmails(DENTRO_DA_JANELA);
+
+      const w = wherePosOnbAgenda();
+      expect(w).toBeDefined();
+      expect(w.onboardingCompletedAt.not).toBeNull();
+      expect(w.onboardingCompletedAt.lt).toBeInstanceOf(Date);
+      expect(
+        DENTRO_DA_JANELA.getTime() - w.onboardingCompletedAt.lt.getTime(),
+      ).toBe(24 * 60 * 60 * 1000);
+      expect(w.activatedAt).toBeNull();
+      expect(w.ownerId).toBeNull();
+      expect(w.optOut).toBe(false);
+      expect(w.isTest).toBe(false);
+      expect(w.trialTouches).toEqual({
+        none: { touch: 'EMAIL_POS_ONB_AGENDA' },
+      });
+    });
+
+    it('não roda fora da janela 9h–20h', async () => {
+      await cron.processOnboardingEmails(FORA_DA_JANELA);
+      expect(wherePosOnbAgenda()).toBeUndefined();
+    });
+
+    it('caminho feliz: reserva, envia com o template da agenda e marca ENVIADO', async () => {
+      mockCandidato();
+      prisma.user.findUnique.mockResolvedValue(userValido());
+
+      await cron.processOnboardingEmails(DENTRO_DA_JANELA);
+
+      expect(prisma.trialTouch.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'u1',
+          touch: 'EMAIL_POS_ONB_AGENDA',
+          status: 'PENDENTE',
+          tentativas: 1,
+        },
+      });
+      expect(email.sendPosOnbAgendaEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'x@x.com',
+          firstName: 'Ana',
+          username: 'studio-ana',
+        }),
+      );
+      expect(email.sendPostOnboardingEmail).not.toHaveBeenCalled();
+      expect(prisma.trialTouch.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_AGENDA' },
+          },
+          data: expect.objectContaining({ status: 'ENVIADO', erro: null }),
+        }),
+      );
+    });
+
+    it('activatedAt preenchido entre a seleção e o envio → NÃO envia, marca FALHOU', async () => {
+      mockCandidato();
+      prisma.user.findUnique.mockResolvedValue(
+        userValido({ activatedAt: new Date() }),
+      );
+
+      await cron.processOnboardingEmails(DENTRO_DA_JANELA);
+
+      expect(email.sendPosOnbAgendaEmail).not.toHaveBeenCalled();
+      expect(prisma.trialTouch.update).toHaveBeenCalledWith({
+        where: {
+          userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_AGENDA' },
+        },
+        data: {
+          status: 'FALHOU',
+          erro: 'pulado: cliente ativou antes do envio',
+          tentativas: 5,
+        },
+      });
+    });
+
+    it('ownerId preenchido entre a seleção e o envio → NÃO envia, marca FALHOU', async () => {
+      mockCandidato();
+      prisma.user.findUnique.mockResolvedValue(
+        userValido({ ownerId: 'dono_1' }),
+      );
+
+      await cron.processOnboardingEmails(DENTRO_DA_JANELA);
+
+      expect(email.sendPosOnbAgendaEmail).not.toHaveBeenCalled();
+      expect(prisma.trialTouch.update).toHaveBeenCalledWith({
+        where: {
+          userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_AGENDA' },
+        },
+        data: {
+          status: 'FALHOU',
+          erro: 'pulado: membro de equipe',
+          tentativas: 5,
+        },
+      });
+    });
+
+    it('falha de envio grava FALHOU + erro e NÃO apaga a linha', async () => {
+      mockCandidato();
+      prisma.user.findUnique.mockResolvedValue(userValido());
+      email.sendPosOnbAgendaEmail.mockRejectedValue(
+        new Error('Resend recusou'),
+      );
+
+      await cron.processOnboardingEmails(DENTRO_DA_JANELA);
+
+      expect(prisma.trialTouch.update).toHaveBeenCalledWith({
+        where: {
+          userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_AGENDA' },
+        },
+        data: { status: 'FALHOU', erro: 'Resend recusou' },
+      });
+      expect(prisma.trialTouch.delete).toBeUndefined();
+    });
+
+    it('idempotência: se a linha já existe, o create falha e não há envio', async () => {
+      mockCandidato();
+      prisma.trialTouch.create.mockRejectedValue(
+        new Error('Unique constraint failed'),
+      );
+
+      await cron.processOnboardingEmails(DENTRO_DA_JANELA);
+
+      expect(email.sendPosOnbAgendaEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // EMAIL_POS_ONB_1 — a mensagem da bio. Agora dispara 2 dias depois do ENVIO
+  // do EMAIL_POS_ONB_AGENDA (sentAt da linha), não de onboardingCompletedAt.
   // =========================================================================
   describe('EMAIL_POS_ONB_1', () => {
     function mockCandidatoPosOnb1() {
       prisma.user.findMany.mockImplementation(async (args: any) =>
-        args?.where?.trialTouches?.none?.touch === 'EMAIL_POS_ONB_1'
+        args?.where?.trialTouches?.some?.touch === 'EMAIL_POS_ONB_AGENDA'
           ? [{ id: 'u1' }]
           : [],
       );
     }
 
-    it('seleção: onboarding concluído há ≥ 1 dia, activatedAt nulo, sem toque prévio, sem conta de teste', async () => {
+    it('seleção: 2 dias depois do sentAt do EMAIL_POS_ONB_AGENDA ENVIADO, sem linha EMAIL_POS_ONB_1, SEM gate de activatedAt', async () => {
       await cron.processOnboardingEmails(DENTRO_DA_JANELA);
 
       const w = wherePosOnb1();
       expect(w).toBeDefined();
-      expect(w.onboardingCompletedAt.not).toBeNull();
-      expect(w.onboardingCompletedAt.lt).toBeInstanceOf(Date);
-      expect(DENTRO_DA_JANELA.getTime() - w.onboardingCompletedAt.lt.getTime()).toBe(
-        24 * 60 * 60 * 1000,
-      );
-      expect(w.activatedAt).toBeNull();
+      expect(w.trialTouches.some.touch).toBe('EMAIL_POS_ONB_AGENDA');
+      expect(w.trialTouches.some.status).toBe('ENVIADO');
+      expect(w.trialTouches.some.sentAt.lt).toBeInstanceOf(Date);
+      expect(
+        DENTRO_DA_JANELA.getTime() - w.trialTouches.some.sentAt.lt.getTime(),
+      ).toBe(2 * 24 * 60 * 60 * 1000);
+      expect(w.trialTouches.none).toEqual({ touch: 'EMAIL_POS_ONB_1' });
       expect(w.optOut).toBe(false);
       expect(w.isTest).toBe(false);
-      expect(w.trialTouches).toEqual({ none: { touch: 'EMAIL_POS_ONB_1' } });
-      // sem corte de recência — o gatilho já é recente por definição
+      // NÃO filtra activatedAt: quem obedeceu o e-mail da agenda marcou pelo
+      // link público e ativou a conta — excluí-lo aqui seria punir quem obedeceu.
+      expect(w.activatedAt).toBeUndefined();
+      // gate é o sentAt da linha anterior, não o cadastro nem a conclusão
       expect(w.createdAt).toBeUndefined();
+      expect(w.onboardingCompletedAt).toBeUndefined();
     });
 
     it('não roda fora da janela 9h–20h', async () => {
@@ -394,12 +562,13 @@ describe('OnboardingEmailCron', () => {
       expect(wherePosOnb1()).toBeUndefined();
     });
 
-    it('caminho feliz: reserva, envia com username e marca ENVIADO', async () => {
+    it('caminho feliz: reserva, envia a mensagem da bio e marca ENVIADO', async () => {
       mockCandidatoPosOnb1();
       prisma.user.findUnique.mockResolvedValue({
         email: 'x@x.com',
         name: 'Ana',
         username: 'studio-ana',
+        ownerId: null,
         onboardingCompletedAt: new Date('2026-09-01T00:00:00Z'),
         activatedAt: null,
         optOut: false,
@@ -422,6 +591,7 @@ describe('OnboardingEmailCron', () => {
           username: 'studio-ana',
         }),
       );
+      expect(email.sendPosOnbAgendaEmail).not.toHaveBeenCalled();
       expect(prisma.trialTouch.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_1' } },
@@ -430,28 +600,29 @@ describe('OnboardingEmailCron', () => {
       );
     });
 
-    it('activatedAt preenchido entre a seleção e o envio → NÃO envia, marca FALHOU', async () => {
+    it('activatedAt preenchido → AINDA ASSIM envia (quem marcou pelo link da agenda continua precisando pôr o link na bio)', async () => {
       mockCandidatoPosOnb1();
       prisma.user.findUnique.mockResolvedValue({
         email: 'x@x.com',
         name: 'Ana',
         username: 'studio-ana',
+        ownerId: null,
         onboardingCompletedAt: new Date('2026-09-01T00:00:00Z'),
-        activatedAt: new Date(), // uma cliente marcou nesse meio tempo
+        activatedAt: new Date(), // marcou os próprios horários pelo link público
         optOut: false,
       });
 
       await cron.processOnboardingEmails(DENTRO_DA_JANELA);
 
-      expect(email.sendPostOnboardingEmail).not.toHaveBeenCalled();
-      expect(prisma.trialTouch.update).toHaveBeenCalledWith({
-        where: { userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_1' } },
-        data: {
-          status: 'FALHOU',
-          erro: 'pulado: cliente ativou antes do envio',
-          tentativas: 5,
-        },
-      });
+      expect(email.sendPostOnboardingEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'x@x.com', username: 'studio-ana' }),
+      );
+      expect(prisma.trialTouch.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId_touch: { userId: 'u1', touch: 'EMAIL_POS_ONB_1' } },
+          data: expect.objectContaining({ status: 'ENVIADO', erro: null }),
+        }),
+      );
     });
 
     it('falha de envio grava FALHOU + erro e NÃO apaga a linha', async () => {
@@ -460,6 +631,7 @@ describe('OnboardingEmailCron', () => {
         email: 'x@x.com',
         name: 'Ana',
         username: 'studio-ana',
+        ownerId: null,
         onboardingCompletedAt: new Date('2026-09-01T00:00:00Z'),
         activatedAt: null,
         optOut: false,

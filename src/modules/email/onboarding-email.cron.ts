@@ -6,8 +6,13 @@ import { firstNameFromRaw } from './onboarding-email.templates';
 
 // Régua de e-mail do onboarding, DUAS condições:
 //   - retomada (EMAIL_ONB_1 / EMAIL_ONB_2): quem NÃO terminou /onboarding;
-//   - pós-conclusão (EMAIL_POS_ONB_1): quem terminou e ainda não teve cliente
-//     marcando — age no gargalo onboardingCompletedAt → activatedAt.
+//   - pós-conclusão: quem terminou o /onboarding. Ordem — primeiro ENCHER a
+//     agenda, depois DIVULGAR o link:
+//       EMAIL_POS_ONB_AGENDA (concluído + 1 dia): "lance a semana no seu link"
+//         — só quem ainda não tem cliente ativa (activatedAt IS NULL)
+//       EMAIL_POS_ONB_1      (AGENDA + 2 dias):   "ponha o link na bio"
+//         — sem gate de activatedAt: o e-mail acima manda marcar pelo link
+//           público, o que ativa a conta; excluir ativos excluiria quem obedeceu
 // Alcança 10/10 dos cadastros (e-mail é obrigatório e único), diferente da
 // régua de WhatsApp que hoje alcança zero.
 //
@@ -19,10 +24,20 @@ import { firstNameFromRaw } from './onboarding-email.templates';
 const EMAIL_1 = 'EMAIL_ONB_1';
 const EMAIL_2 = 'EMAIL_ONB_2';
 
-// Régua de UM e-mail para quem CONCLUIU o onboarding e ainda não teve cliente
-// marcando (activatedAt IS NULL). Condição distinta — não é a terceira de uma
-// sequência, é a primeira de outra. Também invisível pra notifications.cron.ts
-// (aquele só toca TrialTouch por nome da lista fixa T1..T16).
+// Dia 1 pós-conclusão: pedido pra lançar a agenda da semana no próprio link
+// (enche a agenda E, disfarçado, testa se a grade está certa antes de divulgar).
+// Espelha o toque T1 da régua de WhatsApp.
+const EMAIL_POS_ONB_AGENDA = 'EMAIL_POS_ONB_AGENDA';
+
+// Dia 3 pós-conclusão (2 dias depois do e-mail da agenda): a mensagem da bio,
+// com legenda pronta. Espelha o T3 do WhatsApp.
+//
+// NOME NOVO em vez de trocar o conteúdo do EMAIL_POS_ONB_1: as pessoas que
+// concluíram em 08–09/09 já têm linha EMAIL_POS_ONB_1 gravada (receberam a
+// mensagem da bio antes desta mudança). Só editar o conteúdo daquele toque
+// faria elas nunca receberem o pedido da agenda — e são exatamente quem mais
+// precisa dele. Com o toque EMAIL_POS_ONB_AGENDA novo, elas entram na primeira
+// varredura; o EMAIL_POS_ONB_1 delas, já enviado, não reenvia (idempotência).
 const EMAIL_POS_ONB_1 = 'EMAIL_POS_ONB_1';
 
 // Mesmo teto da régua de WhatsApp. Aqui ele é atingido de verdade: o e-mail 1
@@ -51,10 +66,14 @@ const ATRASO_POS_EMAIL_1_MS = 2 * MS.day;
 const JANELA_RECENCIA_EMAIL_1_MS = 30 * MS.day;
 const JANELA_RECENCIA_EMAIL_2_MS = 35 * MS.day;
 
-// EMAIL_POS_ONB_1: 1 dia depois de onboardingCompletedAt. Não na hora — quem
-// acabou de concluir está olhando a tela final, que já mostra o link com botão
-// de copiar.
-const ATRASO_POS_ONB_1_MS = 1 * MS.day;
+// EMAIL_POS_ONB_AGENDA: 1 dia depois de onboardingCompletedAt. Não na hora —
+// quem acabou de concluir está olhando a tela final, que já mostra o link.
+const ATRASO_POS_ONB_AGENDA_MS = 1 * MS.day;
+
+// EMAIL_POS_ONB_1: 2 dias depois do ENVIO do EMAIL_POS_ONB_AGENDA (sentAt da
+// linha, não onboardingCompletedAt — mesma razão do EMAIL_ONB_2: com fila
+// represada, contar do cadastro faria os dois saírem com minutos de diferença).
+const ATRASO_AGENDA_PARA_POS_ONB_1_MS = 2 * MS.day;
 
 // Limite de linhas por rodada — a base é minúscula (dezenas), mas evita uma
 // varredura sem teto se algo represar.
@@ -97,6 +116,7 @@ export class OnboardingEmailCron {
   async processOnboardingEmails(now: Date = new Date()): Promise<void> {
     await this.runEmail1(now);
     await this.runEmail2(now);
+    await this.runPosOnbAgenda(now);
     await this.runPosOnb1(now);
   }
 
@@ -183,22 +203,74 @@ export class OnboardingEmailCron {
   }
 
   // ==========================================================================
-  // EMAIL_POS_ONB_1 — 1 dia depois de CONCLUIR o onboarding, se NENHUMA cliente
-  // real marcou ainda. COM janela 9h–20h. Único toque que age no gargalo
-  // onboardingCompletedAt → activatedAt. SEM corte de recência.
+  // EMAIL_POS_ONB_AGENDA — 1 dia depois de CONCLUIR o onboarding, se NENHUMA
+  // cliente real marcou ainda. COM janela 9h–20h. Primeiro toque da sequência
+  // pós-conclusão: encher a agenda antes de divulgar o link.
   // ==========================================================================
-  private async runPosOnb1(now: Date): Promise<void> {
+  private async runPosOnbAgenda(now: Date): Promise<void> {
     if (!this.isWithinSendWindow(now)) return;
 
-    const concluidoAntesDe = new Date(now.getTime() - ATRASO_POS_ONB_1_MS);
+    const concluidoAntesDe = new Date(
+      now.getTime() - ATRASO_POS_ONB_AGENDA_MS,
+    );
 
     const novos = await this.prisma.user.findMany({
       where: {
         onboardingCompletedAt: { not: null, lt: concluidoAntesDe },
-        activatedAt: null, // se uma cliente já marcou, a mensagem estaria errada
+        activatedAt: null, // se uma cliente já marcou, a agenda não está vazia
+        ownerId: null, // membro de equipe não passa por onboarding
         optOut: false,
         isTest: false,
-        trialTouches: { none: { touch: EMAIL_POS_ONB_1 } },
+        trialTouches: { none: { touch: EMAIL_POS_ONB_AGENDA } },
+      },
+      select: { id: true },
+      take: BATCH,
+    });
+
+    for (const u of novos) {
+      if (await this.reserveFirstSend(u.id, EMAIL_POS_ONB_AGENDA)) {
+        await this.sendPosOnbTouchOrMarkFailed(EMAIL_POS_ONB_AGENDA, u.id);
+      }
+    }
+
+    await this.retryFailed(EMAIL_POS_ONB_AGENDA, (userId) =>
+      this.sendPosOnbTouchOrMarkFailed(EMAIL_POS_ONB_AGENDA, userId),
+    );
+  }
+
+  // ==========================================================================
+  // EMAIL_POS_ONB_1 — 2 dias depois do ENVIO do EMAIL_POS_ONB_AGENDA (sentAt da
+  // linha, não onboardingCompletedAt — mesma lógica do EMAIL_ONB_2). COM janela
+  // 9h–20h. A mensagem da bio, depois que a agenda já foi pedida.
+  //
+  // NÃO filtra activatedAt: o e-mail anterior (EMAIL_POS_ONB_AGENDA) manda a
+  // pessoa marcar os próprios horários pelo link público, e essa rota grava
+  // origem 'CLIENTE' → preenche activatedAt. Exigir activatedAt = null aqui
+  // excluiria exatamente quem obedeceu o primeiro e-mail. "Ponha o link na bio"
+  // segue verdadeiro para quem já tem um agendamento.
+  //
+  // Sem filtro explícito de onboardingCompletedAt / ownerId: ter uma linha
+  // EMAIL_POS_ONB_AGENDA ENVIADA já implica os dois (aquela seleção exigiu).
+  // ==========================================================================
+  private async runPosOnb1(now: Date): Promise<void> {
+    if (!this.isWithinSendWindow(now)) return;
+
+    const agendaEnviadoAntesDe = new Date(
+      now.getTime() - ATRASO_AGENDA_PARA_POS_ONB_1_MS,
+    );
+
+    const novos = await this.prisma.user.findMany({
+      where: {
+        optOut: false,
+        isTest: false,
+        trialTouches: {
+          some: {
+            touch: EMAIL_POS_ONB_AGENDA,
+            status: 'ENVIADO',
+            sentAt: { lt: agendaEnviadoAntesDe },
+          },
+          none: { touch: EMAIL_POS_ONB_1 },
+        },
       },
       select: { id: true },
       take: BATCH,
@@ -206,12 +278,12 @@ export class OnboardingEmailCron {
 
     for (const u of novos) {
       if (await this.reserveFirstSend(u.id, EMAIL_POS_ONB_1)) {
-        await this.sendPosOnb1OrMarkFailed(u.id);
+        await this.sendPosOnbTouchOrMarkFailed(EMAIL_POS_ONB_1, u.id);
       }
     }
 
     await this.retryFailed(EMAIL_POS_ONB_1, (userId) =>
-      this.sendPosOnb1OrMarkFailed(userId),
+      this.sendPosOnbTouchOrMarkFailed(EMAIL_POS_ONB_1, userId),
     );
   }
 
@@ -346,58 +418,79 @@ export class OnboardingEmailCron {
   }
 
   /**
-   * Envio do EMAIL_POS_ONB_1. Mesma mecânica do sendOrMarkFailed (reserva antes,
-   * resultado depois, nunca apaga a linha no catch), mas a recheca no momento do
-   * envio é INVERTIDA: aqui a pessoa PRECISA ter concluído o onboarding e NÃO
-   * pode ter cliente ativa. `activatedAt` = "primeira CLIENTE real marcou",
-   * nunca "onboarding concluído" — são campos diferentes.
+   * Envio dos toques pós-conclusão (EMAIL_POS_ONB_AGENDA e EMAIL_POS_ONB_1).
+   * Mesma mecânica do sendOrMarkFailed (reserva antes, resultado depois, nunca
+   * apaga a linha no catch). Recheca no momento do envio: a pessoa PRECISA ter
+   * concluído o onboarding, não pode ter dado opt-out nem ser membro de equipe.
+   *
+   * `activatedAt` só bloqueia o EMAIL_POS_ONB_AGENDA ("sua agenda está vazia" —
+   * falso se uma cliente já marcou). O EMAIL_POS_ONB_1 ("ponha o link na bio")
+   * segue valendo para quem já tem agendamento — e o e-mail anterior manda a
+   * pessoa marcar pelo link público, o que grava origem 'CLIENTE' e preenche
+   * activatedAt. `activatedAt` = "primeira CLIENTE real marcou", nunca
+   * "onboarding concluído" — são campos diferentes.
    */
-  private async sendPosOnb1OrMarkFailed(userId: string): Promise<void> {
+  private async sendPosOnbTouchOrMarkFailed(
+    touch: string,
+    userId: string,
+  ): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         email: true,
         name: true,
         username: true,
+        ownerId: true,
         onboardingCompletedAt: true,
         activatedAt: true,
         optOut: true,
       },
     });
 
+    const agendaVaziaBloqueia =
+      touch === EMAIL_POS_ONB_AGENDA && Boolean(user?.activatedAt);
+
     if (
       !user ||
       !user.onboardingCompletedAt ||
-      user.activatedAt ||
+      agendaVaziaBloqueia ||
       user.optOut ||
+      user.ownerId ||
       !user.username
     ) {
       const motivo = !user
         ? 'pulado: usuário não encontrado antes do envio'
         : !user.onboardingCompletedAt
           ? 'pulado: onboarding não concluído antes do envio'
-          : user.activatedAt
+          : agendaVaziaBloqueia
             ? 'pulado: cliente ativou antes do envio'
             : user.optOut
               ? 'pulado: opt-out'
-              : 'pulado: sem username';
-      await this.markSkipped(userId, EMAIL_POS_ONB_1, motivo);
-      this.logger.log(`${EMAIL_POS_ONB_1} pulado userId=${userId} (${motivo})`);
+              : user.ownerId
+                ? 'pulado: membro de equipe'
+                : 'pulado: sem username';
+      await this.markSkipped(userId, touch, motivo);
+      this.logger.log(`${touch} pulado userId=${userId} (${motivo})`);
       return;
     }
 
     try {
-      await this.email.sendPostOnboardingEmail({
+      const payload = {
         to: user.email,
         firstName: firstNameFromRaw(user.name),
         username: user.username,
         optOutUrl: this.optOutUrl(userId),
-      });
+      };
+      if (touch === EMAIL_POS_ONB_AGENDA) {
+        await this.email.sendPosOnbAgendaEmail(payload);
+      } else {
+        await this.email.sendPostOnboardingEmail(payload);
+      }
       await this.prisma.trialTouch.update({
-        where: { userId_touch: { userId, touch: EMAIL_POS_ONB_1 } },
+        where: { userId_touch: { userId, touch } },
         data: { status: 'ENVIADO', erro: null, sentAt: new Date() },
       });
-      this.logger.log(`${EMAIL_POS_ONB_1} enviado userId=${userId}`);
+      this.logger.log(`${touch} enviado userId=${userId}`);
     } catch (err) {
       const msg = (err instanceof Error ? err.message : String(err)).slice(
         0,
@@ -405,11 +498,11 @@ export class OnboardingEmailCron {
       );
       await this.prisma.trialTouch
         .update({
-          where: { userId_touch: { userId, touch: EMAIL_POS_ONB_1 } },
+          where: { userId_touch: { userId, touch } },
           data: { status: 'FALHOU', erro: msg },
         })
         .catch(() => {});
-      this.logger.error(`${EMAIL_POS_ONB_1} FALHOU userId=${userId}: ${msg}`);
+      this.logger.error(`${touch} FALHOU userId=${userId}: ${msg}`);
     }
   }
 

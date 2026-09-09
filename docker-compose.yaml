@@ -19,16 +19,17 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=saas_agendamentos
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - saas_db_data:/var/lib/postgresql/data
     networks:
       - saas-net
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
 volumes:
   saas_db_data:
 
 networks:
   saas-net:
-    driver: bridge
+  driver: bridge

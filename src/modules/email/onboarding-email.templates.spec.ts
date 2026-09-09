@@ -1,6 +1,7 @@
 import {
   firstNameFromRaw,
   renderOnboardingEmail,
+  renderPostOnboardingEmail,
 } from './onboarding-email.templates';
 
 describe('onboarding-email.templates', () => {
@@ -32,6 +33,8 @@ describe('onboarding-email.templates', () => {
     const vars = {
       ctaUrl: 'https://meusyncro.com.br/onboarding',
       optOutUrl: 'https://api.meusyncro.com.br/trial-touches/opt-out/u1',
+      hasService: true,
+      hasBusinessHour: true,
     };
 
     it('e-mail 1: assunto exato, saudação com nome, botão pra /onboarding e link de opt-out', () => {
@@ -47,13 +50,62 @@ describe('onboarding-email.templates', () => {
       expect(html).toContain('Leva menos tempo que responder este e-mail.');
     });
 
-    it('e-mail 2: assunto exato e pedido de resposta', () => {
+    it('e-mail 1: a descrição dos passos bate com as 4 telas reais de /onboarding', () => {
+      const { html } = renderOnboardingEmail(1, { ...vars, firstName: 'Ana' });
+      expect(html).toContain('quatro telas');
+      expect(html).toContain('endereço no Syncro');
+      expect(html).toContain('serviço');
+      expect(html).toContain('horários');
+      expect(html).not.toContain('três perguntas');
+    });
+
+    it('e-mail 2: assunto novo (verdadeiro nos 3 casos) e pedido de resposta', () => {
       const { subject, html } = renderOnboardingEmail(2, {
         ...vars,
         firstName: 'Ana',
       });
-      expect(subject).toBe('Seu link do Syncro ainda está vazio');
+      expect(subject).toBe('Seu link do Syncro ainda não está no ar');
       expect(html).toContain('me responde este e-mail');
+      // parágrafo que não pode sumir
+      expect(html).toContain('sua conta expira sozinha, você não precisa fazer nada');
+    });
+
+    it('e-mail 2: sem serviço → frase do serviço', () => {
+      const { html, text } = renderOnboardingEmail(2, {
+        ...vars,
+        firstName: 'Ana',
+        hasService: false,
+        hasBusinessHour: false,
+      });
+      const frase =
+        'Seu link ainda não tem nenhum serviço cadastrado, então quem abrir não consegue marcar nada.';
+      expect(html).toContain(frase);
+      expect(text).toContain(frase);
+    });
+
+    it('e-mail 2: com serviço e sem horário → frase do horário', () => {
+      const { html, text } = renderOnboardingEmail(2, {
+        ...vars,
+        firstName: 'Ana',
+        hasService: true,
+        hasBusinessHour: false,
+      });
+      const frase =
+        'Seu link já tem serviço, mas nenhum horário de atendimento — quem abrir não encontra nenhuma data livre.';
+      expect(html).toContain(frase);
+      expect(text).toContain(frase);
+    });
+
+    it('e-mail 2: com serviço e horário → frase curta', () => {
+      const { html } = renderOnboardingEmail(2, {
+        ...vars,
+        firstName: 'Ana',
+        hasService: true,
+        hasBusinessHour: true,
+      });
+      expect(html).toContain('Falta pouco para seu link ficar pronto.');
+      expect(html).not.toContain('nenhum serviço cadastrado');
+      expect(html).not.toContain('nenhum horário de atendimento');
     });
 
     it('nome nulo → "Oi!" e NUNCA "undefined"/"null" no corpo', () => {
@@ -68,9 +120,61 @@ describe('onboarding-email.templates', () => {
     });
 
     it('nome com HTML é escapado (não injeta markup)', () => {
-      const { html } = renderOnboardingEmail(1, { ...vars, firstName: '<b>x' });
+      const { html } = renderOnboardingEmail(1, {
+        ...vars,
+        firstName: '<b>x',
+      });
       expect(html).not.toContain('<b>x');
       expect(html).toContain('&lt;b&gt;x');
+    });
+
+    it('e-mails 1 e 2 têm versão text/plain não vazia, sem tags, com a URL do CTA legível', () => {
+      for (const step of [1, 2] as const) {
+        const { text } = renderOnboardingEmail(step, {
+          ...vars,
+          firstName: 'Ana',
+        });
+        expect(text.trim().length).toBeGreaterThan(0);
+        expect(text).not.toMatch(/<[a-z][\s\S]*>/i);
+        expect(text).toContain('https://meusyncro.com.br/onboarding');
+        expect(text).toContain(vars.optOutUrl);
+      }
+    });
+  });
+
+  describe('renderPostOnboardingEmail', () => {
+    const vars = {
+      publicUrl: 'https://meusyncro.com.br/book/studio-ana',
+      optOutUrl: 'https://api.meusyncro.com.br/trial-touches/opt-out/u1',
+    };
+
+    it('assunto exato, saudação, link público como texto e no botão "Ver meu link"', () => {
+      const { subject, html } = renderPostOnboardingEmail({
+        ...vars,
+        firstName: 'Ana',
+      });
+      expect(subject).toBe(
+        'Seu link está pronto. Falta ele aparecer em algum lugar.',
+      );
+      expect(html).toContain('Oi, Ana!');
+      expect(html).toContain('Ver meu link');
+      expect(html).toContain(`href="${vars.publicUrl}"`);
+      expect(html).toContain('Editar perfil');
+      expect(html).toContain(vars.optOutUrl);
+    });
+
+    it('nome nulo → "Oi!" e nunca "undefined"/"null"', () => {
+      const { html } = renderPostOnboardingEmail({ ...vars, firstName: null });
+      expect(html).toContain('Oi!');
+      expect(html).not.toMatch(/undefined|null/i);
+    });
+
+    it('versão text/plain não vazia, sem tags, com a URL pública legível', () => {
+      const { text } = renderPostOnboardingEmail({ ...vars, firstName: 'Ana' });
+      expect(text.trim().length).toBeGreaterThan(0);
+      expect(text).not.toMatch(/<[a-z][\s\S]*>/i);
+      expect(text).toContain(vars.publicUrl);
+      expect(text).toContain(vars.optOutUrl);
     });
   });
 });

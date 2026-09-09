@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
 import {
   renderOnboardingEmail,
+  renderPostOnboardingEmail,
   type OnboardingEmailStep,
 } from './onboarding-email.templates';
 
@@ -353,6 +354,9 @@ export class EmailService {
     to: string;
     firstName: string | null;
     optOutUrl: string;
+    // Só o e-mail 2 consome — decide a frase de abertura. Passado sempre.
+    hasService: boolean;
+    hasBusinessHour: boolean;
   }): Promise<void> {
     if (!process.env.RESEND_API_KEY) {
       throw new Error(
@@ -361,10 +365,12 @@ export class EmailService {
     }
 
     const ctaUrl = `${process.env.FRONTEND_URL || 'https://meusyncro.com.br'}/onboarding`;
-    const { subject, html } = renderOnboardingEmail(params.step, {
+    const { subject, html, text } = renderOnboardingEmail(params.step, {
       firstName: params.firstName,
       ctaUrl,
       optOutUrl: params.optOutUrl,
+      hasService: params.hasService,
+      hasBusinessHour: params.hasBusinessHour,
     });
 
     // Remetente = EMAIL_FROM inteiro, exatamente como vem do ambiente (nome +
@@ -373,13 +379,64 @@ export class EmailService {
     // real, o e-mail 2 pede resposta.
     const replyTo = process.env.EMAIL_REPLY_TO || this.addressOnly(this.from);
 
-    // Nunca logar o destinatário (PII) — só o resultado.
+    // Nunca logar o destinatário (PII) — só o resultado. `text` junto do `html`
+    // (domínio de envio novo pontua pior em filtro de spam sem parte de texto).
     const result = await this.resend.emails.send({
       from: this.from,
       to: params.to,
       replyTo,
       subject,
       html,
+      text,
+    });
+
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+  }
+
+  /**
+   * EMAIL_POS_ONB_1 — quem concluiu o onboarding e ainda não teve cliente
+   * marcando. Mesma mecânica de "lança em vez de falhar em silêncio" do
+   * sendOnboardingEmail: o cron precisa do throw pra marcar FALHOU + retentar.
+   *
+   * URL pública montada a partir de FRONTEND_URL — nunca string fixa. Sem a
+   * variável, LANÇA (o toque vira FALHOU visível), em vez de mandar um link
+   * quebrado num e-mail cujo assunto é "seu link está pronto".
+   */
+  async sendPostOnboardingEmail(params: {
+    to: string;
+    firstName: string | null;
+    username: string;
+    optOutUrl: string;
+  }): Promise<void> {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error(
+        'RESEND_API_KEY não configurada — e-mail pós-onboarding não enviado.',
+      );
+    }
+    if (!process.env.FRONTEND_URL) {
+      throw new Error(
+        'FRONTEND_URL não configurada — não dá para montar o link público do e-mail pós-onboarding.',
+      );
+    }
+
+    const publicUrl = `${process.env.FRONTEND_URL}/book/${params.username}`;
+    const { subject, html, text } = renderPostOnboardingEmail({
+      firstName: params.firstName,
+      publicUrl,
+      optOutUrl: params.optOutUrl,
+    });
+
+    const replyTo = process.env.EMAIL_REPLY_TO || this.addressOnly(this.from);
+
+    const result = await this.resend.emails.send({
+      from: this.from,
+      to: params.to,
+      replyTo,
+      subject,
+      html,
+      text,
     });
 
     if (result.error) {

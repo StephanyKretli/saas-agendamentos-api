@@ -1,19 +1,49 @@
-// Régua de dois e-mails de retomada do onboarding (/onboarding).
-// Só isto: trazer a pessoa de volta pra terminar o link. Sem venda, sem preço.
+// Régua de e-mails de onboarding. Duas condições distintas:
 //
-// Copy fixa (não editar sem alinhar com a Stephany — é a voz dela):
-//   E-mail 1 (D+20min): "Seu link está a 3 minutos de ficar pronto"
-//   E-mail 2 (D+2 dias): "Seu link do Syncro ainda está vazio"
+//   Retomada (quem NÃO terminou /onboarding):
+//     E-mail 1 (D+20min): "Seu link está a 3 minutos de ficar pronto"
+//     E-mail 2 (D+2 dias): "Seu link do Syncro ainda não está no ar"
+//
+//   Pós-conclusão (quem terminou e ainda não teve cliente marcando):
+//     EMAIL_POS_ONB_1 (concluído + 1 dia): "Seu link está pronto. Falta ele
+//     aparecer em algum lugar."
+//
+// Copy fixa (não editar sem alinhar com a Stephany — é a voz dela).
 
 export type OnboardingEmailStep = 1 | 2;
 
 export interface OnboardingEmailVars {
   /** Primeira palavra do nome, já higienizada — ou null se o nome for lixo. */
   firstName: string | null;
-  /** Botão dos dois e-mails: sempre /onboarding. */
+  /** Botão dos e-mails 1 e 2: sempre /onboarding. */
   ctaUrl: string;
   /** Rodapé de descadastro (GET /trial-touches/opt-out/:userId). */
   optOutUrl: string;
+  /**
+   * Só o e-mail 2 usa: o que de fato já existe no link, para a frase de abertura
+   * dizer a verdade sobre a conta (o filtro do cron só garante
+   * onboardingCompletedAt = null, não "sem serviço").
+   */
+  hasService: boolean;
+  hasBusinessHour: boolean;
+}
+
+export interface PostOnboardingEmailVars {
+  firstName: string | null;
+  /** Página pública de agendamento — {FRONTEND_URL}/book/{username}. */
+  publicUrl: string;
+  optOutUrl: string;
+}
+
+export interface RenderedEmail {
+  subject: string;
+  html: string;
+  /**
+   * Alternativa text/plain. Domínio de envio novo (verificado em 06/09/2026):
+   * mensagem sem parte de texto pontua pior em filtro de spam. URL do CTA sempre
+   * por extenso, sem tags.
+   */
+  text: string;
 }
 
 /**
@@ -55,9 +85,14 @@ function greeting(firstName: string | null): string {
   return firstName ? `Oi, ${escapeHtml(firstName)}!` : 'Oi!';
 }
 
-function ctaButton(url: string): string {
+/** Saudação da versão texto — sem escape de HTML. */
+function greetingText(firstName: string | null): string {
+  return firstName ? `Oi, ${firstName}!` : 'Oi!';
+}
+
+function ctaButton(url: string, label: string): string {
   return `<div style="margin:28px 0;">
-    <a href="${url}" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 26px;border-radius:12px;">Terminar meu link &rarr;</a>
+    <a href="${url}" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 26px;border-radius:12px;">${label} &rarr;</a>
   </div>`;
 }
 
@@ -83,35 +118,126 @@ function shell(innerHtml: string, optOutUrl: string): string {
 
 const SIGNATURE = `<p style="margin:20px 0 0;">Stephany<br />Syncro</p>`;
 
+/** Monta a versão texto: parágrafos + rodapé de descadastro por extenso. */
+function textShell(paragraphs: string[], optOutUrl: string): string {
+  return [
+    ...paragraphs,
+    'Stephany\nSyncro',
+    '—',
+    `Você recebeu este e-mail porque criou uma conta no Syncro. Para não receber mais: ${optOutUrl}`,
+  ].join('\n\n');
+}
+
+/**
+ * Frase de abertura do e-mail 2 — casa com o que REALMENTE falta na conta, em
+ * vez de afirmar "não tem serviço" quando o filtro só olhou onboardingCompletedAt.
+ */
+function email2Opening(v: OnboardingEmailVars): string {
+  if (!v.hasService) {
+    return 'Seu link ainda não tem nenhum serviço cadastrado, então quem abrir não consegue marcar nada.';
+  }
+  if (!v.hasBusinessHour) {
+    return 'Seu link já tem serviço, mas nenhum horário de atendimento — quem abrir não encontra nenhuma data livre.';
+  }
+  return 'Falta pouco para seu link ficar pronto.';
+}
+
 export function renderOnboardingEmail(
   step: OnboardingEmailStep,
   v: OnboardingEmailVars,
-): { subject: string; html: string } {
+): RenderedEmail {
   const g = greeting(v.firstName);
+  const gt = greetingText(v.firstName);
 
   if (step === 1) {
+    // Descrição dos passos = as 4 telas reais de /onboarding (link, serviço +
+    // preço, horários, link pronto). Se o fluxo mudar, este texto segue a tela.
+    const passos =
+      'São quatro telas curtas: você escolhe seu endereço no Syncro, cadastra o serviço que mais faz com o preço, marca os horários em que atende, e o link sai pronto. Você cola ele na bio do Instagram e suas clientes marcam horário sozinhas.';
+
     return {
       subject: 'Seu link está a 3 minutos de ficar pronto',
       html: shell(
         `<p style="margin:0 0 16px;">${g}</p>
          <p style="margin:0 0 16px;">Vi que você começou a criar sua conta no Syncro e parou no meio. Sem problema — falta pouco.</p>
-         <p style="margin:0 0 16px;">São três perguntas: qual serviço você mais faz, quanto custa e em que horários você atende. No fim disso você tem um link pronto para colar na bio do Instagram, e suas clientes conseguem marcar horário sozinhas.</p>
-         ${ctaButton(v.ctaUrl)}
+         <p style="margin:0 0 16px;">${passos}</p>
+         ${ctaButton(v.ctaUrl, 'Terminar meu link')}
          <p style="margin:0;color:#71717a;font-size:13px;">Leva menos tempo que responder este e-mail.</p>
          ${SIGNATURE}`,
+        v.optOutUrl,
+      ),
+      text: textShell(
+        [
+          gt,
+          'Vi que você começou a criar sua conta no Syncro e parou no meio. Sem problema — falta pouco.',
+          passos,
+          `Terminar meu link: ${v.ctaUrl}`,
+          'Leva menos tempo que responder este e-mail.',
+        ],
         v.optOutUrl,
       ),
     };
   }
 
+  const abertura = email2Opening(v);
+
   return {
-    subject: 'Seu link do Syncro ainda está vazio',
+    subject: 'Seu link do Syncro ainda não está no ar',
     html: shell(
       `<p style="margin:0 0 16px;">${g}</p>
-       <p style="margin:0 0 16px;">Seu link ainda não tem nenhum serviço cadastrado, então quem abrir não consegue marcar nada.</p>
+       <p style="margin:0 0 16px;">${abertura}</p>
        <p style="margin:0 0 16px;">Se você travou em alguma parte, me responde este e-mail dizendo onde — eu leio todas e conserto o que estiver confuso. E se não for o momento, tudo bem também: sua conta expira sozinha, você não precisa fazer nada.</p>
-       ${ctaButton(v.ctaUrl)}
+       ${ctaButton(v.ctaUrl, 'Terminar meu link')}
        ${SIGNATURE}`,
+      v.optOutUrl,
+    ),
+    text: textShell(
+      [
+        gt,
+        abertura,
+        'Se você travou em alguma parte, me responde este e-mail dizendo onde — eu leio todas e conserto o que estiver confuso. E se não for o momento, tudo bem também: sua conta expira sozinha, você não precisa fazer nada.',
+        `Terminar meu link: ${v.ctaUrl}`,
+      ],
+      v.optOutUrl,
+    ),
+  };
+}
+
+/**
+ * E-mail de quem CONCLUIU o onboarding e ainda não teve cliente marcando.
+ * Único objetivo: fazer o link aparecer na bio do Instagram. CTA aponta para a
+ * página pública (ver funcionando + copiar o endereço), não para /onboarding.
+ */
+export function renderPostOnboardingEmail(
+  v: PostOnboardingEmailVars,
+): RenderedEmail {
+  const g = greeting(v.firstName);
+  const gt = greetingText(v.firstName);
+
+  return {
+    subject: 'Seu link está pronto. Falta ele aparecer em algum lugar.',
+    html: shell(
+      `<p style="margin:0 0 16px;">${g}</p>
+       <p style="margin:0 0 12px;">Seu link de agendamento está no ar:</p>
+       <p style="margin:0 0 16px;font-weight:700;word-break:break-all;">
+         <a href="${v.publicUrl}" style="color:#18181b;">${escapeHtml(v.publicUrl)}</a>
+       </p>
+       <p style="margin:0 0 16px;">Ele só serve para alguma coisa se as suas clientes virem. O lugar que costuma funcionar melhor é a bio do Instagram, e leva menos de um minuto: abra seu perfil, toque em "Editar perfil", cole o link no campo de site e salve.</p>
+       <p style="margin:0 0 16px;">Feito isso, quem entrar no seu perfil marca sozinha — sem te mandar mensagem e sem você precisar responder.</p>
+       ${ctaButton(v.publicUrl, 'Ver meu link')}
+       <p style="margin:0;">Se travar em alguma parte, me responde este e-mail dizendo onde. Eu leio todas.</p>
+       ${SIGNATURE}`,
+      v.optOutUrl,
+    ),
+    text: textShell(
+      [
+        gt,
+        'Seu link de agendamento está no ar:',
+        v.publicUrl,
+        'Ele só serve para alguma coisa se as suas clientes virem. O lugar que costuma funcionar melhor é a bio do Instagram, e leva menos de um minuto: abra seu perfil, toque em "Editar perfil", cole o link no campo de site e salve.',
+        'Feito isso, quem entrar no seu perfil marca sozinha — sem te mandar mensagem e sem você precisar responder.',
+        'Se travar em alguma parte, me responde este e-mail dizendo onde. Eu leio todas.',
+      ],
       v.optOutUrl,
     ),
   };
